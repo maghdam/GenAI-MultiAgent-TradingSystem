@@ -98,14 +98,6 @@ OLLAMA_URL=http://ollama:11434
 OLLAMA_MODEL=llava:7b    # vision model
 TEXT_MODEL=llama3:latest # optional text-only model
 
-# ===== Agent flags =====
-AGENTS_ENABLED=true
-AGENT_WATCHLIST=EURUSD:M15,GBPUSD:M15
-AGENT_INTERVAL_SEC=60
-AGENT_MIN_CONFIDENCE=0.65
-TRADING_MODE=paper        # paper | live
-AGENT_AUTOTRADE=false     # only active if TRADING_MODE=live
-```
 
 ---
 
