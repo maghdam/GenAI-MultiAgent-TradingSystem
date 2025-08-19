@@ -206,6 +206,7 @@ The agents form a **closed trading loop**:
 ### 📸 Dashboard Example
 
 ![Dashboard Screenshot](images/Dashboard.png)
+![Dashboard Screenshot](images/Dashboard2.png)
 ![Dashboard Screenshot](images/FastAPI.png)
 
 ---

@@ -12,6 +12,8 @@ import plotly.graph_objects as go
 import asyncio
 import base64, httpx, os
 
+import numpy as np
+
 from backend.ctrader_client import (
     init_client, get_open_positions, get_pending_orders,
     get_ohlc_data, place_order, wait_for_deferred,
@@ -38,7 +40,7 @@ from pydantic import BaseModel
 
 
 
-
+ 
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -50,7 +52,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.get("/api/health")
 def health():
@@ -66,42 +67,7 @@ async def _maybe_start_agents():
 
 
 
-OLLAMA_URL   = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llava:7b")
 
-# 1x1 transparent PNG so the *vision* path warms too
-TINY_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-    "/w8AAwMB/afUTwAAAABJRU5ErkJggg=="
-)
-
-@app.on_event("startup")
-async def warm_ollama():
-    timeout = httpx.Timeout(connect=30.0, read=420.0, write=120.0, pool=None)
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": "ok",
-        "images": [TINY_PNG_B64],
-        "stream": False,
-        "keep_alive": "30m",
-        "options": {"num_predict": 1},
-    }
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as c:
-            # ensure daemon up
-            await c.get(f"{OLLAMA_URL}/api/tags")
-            # try a few times while runner is starting
-            for attempt in range(4):
-                try:
-                    r = await c.post(f"{OLLAMA_URL}/api/generate", json=payload)
-                    if r.status_code < 500:
-                        print("[WARMUP] LLaVA warmed (vision path).")
-                        break
-                except Exception as e:
-                    print(f"[WARMUP] retry {attempt+1}: {e}")
-                await asyncio.sleep(8 * (attempt + 1))
-    except Exception as e:
-        print(f"[WARMUP] best-effort warmup failed: {e}")
 
 
 @app.get("/api/llm_status")
@@ -126,27 +92,17 @@ async def agent_signals(n: int = 50):
 async def home():
     return Path("templates/index.html").read_text()
 
-
-
-
-
-
-
 @app.get("/api/symbols")
 async def get_symbols():
     return get_available_symbols()
 
-
-
 @app.get("/api/candles")
 async def get_candles(
-    symbol: str = Query(..., min_length=1),
+    symbol: str,
     timeframe: str = "M5",
     indicators: List[str] = Query([]),
     num_bars: int = 5000
 ):
-    if not symbol.strip():
-        raise HTTPException(status_code=400, detail="symbol is required")
     df, _ = fetch_data(symbol, timeframe, num_bars)
     if df.empty:
         return {"candles": [], "indicators": {}}
@@ -173,97 +129,124 @@ async def get_candles(
     return {"candles": candles, "indicators": indicator_data}
 
 
+# add near the top of app.py imports
+import numpy as np
+import pandas as pd
+
+# add these tiny helpers anywhere above /api/analyze
+def _scalarize(x):
+    """Turn 1‑element numpy/pandas/list into a Python scalar; leave others as-is."""
+    try:
+        if x is None:
+            return None
+        # numpy / pandas singletons
+        if hasattr(x, "size") and getattr(x, "size", None) == 1:
+            try:
+                return x.item()
+            except Exception:
+                pass
+        # pandas Series/Index single value
+        if isinstance(x, (pd.Series, pd.Index)) and len(x) == 1:
+            return x.iloc[0]
+        # plain list/tuple of length 1
+        if isinstance(x, (list, tuple)) and len(x) == 1:
+            return x[0]
+    except Exception:
+        pass
+    return x
+
+def _truthy(x) -> bool:
+    """Safe boolean truthiness for numpy/pandas."""
+    if x is None:
+        return False
+    if isinstance(x, (np.bool_, bool)):
+        return bool(x)
+    if isinstance(x, (list, tuple, dict, set, str, pd.Series, pd.Index)):
+        return len(x) > 0
+    if hasattr(x, "size"):
+        return x.size > 0
+    return True
 
 
 
-class AnalyzePayload(BaseModel):
-    symbol: str
-    timeframe: str = "M5"
-    indicators: List[str] = []
-    strategy: str = "smc"   # "smc" | "rsi"
-
-
-# ---------- Replace your analyze() route with this ----------
 @app.post("/api/analyze")
-async def analyze(payload: AnalyzePayload):
-    symbol     = payload.symbol
-    timeframe  = payload.timeframe
-    indicators = payload.indicators
-    strategy   = (payload.strategy or "smc").lower()
+async def analyze(req: Request):
+    body = await req.json()
+    symbol = body.get("symbol")
+    timeframe = body.get("timeframe", "M5")
+    indicators = body.get("indicators", [])
 
     df, _ = fetch_data(symbol, timeframe)
     if df.empty:
-        raise HTTPException(status_code=400, detail="No data available.")
+        return {"analysis": "No data available."}
 
     if indicators:
         df = add_indicators(df, indicators)
 
-    # Base chart
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=df.index, open=df["open"], high=df["high"],
         low=df["low"], close=df["close"], name="Candles"
     ))
 
-    # --- SMC overlays (optional visual hints) ---
-    structure = detect_bos_choch(df)
-    if structure:
+    # 1) BOS/CHoCH
+    structure = _scalarize(detect_bos_choch(df))
+    if _truthy(structure):  # safe even if detect_bos_choch sometimes returns arrays
         fig.add_annotation(
-            text=structure,
+            text=str(structure),
             x=df.index[-1], y=df["close"].iloc[-1],
-            showarrow=True, arrowhead=2, bgcolor="black",
-            font=dict(color="white"), yshift=30
+            showarrow=True, arrowhead=2, bgcolor="black", font=dict(color="white"),
+            yshift=30
         )
 
-    fvg = current_fvg(df)
-    if fvg:
-        c0, c2 = df.iloc[-1], df.iloc[-3]
-        fig.add_shape(
-            type="rect",
-            x0=df.index[-3], x1=df.index[-1],
-            y0=c2["high"], y1=c0["low"],
-            fillcolor="rgba(255, 165, 0, 0.3)", line=dict(width=0),
-            layer="below"
-        )
-        fig.add_annotation(
-            text=fvg, x=df.index[-2], y=(c2["high"] + c0["low"]) / 2,
-            showarrow=False, font=dict(color="orange", size=12)
-        )
+    # 2) FVG (need >= 3 rows)
+    if len(df) >= 3:
+        fvg = _scalarize(current_fvg(df))
+        if _truthy(fvg):
+            c0, c2 = df.iloc[-1], df.iloc[-3]
+            fig.add_shape(
+                type="rect",
+                x0=df.index[-3], x1=df.index[-1],
+                y0=c2["high"], y1=c0["low"],
+                fillcolor="rgba(255, 165, 0, 0.3)", line=dict(width=0),
+                layer="below"
+            )
+            fig.add_annotation(
+                text=str(fvg),
+                x=df.index[-2], y=(float(c2["high"]) + float(c0["low"])) / 2.0,
+                showarrow=False, font=dict(color="orange", size=12)
+            )
 
-    if ob_near_price(df):
+    # 3) Near OB tag
+    near_ob = _scalarize(ob_near_price(df))
+    if _truthy(near_ob):
         fig.add_annotation(
             text="Near OB",
             x=df.index[-1], y=df["close"].iloc[-1],
             showarrow=True, arrowhead=1, font=dict(color="blue"), yshift=-30
         )
 
-    zone = in_premium_discount(df)
-    if zone in ["premium", "discount"]:
-        swing_hi = df['high'].iloc[-50:].max()
-        swing_lo = df['low'].iloc[-50:].min()
-        mid = (swing_hi + swing_lo) / 2
-        fig.add_hline(y=mid, line=dict(dash="dot", color="gray"), name="Equilibrium")
-        fig.add_annotation(
-            text=zone.upper(),
-            x=df.index[-1], y=mid, showarrow=False,
-            font=dict(size=11, color="gray"), yshift=-40
-        )
+    # 4) Premium/Discount (coerce zone to scalar string before membership test)
+    zone = _scalarize(in_premium_discount(df))
+    if isinstance(zone, (bytes, bytearray)):
+        zone = zone.decode(errors="ignore")
+    if zone is not None:
+        zone = str(zone)  # make sure it's a plain string
+    if zone in ("premium", "discount"):  # now safe: no array truthiness
+        swing_hi = float(df['high'].iloc[-50:].max())
+        swing_lo = float(df['low'].iloc[-50:].min())
+        if np.isfinite(swing_hi) and np.isfinite(swing_lo) and swing_hi > swing_lo:
+            mid = (swing_hi + swing_lo) / 2.0
+            fig.add_hline(y=mid, line=dict(dash="dot", color="gray"), name="Equilibrium")
+            fig.add_annotation(
+                text=zone.upper(),
+                x=df.index[-1], y=mid,
+                showarrow=False, font=dict(size=11, color="gray"), yshift=-40
+            )
 
-    # ---- LLM decision ----
-
-    try:
-        td = await analyze_chart_with_llm(
-            fig=fig, df=df, symbol=symbol, timeframe=timeframe,
-            indicators=indicators, strategy=strategy
-        )
-        return {"analysis": td.dict()}
-    except httpx.ReadTimeout:
-        raise HTTPException(status_code=504, detail="LLM generation timed out")
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code,
-                            detail=f"Ollama error: {e.response.text[:400]}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analyze failed: {e}")
+    # LLM call unchanged
+    td = await analyze_chart_with_llm(fig=fig, df=df, symbol=symbol, timeframe=timeframe, indicators=indicators)
+    return {"analysis": td.dict()}
 
 
 class PlaceOrderRequest(BaseModel):
