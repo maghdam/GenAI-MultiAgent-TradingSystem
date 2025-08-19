@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+tenacity
+pandas
+ollama
+plotly
+ta
+python-multipart
+service_identity
+ctrader-open-api
+jinja2
+kaleido
+python-dotenv
+watchfiles

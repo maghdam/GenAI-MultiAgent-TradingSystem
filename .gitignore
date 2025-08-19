@@ -1,0 +1,32 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Environment files and secrets
+*.env
+credentials.json
+
+# Database or local state
+signals.db
+
+# Jupyter Notebook checkpoints (if used)
+.ipynb_checkpoints/
+
+# VS Code settings (optional)
+.vscode/
+
+# Mac/Linux system files
+.DS_Store
+
+# Docker artifacts (if mounted)
+*.log
+
+docker_usage_guide.md
+

@@ -1,0 +1,41 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    # No ports -> only other containers can reach it at http://ollama:11434
+    volumes:
+      - "C:\\Users\\moham\\.ollama:/root/.ollama"
+    environment:
+      - OLLAMA_KEEP_ALIVE=30m
+      - OLLAMA_NUM_PARALLEL=1
+    dns: [8.8.8.8, 1.1.1.1]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  llm-smc:
+    container_name: llm-smc
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "4000:4000"              # expose the web UI
+    env_file:
+      - backend/.env
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llava:7b
+    volumes:
+      - .:/app
+    command: >
+      uvicorn backend.app:app --host 0.0.0.0 --port 4000
+      --reload --reload-dir /app/backend --reload-dir /app/templates
+      --reload-include *.py --reload-include *.html --reload-include *.js
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped

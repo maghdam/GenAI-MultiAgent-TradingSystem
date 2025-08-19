@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LLM Trading Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root { --bg:#0b0b0f; --panel:#11131a; --muted:#8aa1c1; --accent:#8ab4f8; --good:#58d68d; --bad:#ff6b6b; }
+    body { background:var(--bg); color:#e5e9f0; margin:0; font-family:system-ui, Segoe UI, Roboto, sans-serif; }
+    header { padding:12px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#0e1117; position:sticky; top:0; z-index:10; }
+    select, input[type="number"], input[type="checkbox"], button, .chip {
+      background:#151823; color:#e5e9f0; border:1px solid #22283a; border-radius:8px; padding:8px 10px;
+    }
+    button.btn { cursor:pointer; transition:transform .02s ease; }
+    button.btn:active { transform:translateY(1px); }
+    .btn.primary { background:#1b2437; border-color:#2a3550; }
+    .btn.success { background:#183023; border-color:#234a35; color:#b7ffd7; }
+    .btn.warn { background:#2b1a1a; border-color:#3f2525; color:#ffb1b1; }
+    .stack { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .box { background:var(--panel); border:1px solid #171a24; border-radius:12px; padding:12px; }
+    #chart { height: 600px; }
+    #loading { color: var(--accent); margin-left: 8px; }
+    #llmOutput { white-space: pre-wrap; background:#0e1117; border-radius:10px; padding:12px; color:#9ef; border:1px solid #1a2030; }
+    #signalsPanel { max-height: 220px; overflow:auto; background:#0e1117; border:1px solid #1a2030; border-radius:10px; padding:10px; }
+    .sig { display:grid; grid-template-columns: 90px 70px 80px 1fr; gap:8px; padding:6px 8px; border-bottom:1px dashed #1e2433; align-items:center; }
+    .sig:last-child { border-bottom:none; }
+    .sig .pill { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #2a3550; color:#c8d6ff; background:#121a2b; }
+    .sig .pill.good { border-color:#255a3b; color:#b7ffd7; background:#0f2319; }
+    .sig .pill.bad { border-color:#5a2525; color:#ffd0d0; background:#241313; }
+    .muted { color: var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns: 2fr 1fr; gap:14px; padding:14px; }
+    .sidecol { display:flex; flex-direction:column; gap:14px; }
+    .list { max-height: 220px; overflow:auto; background:#0e1117; border:1px solid #1a2030; border-radius:10px; padding:10px; }
+    .row { display:flex; gap:10px; align-items:center; padding:6px 8px; border-bottom:1px dashed #1e2433; }
+    .row:last-child { border-bottom:none; }
+    /* drawer */
+    .drawer { position:fixed; right:14px; top:72px; width:320px; background:#0e1117; border:1px solid #1a2030; border-radius:12px; padding:12px; display:none; z-index:20; }
+    .drawer h3 { margin:4px 0 8px; font-size:16px; }
+    .kv { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    @media (max-width: 1100px){ .grid { grid-template-columns: 1fr; } #chart{height:520px;} .drawer{width:92vw; left:4vw; right:auto;} }
+  </style>
+</head>
+
+<body>
+  <header class="stack">
+    <select id="symbolDropdown" title="Symbol"></select>
+    <select id="timeframeDropdown" title="Timeframe">
+      <option value="M1">M1</option><option value="M5">M5</option><option value="M15">M15</option>
+      <option value="H1">H1</option><option value="H4">H4</option><option value="D1">D1</option>
+    </select>
+    <select id="strategyDropdown" title="Strategy">
+      <option value="smc" selected>SMC</option>
+      <option value="rsi">RSI Divergence</option>
+    </select>
+
+    <span class="chip">Indicators:</span>
+    <label class="chip"><input type="checkbox" value="SMA (20)"> SMA (20)</label>
+    <label class="chip"><input type="checkbox" value="EMA (20)"> EMA (20)</label>
+    <label class="chip"><input type="checkbox" value="VWAP"> VWAP</label>
+    <label class="chip"><input type="checkbox" value="Bollinger Bands"> Bollinger Bands</label>
+
+    <button id="analyzeBtn" class="btn primary">🧠 Run AI Analysis</button>
+    <button id="placeBtn" class="btn success">▶ Place Trade</button>
+    <span id="loading" style="display:none;">🔄 Analyzing…</span>
+
+    <div style="flex:1"></div>
+
+    <button id="agent-add" class="btn">➕ Watch current</button>
+    <button id="agent-toggle" class="btn">▶ Start Agent</button>
+    <button id="agent-config" class="btn">⚙️ Agent Settings</button>
+    <span id="agent-status" class="muted"></span>
+  </header>
+
+  <!-- Agent config drawer -->
+  <div class="drawer" id="drawer">
+    <h3>Agent Settings</h3>
+    <div class="kv">
+      <label>Interval (sec)
+        <input id="cfg-interval" type="number" min="5" step="5" value="60" />
+      </label>
+      <label>Min Confidence
+        <input id="cfg-minconf" type="number" min="0" max="1" step="0.05" value="0.65" />
+      </label>
+      <label>Lot size (lots)
+        <input id="cfg-lots" type="number" min="0.01" step="0.01" value="0.10" />
+      </label>
+      <label>Strategy
+        <select id="cfg-strategy">
+          <option value="smc">SMC</option>
+          <option value="rsi">RSI Divergence</option>
+        </select>
+      </label>
+      <label>Trading Mode
+        <select id="cfg-mode">
+          <option value="paper">Paper</option>
+          <option value="live">Live</option>
+        </select>
+      </label>
+      <label>Autotrade
+        <select id="cfg-autotrade">
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
+      </label>
+    </div>
+    <div class="stack" style="margin-top:10px;">
+      <button id="cfg-save" class="btn primary">💾 Save</button>
+      <button id="cfg-close" class="btn">✖ Close</button>
+    </div>
+    <div class="muted" style="margin-top:6px;">Autotrade only runs when mode = <b>Live</b>.</div>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <div id="chart"></div>
+    </div>
+
+    <div class="sidecol">
+      <div class="box">
+        <div style="font-weight:600;">Recent Signals</div>
+        <div id="signalsPanel" class="list"><div class="muted">No signals yet.</div></div>
+        <div class="muted">Latest 10 signals emitted by the background agent.</div>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:600;">Open Positions</div>
+        <div id="posPanel" class="list"><div class="muted">None.</div></div>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:600;">Pending Orders</div>
+        <div id="pendPanel" class="list"><div class="muted">None.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box" style="margin: 0 14px 14px;">
+    <div style="font-weight:600; margin-bottom:8px;">AI Output</div>
+    <div id="llmOutput"></div>
+  </div>
+
+  <script>
+    // ---------- Chart ----------
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout: { background: { color: '#0b0b0f' }, textColor: '#dfe7ff' },
+      grid: { vertLines: { color: '#242b3a' }, horzLines: { color: '#242b3a' } },
+      timeScale: { timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: '#2b3350' },
+    });
+    const candleSeries = chart.addCandlestickSeries({ upColor:'#58d68d', downColor:'#ff6b6b', borderVisible:false, wickUpColor:'#58d68d', wickDownColor:'#ff6b6b' });
+    const indicatorSeries = {}; let lastAnalysis = null;
+
+    // ---------- Data ----------
+    async function loadSymbols() {
+      const res = await fetch('/api/symbols'); let symbols = await res.json(); symbols.sort();
+      const dd = document.getElementById('symbolDropdown'); dd.innerHTML = '';
+      for (const sym of symbols) { const o=document.createElement('option'); o.value=sym;o.textContent=sym; dd.appendChild(o); }
+    }
+    function selectedIndicators(){ return Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.value); }
+    function buildCandlesURL(symbol, timeframe, inds){ const qs = new URLSearchParams({ symbol, timeframe }); for(const i of inds) qs.append('indicators', i); return `/api/candles?${qs.toString()}`; }
+
+    async function fetchCandles() {
+      const symbol = document.getElementById('symbolDropdown').value;
+      const timeframe = document.getElementById('timeframeDropdown').value;
+      const inds = selectedIndicators();
+      const res = await fetch(buildCandlesURL(symbol, timeframe, inds));
+      const data = await res.json();
+      candleSeries.setData(data.candles || []);
+      for (const k in indicatorSeries) indicatorSeries[k].setData([]);
+      for (const [k, seriesData] of Object.entries(data.indicators || {})) {
+        if (!indicatorSeries[k]) indicatorSeries[k] = chart.addLineSeries({ lineWidth: 1 });
+        indicatorSeries[k].setData(seriesData);
+      }
+    }
+
+    // ---------- AI ----------
+    function renderAnalysis(output) {
+      const out = document.getElementById('llmOutput'); lastAnalysis = null;
+      if (!output || typeof output !== 'object') { out.innerHTML = '<div style="color:#ffb74d;">⚠️ No analysis received.</div>'; return; }
+      lastAnalysis = structuredClone(output);
+
+      const displayObj = structuredClone(output);
+      const explanationRaw = typeof output.rationale === 'string' ? output.rationale : Array.isArray(output.reasons) ? output.reasons.join('\n') : '';
+      delete displayObj.rationale; delete displayObj.reasons;
+
+      const jsonHtml = `<pre style="color:#9ef;">${JSON.stringify(displayObj, null, 2)}</pre>`;
+      const explHtml = explanationRaw ? `<div style="margin-top:10px;color:#cfd8ff;white-space:pre-wrap;line-height:1.4;">${explanationRaw}</div>` : '';
+      out.innerHTML = jsonHtml + explHtml;
+    }
+
+    async function runAIAnalysis() {
+      const symbol     = document.getElementById('symbolDropdown').value;
+      const timeframe  = document.getElementById('timeframeDropdown').value;
+      const strategy   = document.getElementById('strategyDropdown').value;
+      const inds       = selectedIndicators();
+
+      document.getElementById('loading').style.display = 'inline';
+      document.getElementById('llmOutput').innerHTML = '';
+
+      try {
+        const resp = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol, timeframe, indicators: inds, strategy }),
+        });
+
+        if (!resp.ok) {
+          // Try to read JSON error, else plain text
+          let msg;
+          try {
+            const err = await resp.json();
+            msg = err.detail || JSON.stringify(err);
+          } catch {
+            msg = await resp.text();
+          }
+          document.getElementById('llmOutput').innerHTML =
+            `<div style="color:#ff8a8a;">${msg}</div>`;
+          return;
+        }
+
+        const json = await resp.json();
+        renderAnalysis(json.analysis);
+      } catch (e) {
+        document.getElementById('llmOutput').innerHTML =
+          `<div style="color:#ff8a8a;">${e}</div>`;
+      } finally {
+        document.getElementById('loading').style.display = 'none';
+      }
+    }
+
+
+    async function placeOrderFromLLM() {
+      if (!lastAnalysis || !lastAnalysis.signal) return alert('⚠️ No parsed analysis. Run AI Analysis first.');
+      const signal = lastAnalysis.signal; if (signal === 'no_trade' || signal === 'flat') return alert('No trade suggested.');
+      const symbol = document.getElementById('symbolDropdown').value;
+      const payload = { symbol, action: signal === 'long' ? 'BUY' : 'SELL', order_type:'MARKET', volume:0.10,
+                        stop_loss: lastAnalysis.sl ?? null, take_profit: lastAnalysis.tp ?? null };
+      const resp = await fetch('/api/execute_trade', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+      alert(JSON.stringify(await resp.json(), null, 2));
+    }
+
+    // ---------- Agent ----------
+    async function getCfg(){ return (await fetch('/api/agent/config')).json(); }
+    async function setCfg(cfg){ await fetch('/api/agent/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}); }
+    async function refreshStatus(){
+      const c = await getCfg();
+      document.getElementById('agent-status').textContent =
+        `Agent: ${c.enabled?'ON':'OFF'} • Watchlist: ${c.watchlist.map(p=>p.join(':')).join(', ')||'—'}`;
+      document.getElementById('agent-toggle').textContent = c.enabled? '⏸ Stop Agent' : '▶ Start Agent';
+      // seed drawer fields
+      document.getElementById('cfg-interval').value   = c.interval_sec;
+      document.getElementById('cfg-minconf').value    = c.min_confidence;
+      document.getElementById('cfg-lots').value       = c.lot_size_lots ?? 0.10;
+      document.getElementById('cfg-mode').value       = c.trading_mode;
+      document.getElementById('cfg-autotrade').value  = String(c.autotrade);
+      document.getElementById('cfg-strategy').value   = c.strategy || 'smc';
+    }
+    document.getElementById('agent-add').onclick = async () => {
+      const symbol = document.getElementById('symbolDropdown').value;
+      const timeframe = document.getElementById('timeframeDropdown').value;
+      await fetch(`/api/agent/watchlist/add?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`, {method:'POST'});
+      refreshStatus();
+    };
+    document.getElementById('agent-toggle').onclick = async () => {
+      const c = await getCfg(); c.enabled = !c.enabled;
+      if (c.watchlist.length === 0) {
+        const symbol = document.getElementById('symbolDropdown').value;
+        const timeframe = document.getElementById('timeframeDropdown').value;
+        c.watchlist = [[symbol, timeframe]];
+      }
+      await setCfg(c); refreshStatus();
+    };
+
+    // drawer controls
+    const drawer = document.getElementById('drawer');
+    document.getElementById('agent-config').onclick = () => drawer.style.display = 'block';
+    document.getElementById('cfg-close').onclick = () => drawer.style.display = 'none';
+    document.getElementById('cfg-save').onclick = async () => {
+      const c = await getCfg();
+      c.interval_sec   = parseInt(document.getElementById('cfg-interval').value || '60', 10);
+      c.min_confidence = parseFloat(document.getElementById('cfg-minconf').value || '0.65');
+      c.lot_size_lots  = parseFloat(document.getElementById('cfg-lots').value || '0.10');
+      c.trading_mode   = document.getElementById('cfg-mode').value;
+      c.autotrade      = document.getElementById('cfg-autotrade').value === 'true';
+      c.strategy       = document.getElementById('cfg-strategy').value || 'smc';
+      await setCfg(c); refreshStatus(); drawer.style.display = 'none';
+    };
+
+    // ---------- Side panels ----------
+    async function refreshSignals(){
+      try{
+        const items = await (await fetch('/api/agent/signals?n=10')).json();
+        const el = document.getElementById('signalsPanel');
+        if (!Array.isArray(items) || items.length === 0) { el.innerHTML = `<div class="muted">No signals yet.</div>`; return; }
+        el.innerHTML = items.map(s=>{
+          const t = new Date((s.ts || Date.now()) * 1000).toLocaleTimeString();
+          const sig=(s.signal||'').toLowerCase(); const cls=sig==='long'?'good':sig==='short'?'bad':'';
+          const conf=s.confidence!=null?(Math.round(s.confidence*100)+'%'):'—';
+          const strat=s.strategy?` • ${s.strategy.toUpperCase()}`:'';
+          return `<div class="sig"><span class="muted">${t}</span><span class="pill ${cls}">${sig||'—'}</span><span class="muted">${conf}</span><div class="muted">${(s.symbol||'')}:${(s.timeframe||'')}${strat}</div></div>`;
+        }).join('');
+      }catch{}
+    }
+    async function refreshPositions(){
+      const el = document.getElementById('posPanel');
+      try {
+        const rows = await (await fetch('/api/open_positions')).json();
+        if (!rows || rows.length===0) { el.innerHTML = `<div class="muted">None.</div>`; return; }
+        el.innerHTML = rows.map(r=>`<div class="row"><div class="pill ${r.direction==='buy'?'good':'bad'}">${r.direction}</div><div>${r.symbol_name}</div><div class="muted">vol: ${r.volume_lots.toFixed(2)}</div><div class="muted">entry: ${(+r.entry_price).toFixed(5)}</div></div>`).join('');
+      } catch { el.innerHTML = `<div class="muted">Error.</div>`; }
+    }
+    async function refreshPending(){
+      const el = document.getElementById('pendPanel');
+      try {
+        const rows = await (await fetch('/api/pending_orders')).json();
+        if (!rows || rows.length===0) { el.innerHTML = `<div class="muted">None.</div>`; return; }
+        el.innerHTML = rows.map(r=>`<div class="row"><div class="pill ${r.side==='buy'?'good':'bad'}">${r.side}</div><div>${r.symbol}</div><div class="muted">${r.type}</div><div class="muted">@ ${(+r.price).toFixed(5)}</div><div class="muted">vol: ${(+r.volume).toFixed(2)}</div></div>`).join('');
+      } catch { el.innerHTML = `<div class="muted">Error.</div>`; }
+    }
+
+    // ---------- Wire up ----------
+    document.getElementById('analyzeBtn').addEventListener('click', runAIAnalysis);
+    document.getElementById('placeBtn').addEventListener('click', placeOrderFromLLM);
+    document.getElementById('symbolDropdown').addEventListener('change', fetchCandles);
+    document.getElementById('timeframeDropdown').addEventListener('change', fetchCandles);
+    document.querySelectorAll('input[type="checkbox"]').forEach(el => el.addEventListener('change', fetchCandles));
+
+    setInterval(fetchCandles, 5000);
+    setInterval(refreshSignals, 5000);
+    setInterval(refreshPositions, 7000);
+    setInterval(refreshPending, 9000);
+
+    (async () => {
+      await loadSymbols(); await fetchCandles(); await refreshStatus();
+      await refreshSignals(); await refreshPositions(); await refreshPending();
+    })();
+  </script>
+</body>
+</html>
