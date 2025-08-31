@@ -28,5 +28,8 @@ signals.db
 # Docker artifacts (if mounted)
 *.log
 
+
+# Developer notes
+NOTES.md
 docker_usage_guide.md
 

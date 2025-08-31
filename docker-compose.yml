@@ -35,6 +35,12 @@ services:
       uvicorn backend.app:app --host 0.0.0.0 --port 4000
       --reload --reload-dir /app/backend --reload-dir /app/templates
       --reload-include *.py --reload-include *.html --reload-include *.js
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     depends_on:
       ollama:
         condition: service_healthy

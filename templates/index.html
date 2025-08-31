@@ -7,6 +7,7 @@
   <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     :root { --bg:#0b0b0f; --panel:#11131a; --muted:#8aa1c1; --accent:#8ab4f8; --good:#58d68d; --bad:#ff6b6b; }
+    * { box-sizing: border-box; }
     body { background:var(--bg); color:#e5e9f0; margin:0; font-family:system-ui, Segoe UI, Roboto, sans-serif; }
     header { padding:12px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#0e1117; position:sticky; top:0; z-index:10; }
     select, input[type="number"], input[type="checkbox"], button, .chip {
@@ -16,10 +17,11 @@
     button.btn:active { transform:translateY(1px); }
     .btn.primary { background:#1b2437; border-color:#2a3550; }
     .btn.success { background:#183023; border-color:#234a35; color:#b7ffd7; }
-    .btn.warn { background:#2b1a1a; border-color:#3f2525; color:#ffb1b1; }
+    button.btn:disabled { opacity:.5; cursor:not-allowed; }
     .stack { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .box { background:var(--panel); border:1px solid #171a24; border-radius:12px; padding:12px; }
-    #chart { height: 600px; }
+    #chartWrap { height: 64vh; min-height: 420px; }
+    #chart { width:100%; height:100%; }
     #loading { color: var(--accent); margin-left: 8px; }
     #llmOutput { white-space: pre-wrap; background:#0e1117; border-radius:10px; padding:12px; color:#9ef; border:1px solid #1a2030; }
     #signalsPanel { max-height: 220px; overflow:auto; background:#0e1117; border:1px solid #1a2030; border-radius:10px; padding:10px; }
@@ -27,21 +29,23 @@
     .sig:last-child { border-bottom:none; }
     .sig .pill { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #2a3550; color:#c8d6ff; background:#121a2b; }
     .sig .pill.good { border-color:#255a3b; color:#b7ffd7; background:#0f2319; }
-    .sig .pill.bad { border-color:#5a2525; color:#ffd0d0; background:#241313; }
+    .sig .pill.bad  { border-color:#5a2525; color:#ffd0d0; background:#241313; }
     .muted { color: var(--muted); font-size:12px; }
     .grid { display:grid; grid-template-columns: 2fr 1fr; gap:14px; padding:14px; }
     .sidecol { display:flex; flex-direction:column; gap:14px; }
     .list { max-height: 220px; overflow:auto; background:#0e1117; border:1px solid #1a2030; border-radius:10px; padding:10px; }
     .row { display:flex; gap:10px; align-items:center; padding:6px 8px; border-bottom:1px dashed #1e2433; }
     .row:last-child { border-bottom:none; }
-    /* drawer */
     .drawer { position:fixed; right:14px; top:72px; width:320px; background:#0e1117; border:1px solid #1a2030; border-radius:12px; padding:12px; display:none; z-index:20; }
     .drawer h3 { margin:4px 0 8px; font-size:16px; }
     .kv { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-    @media (max-width: 1100px){ .grid { grid-template-columns: 1fr; } #chart{height:520px;} .drawer{width:92vw; left:4vw; right:auto;} }
+    @media (max-width: 1100px){ .grid { grid-template-columns: 1fr; } #chartWrap{height:56vh;} .drawer{width:92vw; left:4vw; right:auto;} }
+    .chip.status { display:inline-flex; align-items:center; gap:8px; font-size:12px; padding:6px 10px; }
+    .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+    .dot.ok { background:#58d68d; } .dot.bad { background:#ff6b6b; } .dot.wait { background:#8aa1c1; }
+    .ghost { opacity:.55; }
   </style>
 </head>
-
 <body>
   <header class="stack">
     <select id="symbolDropdown" title="Symbol"></select>
@@ -60,11 +64,32 @@
     <label class="chip"><input type="checkbox" value="VWAP"> VWAP</label>
     <label class="chip"><input type="checkbox" value="Bollinger Bands"> Bollinger Bands</label>
 
+    <label class="chip"><input id="fastMode" type="checkbox" checked> Fast</label>
+    <label class="chip">Bars
+      <input id="maxBars" type="number" min="50" max="500" step="50" value="200" style="width:70px">
+    </label>
+    <label class="chip">Max tok
+      <input id="maxTokens" type="number" min="64" max="1024" step="64" value="256" style="width:70px">
+    </label>
+    <label class="chip">Model
+      <input id="modelName" list="models" placeholder="auto" style="width:140px">
+      <datalist id="models">
+        <option value="llama3.2:3b-instruct-q4_K_M">
+        <option value="phi3:3.8b-mini-instruct-q4_K_M">
+        <option value="mistral:7b-instruct-q4_K_M">
+      </datalist>
+    </label>
+    <button id="cancelAnalysis" class="btn warn" style="display:none">✖ Cancel</button>
+
+
     <button id="analyzeBtn" class="btn primary">🧠 Run AI Analysis</button>
     <button id="placeBtn" class="btn success">▶ Place Trade</button>
     <span id="loading" style="display:none;">🔄 Analyzing…</span>
 
     <div style="flex:1"></div>
+
+    <span id="feedChip" class="chip status"><span class="dot wait"></span>cTrader: checking…</span>
+    <span id="llmChip" class="chip status"><span class="dot wait"></span>LLM: checking…</span>
 
     <button id="agent-add" class="btn">➕ Watch current</button>
     <button id="agent-toggle" class="btn">▶ Start Agent</button>
@@ -72,7 +97,6 @@
     <span id="agent-status" class="muted"></span>
   </header>
 
-  <!-- Agent config drawer -->
   <div class="drawer" id="drawer">
     <h3>Agent Settings</h3>
     <div class="kv">
@@ -113,7 +137,7 @@
 
   <div class="grid">
     <div class="box">
-      <div id="chart"></div>
+      <div id="chartWrap"><div id="chart"></div></div>
     </div>
 
     <div class="sidecol">
@@ -141,90 +165,247 @@
   </div>
 
   <script>
-    // ---------- Chart ----------
+    // ---------- helpers ----------
+    const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+    async function fetchJSON(url, opts) {
+      const r = await fetch(url, opts);
+      if (!r.ok) {
+        let msg; try { msg = (await r.json()).detail || await r.text(); } catch { msg = await r.text(); }
+        throw new Error(`${r.status} ${r.statusText} — ${msg}`);
+      }
+      return r.json();
+    }
+    const selectedIndicators = () =>
+      Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.value);
+    const buildCandlesURL = (symbol, timeframe, inds) => {
+      if (!symbol) return null;
+      const qs = new URLSearchParams({ symbol, timeframe });
+      for (const i of inds) qs.append('indicators', i);
+      return `/api/candles?${qs.toString()}`;
+    };
+
+    // ---------- chart ----------
     const chart = LightweightCharts.createChart(document.getElementById('chart'), {
       layout: { background: { color: '#0b0b0f' }, textColor: '#dfe7ff' },
       grid: { vertLines: { color: '#242b3a' }, horzLines: { color: '#242b3a' } },
-      timeScale: { timeVisible: true, secondsVisible: false },
+      timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 4 },
       rightPriceScale: { borderColor: '#2b3350' },
+      crosshair: { mode: 0 }
     });
-    const candleSeries = chart.addCandlestickSeries({ upColor:'#58d68d', downColor:'#ff6b6b', borderVisible:false, wickUpColor:'#58d68d', wickDownColor:'#ff6b6b' });
-    const indicatorSeries = {}; let lastAnalysis = null;
+    const candleSeries = chart.addCandlestickSeries({
+      upColor:'#58d68d', downColor:'#ff6b6b', wickUpColor:'#58d68d', wickDownColor:'#ff6b6b', borderVisible:false
+    });
+    const indicatorSeries = {};
+    const ro = new ResizeObserver(([e])=>{
+      const {width, height} = e.contentRect;
+      chart.resize(Math.max(200, Math.floor(width)), Math.max(200, Math.floor(height)));
+    });
+    ro.observe(document.getElementById('chartWrap'));
 
-    // ---------- Data ----------
-    async function loadSymbols() {
-      const res = await fetch('/api/symbols'); let symbols = await res.json(); symbols.sort();
-      const dd = document.getElementById('symbolDropdown'); dd.innerHTML = '';
-      for (const sym of symbols) { const o=document.createElement('option'); o.value=sym;o.textContent=sym; dd.appendChild(o); }
+    // ---------- status chips ----------
+    let feedConnected = false, llmReachable = false;
+    function setChip(el, state, label) {
+      el.innerHTML = '';
+      const dot = document.createElement('span');
+      dot.className = 'dot ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'bad' : 'wait');
+      el.appendChild(dot); el.appendChild(document.createTextNode(' ' + label));
     }
-    function selectedIndicators(){ return Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.value); }
-    function buildCandlesURL(symbol, timeframe, inds){ const qs = new URLSearchParams({ symbol, timeframe }); for(const i of inds) qs.append('indicators', i); return `/api/candles?${qs.toString()}`; }
+    function gateButtons() {
+      const hasSymbol = !!(document.getElementById('symbolDropdown').value || '').trim();
+      document.getElementById('analyzeBtn').disabled = !(feedConnected && hasSymbol && llmReachable);
+      document.getElementById('placeBtn').disabled   = !feedConnected;
+    }
+    async function pollHealth() {
+      const chip = document.getElementById('feedChip');
+      try {
+        const h = await fetchJSON('/api/health');
+        feedConnected = !!h.connected;
+        setChip(chip, feedConnected ? 'ok' : 'bad', `cTrader: ${feedConnected ? 'connected' : 'waiting'}`);
+      } catch {
+        feedConnected = false; setChip(chip, 'bad', 'cTrader: unreachable');
+      }
+      gateButtons();
+    }
+    async function pollLLM() {
+      const chip = document.getElementById('llmChip');
+      try {
+        const s = await fetchJSON('/api/llm_status');
+        const ok = (s.ollama === 200 || s.ollama === '200');
+        llmReachable = ok;
+        const model = s.model || '—';
+        setChip(chip, ok ? 'ok' : 'bad', `LLM: ${ok ? model : 'unreachable'}`);
+      } catch {
+        llmReachable = false; setChip(chip, 'bad', 'LLM: unreachable');
+      }
+      gateButtons();
+    }
 
-    async function fetchCandles() {
-      const symbol = document.getElementById('symbolDropdown').value;
-      const timeframe = document.getElementById('timeframeDropdown').value;
-      const inds = selectedIndicators();
-      const res = await fetch(buildCandlesURL(symbol, timeframe, inds));
-      const data = await res.json();
-      candleSeries.setData(data.candles || []);
-      for (const k in indicatorSeries) indicatorSeries[k].setData([]);
-      for (const [k, seriesData] of Object.entries(data.indicators || {})) {
+    // ---------- candles (fast + incremental) ----------
+    const candlesState = { bars: [], inflight: null, gen: 0 };
+    function setFullDataset(bars){ candlesState.bars = bars; candleSeries.setData(bars); }
+    function tryIncremental(newBars){
+      if (!candlesState.bars.length) { setFullDataset(newBars); return; }
+      const last = candlesState.bars[candlesState.bars.length-1];
+      const nb = newBars[newBars.length-1];
+      if (!nb) return;
+      if (nb.time === last.time) {
+        candleSeries.update(nb);
+        candlesState.bars[candlesState.bars.length-1] = nb;
+      } else if (nb.time > last.time && newBars.length >= candlesState.bars.length) {
+        for (const b of newBars.slice(candlesState.bars.length)) candleSeries.update(b);
+        candlesState.bars = newBars;
+      } else {
+        setFullDataset(newBars);
+      }
+    }
+    function upsertIndicators(indMap){
+      for (const k of Object.keys(indicatorSeries)) {
+        if (!(k in (indMap||{}))) { chart.removeSeries(indicatorSeries[k]); delete indicatorSeries[k]; }
+      }
+      for (const [k, data] of Object.entries(indMap || {})) {
         if (!indicatorSeries[k]) indicatorSeries[k] = chart.addLineSeries({ lineWidth: 1 });
-        indicatorSeries[k].setData(seriesData);
+        indicatorSeries[k].setData(data);
+      }
+    }
+    async function fetchCandles(forceFull=false) {
+      const symbol    = (document.getElementById('symbolDropdown').value || '').trim();
+      const timeframe = document.getElementById('timeframeDropdown').value;
+      if (!symbol) return;
+      const url = buildCandlesURL(symbol, timeframe, selectedIndicators());
+      if (!url) return;
+
+      candlesState.gen += 1;
+      const gen = candlesState.gen;
+      if (candlesState.inflight) candlesState.inflight.abort();
+      const ctrl = new AbortController();
+      candlesState.inflight = ctrl;
+      const timeout = setTimeout(()=>ctrl.abort(), 10000);
+
+      try {
+        const r = await fetch(url, { signal: ctrl.signal });
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        const data = await r.json();
+        if (gen !== candlesState.gen) return;
+
+        const bars = Array.isArray(data.candles) ? data.candles : [];
+        if (forceFull || candlesState.bars.length === 0 || bars.length < 5) setFullDataset(bars);
+        else tryIncremental(bars);
+
+        upsertIndicators(data.indicators || {});
+        if (forceFull) chart.timeScale().fitContent();
+      } catch(e) {
+        if (e.name !== 'AbortError') {
+          document.getElementById('llmOutput').innerHTML =
+            `<div style="color:#ff8a8a;">Candles error: ${String(e)}</div>`;
+        }
+      } finally {
+        clearTimeout(timeout);
+        if (candlesState.inflight === ctrl) candlesState.inflight = null;
       }
     }
 
-    // ---------- AI ----------
+    // pause polling when hidden
+    let pollTimers = [];
+    function startPolling(){
+      stopPolling();
+      pollTimers = [
+        setInterval(fetchCandles, 4000),
+        setInterval(refreshSignals, 5000),
+        setInterval(refreshPositions, 7000),
+        setInterval(refreshPending, 9000),
+        setInterval(pollHealth, 6000),
+        setInterval(pollLLM, 15000),
+        setInterval(refreshAgentStatus, 4000),
+      ];
+    }
+    function stopPolling(){ for (const t of pollTimers) clearInterval(t); pollTimers = []; }
+    document.addEventListener('visibilitychange', ()=>{
+      if (document.hidden) stopPolling(); else { fetchCandles(true); startPolling(); }
+    });
+
+    // ---------- AI output ----------
+    let lastAnalysis = null;
     function renderAnalysis(output) {
       const out = document.getElementById('llmOutput'); lastAnalysis = null;
-      if (!output || typeof output !== 'object') { out.innerHTML = '<div style="color:#ffb74d;">⚠️ No analysis received.</div>'; return; }
+      if (!output || typeof output !== 'object') { out.innerHTML = '<div class="ghost">⚠️ No analysis received.</div>'; return; }
       lastAnalysis = structuredClone(output);
-
       const displayObj = structuredClone(output);
-      const explanationRaw = typeof output.rationale === 'string' ? output.rationale : Array.isArray(output.reasons) ? output.reasons.join('\n') : '';
+      const explanationRaw = typeof output.rationale === 'string'
+          ? output.rationale : Array.isArray(output.reasons) ? output.reasons.join('\n') : '';
       delete displayObj.rationale; delete displayObj.reasons;
+      out.innerHTML =
+        `<pre style="color:#9ef;margin:0;">${JSON.stringify(displayObj, null, 2)}</pre>` +
+        (explanationRaw ? `<div style="margin-top:10px;color:#cfd8ff;white-space:pre-wrap;line-height:1.4;">${explanationRaw}</div>` : '');
+    }
 
-      const jsonHtml = `<pre style="color:#9ef;">${JSON.stringify(displayObj, null, 2)}</pre>`;
-      const explHtml = explanationRaw ? `<div style="margin-top:10px;color:#cfd8ff;white-space:pre-wrap;line-height:1.4;">${explanationRaw}</div>` : '';
-      out.innerHTML = jsonHtml + explHtml;
+    let _analysisCtrl = null;
+
+    function currentAnalyzeOptions() {
+      const fast = document.getElementById('fastMode').checked;
+      const maxBars = parseInt(document.getElementById('maxBars').value || '200', 10);
+      const maxTokens = parseInt(document.getElementById('maxTokens').value || '256', 10);
+      const model = (document.getElementById('modelName').value || '').trim() || null;
+
+      // sensible defaults for CPU speed
+      const options = {
+        num_predict: maxTokens,
+        temperature: fast ? 0.2 : 0.4,
+        top_k: 30,
+        top_p: 0.9,
+        num_thread: navigator.hardwareConcurrency ? Math.max(2, Math.min(16, navigator.hardwareConcurrency)) : 8
+      };
+
+      return { fast, max_bars: maxBars, max_tokens: maxTokens, model, options };
     }
 
     async function runAIAnalysis() {
-      const symbol     = document.getElementById('symbolDropdown').value;
+      if (_analysisCtrl) return; // already running
+
+      const symbol     = (document.getElementById('symbolDropdown').value || '').trim();
       const timeframe  = document.getElementById('timeframeDropdown').value;
       const strategy   = document.getElementById('strategyDropdown').value;
-      const inds       = selectedIndicators();
+      const inds       = Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.value);
+      if (!symbol) return;
+
+      const payload = { symbol, timeframe, indicators: inds, strategy, ...currentAnalyzeOptions() };
 
       document.getElementById('loading').style.display = 'inline';
       document.getElementById('llmOutput').innerHTML = '';
+
+      // abort + timeout
+      _analysisCtrl = new AbortController();
+      const cancelBtn = document.getElementById('cancelAnalysis');
+      cancelBtn.style.display = 'inline-block';
+      cancelBtn.onclick = () => { try { _analysisCtrl.abort(); } catch {} };
+
+      const timeout = setTimeout(() => { try { _analysisCtrl.abort(); } catch {} }, 30000); // 30s hard stop
 
       try {
         const resp = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol, timeframe, indicators: inds, strategy }),
+          body: JSON.stringify(payload),
+          signal: _analysisCtrl.signal
         });
 
         if (!resp.ok) {
-          // Try to read JSON error, else plain text
-          let msg;
-          try {
-            const err = await resp.json();
-            msg = err.detail || JSON.stringify(err);
-          } catch {
-            msg = await resp.text();
-          }
-          document.getElementById('llmOutput').innerHTML =
-            `<div style="color:#ff8a8a;">${msg}</div>`;
+          let msg; try { msg = (await resp.json()).detail; } catch { msg = await resp.text(); }
+          document.getElementById('llmOutput').innerHTML = `<div style="color:#ff8a8a;">${msg}</div>`;
           return;
         }
-
         const json = await resp.json();
         renderAnalysis(json.analysis);
+        setPriceLines(json.analysis);
       } catch (e) {
-        document.getElementById('llmOutput').innerHTML =
-          `<div style="color:#ff8a8a;">${e}</div>`;
+        if (e.name === 'AbortError') {
+          document.getElementById('llmOutput').innerHTML = `<div class="muted">⏹ Analysis cancelled.</div>`;
+        } else {
+          document.getElementById('llmOutput').innerHTML = `<div style="color:#ff8a8a;">${e}</div>`;
+        }
       } finally {
+        clearTimeout(timeout);
+        _analysisCtrl = null;
+        cancelBtn.style.display = 'none';
         document.getElementById('loading').style.display = 'none';
       }
     }
@@ -232,108 +413,255 @@
 
     async function placeOrderFromLLM() {
       if (!lastAnalysis || !lastAnalysis.signal) return alert('⚠️ No parsed analysis. Run AI Analysis first.');
-      const signal = lastAnalysis.signal; if (signal === 'no_trade' || signal === 'flat') return alert('No trade suggested.');
-      const symbol = document.getElementById('symbolDropdown').value;
-      const payload = { symbol, action: signal === 'long' ? 'BUY' : 'SELL', order_type:'MARKET', volume:0.10,
-                        stop_loss: lastAnalysis.sl ?? null, take_profit: lastAnalysis.tp ?? null };
+      const sig = (lastAnalysis.signal || '').toLowerCase();
+      if (sig === 'no_trade' || sig === 'flat') return alert('No trade suggested.');
+      const symbol = (document.getElementById('symbolDropdown').value || '').trim();
+      if (!symbol) return alert('Select a symbol first.');
+      const payload = {
+        symbol, action: sig === 'long' ? 'BUY' : 'SELL', order_type:'MARKET', volume:0.10,
+        stop_loss: lastAnalysis.sl ?? null, take_profit: lastAnalysis.tp ?? null
+      };
       const resp = await fetch('/api/execute_trade', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
       alert(JSON.stringify(await resp.json(), null, 2));
     }
 
-    // ---------- Agent ----------
-    async function getCfg(){ return (await fetch('/api/agent/config')).json(); }
-    async function setCfg(cfg){ await fetch('/api/agent/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}); }
-    async function refreshStatus(){
+    // ---------- Agent: robust start/stop ----------
+    async function getCfg(){ return await fetchJSON('/api/agent/config'); }
+    async function setCfg(cfg){ await fetchJSON('/api/agent/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}); }
+
+    // capability probing + unified status
+    async function getAgentStatus() {
+      // Prefer /status if present
+      try {
+        const s = await fetchJSON('/api/agent/status');
+        // expected shape: {enabled:bool, running:bool, watchlist:[...], interval_sec,..., last_tick_ts?}
+        return {
+          enabled: !!s.enabled,
+          running: !!(s.running ?? s.enabled),
+          watchlist: Array.isArray(s.watchlist) ? s.watchlist : [],
+          interval_sec: s.interval_sec ?? 60,
+          min_confidence: s.min_confidence ?? 0.65,
+          lot_size_lots: s.lot_size_lots ?? 0.10,
+          trading_mode: s.trading_mode ?? 'paper',
+          autotrade: !!s.autotrade,
+          strategy: s.strategy || 'smc',
+          last_tick_ts: s.last_tick_ts ?? null,
+        };
+      } catch { /* fall back to /config */ }
       const c = await getCfg();
-      document.getElementById('agent-status').textContent =
-        `Agent: ${c.enabled?'ON':'OFF'} • Watchlist: ${c.watchlist.map(p=>p.join(':')).join(', ')||'—'}`;
-      document.getElementById('agent-toggle').textContent = c.enabled? '⏸ Stop Agent' : '▶ Start Agent';
-      // seed drawer fields
-      document.getElementById('cfg-interval').value   = c.interval_sec;
-      document.getElementById('cfg-minconf').value    = c.min_confidence;
-      document.getElementById('cfg-lots').value       = c.lot_size_lots ?? 0.10;
-      document.getElementById('cfg-mode').value       = c.trading_mode;
-      document.getElementById('cfg-autotrade').value  = String(c.autotrade);
-      document.getElementById('cfg-strategy').value   = c.strategy || 'smc';
+      return {
+        enabled: !!c.enabled,
+        running: !!c.enabled, // best guess if /status missing
+        watchlist: Array.isArray(c.watchlist) ? c.watchlist : [],
+        interval_sec: c.interval_sec ?? 60,
+        min_confidence: c.min_confidence ?? 0.65,
+        lot_size_lots: c.lot_size_lots ?? 0.10,
+        trading_mode: c.trading_mode ?? 'paper',
+        autotrade: !!c.autotrade,
+        strategy: c.strategy || 'smc',
+        last_tick_ts: c.last_tick_ts ?? null,
+      };
     }
-    document.getElementById('agent-add').onclick = async () => {
-      const symbol = document.getElementById('symbolDropdown').value;
-      const timeframe = document.getElementById('timeframeDropdown').value;
-      await fetch(`/api/agent/watchlist/add?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`, {method:'POST'});
-      refreshStatus();
-    };
-    document.getElementById('agent-toggle').onclick = async () => {
-      const c = await getCfg(); c.enabled = !c.enabled;
-      if (c.watchlist.length === 0) {
-        const symbol = document.getElementById('symbolDropdown').value;
-        const timeframe = document.getElementById('timeframeDropdown').value;
-        c.watchlist = [[symbol, timeframe]];
+
+    async function callBestEffortEnable(on){
+      // Try common endpoints; ignore failures and keep going until one works.
+      const body = { enabled: !!on };
+      const tries = [
+        () => fetchJSON('/api/agent/enable', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}),
+        () => fetchJSON('/api/agent/toggle', { method:'POST' }),
+        () => fetchJSON(on ? '/api/agent/start' : '/api/agent/stop', { method:'POST' }),
+        async () => { const c = await getCfg(); c.enabled = !!on; if (!c.watchlist?.length) {
+                        const sym=(document.getElementById('symbolDropdown').value||'').trim();
+                        const tf=document.getElementById('timeframeDropdown').value;
+                        if (sym) c.watchlist = [[sym, tf]];
+                      } return setCfg(c); },
+      ];
+      for (const fn of tries) {
+        try { await fn(); return true; } catch(e) { /* keep trying */ }
       }
-      await setCfg(c); refreshStatus();
-    };
+      return false;
+    }
 
-    // drawer controls
-    const drawer = document.getElementById('drawer');
-    document.getElementById('agent-config').onclick = () => drawer.style.display = 'block';
-    document.getElementById('cfg-close').onclick = () => drawer.style.display = 'none';
-    document.getElementById('cfg-save').onclick = async () => {
-      const c = await getCfg();
-      c.interval_sec   = parseInt(document.getElementById('cfg-interval').value || '60', 10);
-      c.min_confidence = parseFloat(document.getElementById('cfg-minconf').value || '0.65');
-      c.lot_size_lots  = parseFloat(document.getElementById('cfg-lots').value || '0.10');
-      c.trading_mode   = document.getElementById('cfg-mode').value;
-      c.autotrade      = document.getElementById('cfg-autotrade').value === 'true';
-      c.strategy       = document.getElementById('cfg-strategy').value || 'smc';
-      await setCfg(c); refreshStatus(); drawer.style.display = 'none';
-    };
+    async function nudgeAgent(){
+      const nudges = ['/api/agent/nudge','/api/agent/tick','/api/agent/trigger'];
+      for (const u of nudges) {
+        try { await fetchJSON(u, { method:'POST' }); return; } catch { /* ignore */ }
+      }
+    }
 
-    // ---------- Side panels ----------
+    function setAgentUI(st){
+      const w = st.watchlist?.map(p=>p.join(':')).join(', ') || '—';
+      const runningTxt = st.running ? 'running' : 'idle';
+      document.getElementById('agent-status').textContent = `Agent: ${st.enabled?'ON':'OFF'} (${runningTxt}) • Watchlist: ${w}`;
+      document.getElementById('agent-toggle').textContent = st.enabled ? '⏸ Stop Agent' : '▶ Start Agent';
+    }
+
+    async function refreshAgentStatus(){
+      try { const st = await getAgentStatus(); setAgentUI(st); } catch { /* silent */ }
+    }
+
+    // ---------- Signals / positions ----------
+    function analysisFromSignal(s) {
+      return {
+        signal: s.signal ?? null,
+        sl: s.sl ?? s.stop_loss ?? null,
+        tp: s.tp ?? s.take_profit ?? null,
+        confidence: s.confidence ?? null,
+        rationale: Array.isArray(s.reasons) ? s.reasons.join('\n') : (s.rationale || '')
+      };
+    }
+    let _slLine=null,_tpLine=null;
+    function setPriceLines(a) {
+      try { if (_slLine) { candleSeries.removePriceLine(_slLine); _slLine = null; } } catch {}
+      try { if (_tpLine) { candleSeries.removePriceLine(_tpLine); _tpLine = null; } } catch {}
+      if (a && a.sl != null) _slLine = candleSeries.createPriceLine({ price:+a.sl, title:'SL', lineStyle:1, lineWidth:1 });
+      if (a && a.tp != null) _tpLine = candleSeries.createPriceLine({ price:+a.tp, title:'TP', lineStyle:1, lineWidth:1 });
+    }
+
+    window._signals = [];
     async function refreshSignals(){
       try{
         const items = await (await fetch('/api/agent/signals?n=10')).json();
+        window._signals = Array.isArray(items) ? items : [];
         const el = document.getElementById('signalsPanel');
+
         if (!Array.isArray(items) || items.length === 0) { el.innerHTML = `<div class="muted">No signals yet.</div>`; return; }
-        el.innerHTML = items.map(s=>{
+
+        el.innerHTML = items.map((s, idx)=>{
           const t = new Date((s.ts || Date.now()) * 1000).toLocaleTimeString();
-          const sig=(s.signal||'').toLowerCase(); const cls=sig==='long'?'good':sig==='short'?'bad':'';
+          const sig=(s.signal||'').toLowerCase();
+          const cls=sig==='long'?'good':sig==='short'?'bad':'';
           const conf=s.confidence!=null?(Math.round(s.confidence*100)+'%'):'—';
           const strat=s.strategy?` • ${s.strategy.toUpperCase()}`:'';
-          return `<div class="sig"><span class="muted">${t}</span><span class="pill ${cls}">${sig||'—'}</span><span class="muted">${conf}</span><div class="muted">${(s.symbol||'')}:${(s.timeframe||'')}${strat}</div></div>`;
+          const reason = s.rationale
+            ? `<div class="muted" style="grid-column:1/-1;font-size:12px;opacity:.85;">${s.rationale}</div>`
+            : (Array.isArray(s.reasons) && s.reasons.length ? `<div class="muted" style="grid-column:1/-1;font-size:12px;opacity:.85;">${s.reasons.join('<br>')}</div>` : '');
+          return `
+            <div class="sig" data-idx="${idx}">
+              <span class="muted">${t}</span>
+              <span class="pill ${cls}">${sig||'—'}</span>
+              <span class="muted">${conf}</span>
+              <div class="muted">${(s.symbol||'')}:${(s.timeframe||'')}${strat}</div>
+              ${reason}
+            </div>`;
         }).join('');
+
+        const latest = items.find(s => s && s.signal && s.signal !== 'error' && s.signal !== 'no_data');
+        if (latest) { const a = analysisFromSignal(latest); renderAnalysis(a); setPriceLines(a); }
       }catch{}
     }
     async function refreshPositions(){
       const el = document.getElementById('posPanel');
       try {
-        const rows = await (await fetch('/api/open_positions')).json();
+        const rows = await fetchJSON('/api/open_positions');
         if (!rows || rows.length===0) { el.innerHTML = `<div class="muted">None.</div>`; return; }
-        el.innerHTML = rows.map(r=>`<div class="row"><div class="pill ${r.direction==='buy'?'good':'bad'}">${r.direction}</div><div>${r.symbol_name}</div><div class="muted">vol: ${r.volume_lots.toFixed(2)}</div><div class="muted">entry: ${(+r.entry_price).toFixed(5)}</div></div>`).join('');
+        el.innerHTML = rows.map(r=>`<div class="row"><div class="pill ${r.direction==='buy'?'good':'bad'}">${r.direction}</div><div>${r.symbol_name}</div><div class="muted">vol: ${(+r.volume_lots).toFixed(2)}</div><div class="muted">entry: ${(+r.entry_price).toFixed(5)}</div></div>`).join('');
       } catch { el.innerHTML = `<div class="muted">Error.</div>`; }
     }
     async function refreshPending(){
       const el = document.getElementById('pendPanel');
       try {
-        const rows = await (await fetch('/api/pending_orders')).json();
+        const rows = await fetchJSON('/api/pending_orders');
         if (!rows || rows.length===0) { el.innerHTML = `<div class="muted">None.</div>`; return; }
         el.innerHTML = rows.map(r=>`<div class="row"><div class="pill ${r.side==='buy'?'good':'bad'}">${r.side}</div><div>${r.symbol}</div><div class="muted">${r.type}</div><div class="muted">@ ${(+r.price).toFixed(5)}</div><div class="muted">vol: ${(+r.volume).toFixed(2)}</div></div>`).join('');
       } catch { el.innerHTML = `<div class="muted">Error.</div>`; }
     }
 
-    // ---------- Wire up ----------
+    // ---------- wire-up ----------
     document.getElementById('analyzeBtn').addEventListener('click', runAIAnalysis);
     document.getElementById('placeBtn').addEventListener('click', placeOrderFromLLM);
-    document.getElementById('symbolDropdown').addEventListener('change', fetchCandles);
-    document.getElementById('timeframeDropdown').addEventListener('change', fetchCandles);
-    document.querySelectorAll('input[type="checkbox"]').forEach(el => el.addEventListener('change', fetchCandles));
+    document.getElementById('symbolDropdown').addEventListener('change', async (e)=>{
+      localStorage.setItem('symbol', e.target.value || '');
+      await fetchCandles(true);
+    });
+    document.getElementById('timeframeDropdown').addEventListener('change', async (e)=>{
+      localStorage.setItem('timeframe', e.target.value || '');
+      await fetchCandles(true);
+    });
+    document.querySelectorAll('input[type="checkbox"]').forEach(el => el.addEventListener('change', ()=>fetchCandles(true)));
+    document.getElementById('signalsPanel').addEventListener('click', (ev)=>{
+      const row = ev.target.closest('.sig'); if (!row) return;
+      const s = window._signals[+row.getAttribute('data-idx')]; if (!s) return;
+      const a = analysisFromSignal(s); renderAnalysis(a); setPriceLines(a);
+    });
 
-    setInterval(fetchCandles, 5000);
-    setInterval(refreshSignals, 5000);
-    setInterval(refreshPositions, 7000);
-    setInterval(refreshPending, 9000);
+    // Agent controls
+    const drawer = document.getElementById('drawer');
+    document.getElementById('agent-config').onclick = () => drawer.style.display = 'block';
+    document.getElementById('cfg-close').onclick   = () => drawer.style.display = 'none';
+    document.getElementById('agent-add').onclick = async ()=>{
+      try{
+        const symbol=(document.getElementById('symbolDropdown').value||'').trim();
+        const timeframe=document.getElementById('timeframeDropdown').value;
+        if(!symbol) return alert('Pick a symbol first.');
+        await fetchJSON(`/api/agent/watchlist/add?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`,{method:'POST'});
+        await refreshAgentStatus();
+      }catch(e){ alert('Failed to add to watchlist: '+e.message); }
+    };
 
-    (async () => {
-      await loadSymbols(); await fetchCandles(); await refreshStatus();
-      await refreshSignals(); await refreshPositions(); await refreshPending();
+    document.getElementById('agent-toggle').onclick = async (ev)=>{
+      const btn = ev.currentTarget; btn.disabled = true;
+      try{
+        let st = await getAgentStatus();
+        const turnOn = !st.enabled;
+        // ensure watchlist has at least one pair
+        if (turnOn && (!st.watchlist || !st.watchlist.length)) {
+          const symbol=(document.getElementById('symbolDropdown').value||'').trim();
+          const timeframe=document.getElementById('timeframeDropdown').value;
+          if (symbol) await fetchJSON(`/api/agent/watchlist/add?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`,{method:'POST'});
+        }
+        const ok = await callBestEffortEnable(turnOn);
+        if (!ok) alert('Could not toggle the agent (no compatible endpoint accepted the request).');
+
+        // optional kick to start first cycle quickly
+        if (turnOn) await nudgeAgent();
+
+        // poll a few times so UI reflects "running"
+        for (let i=0;i<6;i++){ await sleep(500); st = await getAgentStatus(); setAgentUI(st); if (st.running === turnOn) break; }
+      }catch(e){ alert('Failed to toggle agent: '+e.message); }
+      finally{ btn.disabled = false; }
+    };
+
+    document.getElementById('cfg-save').onclick = async ()=>{
+      try{
+        const c = await getCfg();
+        c.interval_sec   = parseInt(document.getElementById('cfg-interval').value || '60', 10);
+        c.min_confidence = parseFloat(document.getElementById('cfg-minconf').value || '0.65');
+        c.lot_size_lots  = parseFloat(document.getElementById('cfg-lots').value || '0.10');
+        c.trading_mode   = document.getElementById('cfg-mode').value;
+        c.autotrade      = document.getElementById('cfg-autotrade').value === 'true';
+        c.strategy       = document.getElementById('cfg-strategy').value || 'smc';
+        await setCfg(c); await refreshAgentStatus(); drawer.style.display = 'none';
+      }catch(e){ alert('Failed to save settings: '+e.message); }
+    };
+
+    // ---------- boot ----------
+    async function loadSymbols(){
+      const payload = await fetchJSON('/api/symbols');
+      const symbols = payload.symbols || [];
+      const def = payload.default || '';
+      const dd = document.getElementById('symbolDropdown');
+      dd.innerHTML = '';
+      symbols.slice().sort().forEach(sym=>{
+        const o=document.createElement('option'); o.value=sym; o.textContent=sym; dd.appendChild(o);
+      });
+      const savedSym = localStorage.getItem('symbol');
+      const start = (savedSym && symbols.includes(savedSym)) ? savedSym
+                    : (['XAUUSD','EURUSD','NAS100','SPX500'].find(s=>symbols.includes(s)) || def || symbols[0] || '');
+      if (start) { dd.value = start; localStorage.setItem('symbol', start); }
+      const savedTf = localStorage.getItem('timeframe');
+      if (savedTf) document.getElementById('timeframeDropdown').value = savedTf;
+    }
+
+    (async ()=>{
+      try{
+        await loadSymbols();
+        await pollHealth(); await pollLLM();
+        await fetchCandles(true);
+        await refreshAgentStatus();
+        await refreshSignals(); await refreshPositions(); await refreshPending();
+        startPolling();
+      }catch(e){ console.error('Boot error:', e); }
     })();
   </script>
 </body>
