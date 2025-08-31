@@ -80,6 +80,59 @@ A full-stack, **local trading system** that blends **live market data** (cTrader
        cTrader OpenAPI (live feed & orders)
 ```
 
+
+yep—good call. A quick “repo structure” section helps reviewers grok the project fast. Here’s a drop-in block for your `README.md`:
+
+---
+
+
+## 🗂 Repository structure
+
+```text
+GenAI-MultiAgent-TradingSystem/
+├─ backend/
+│  ├─ app.py                 # FastAPI entrypoint: HTTP API, endpoints, wires LLM + cTrader + agents
+│  ├─ ctrader_client.py      # cTrader TCP/OpenAPI client + order helpers (place/modify, positions, pending)
+│  ├─ data_fetcher.py        # Candle fetcher (symbol/timeframe), thin adapter over cTrader client
+│  ├─ indicators.py          # SMA/EMA/VWAP/Bollinger—merged into /api/candles response
+│  ├─ llm_analyzer.py        # Plotly→image + SMC summary → Ollama (LLaVA) → parse strict trade JSON
+│  ├─ smc_features.py        # SMC primitives: CHOCH/BOS, FVG, OB proximity, premium/discount
+│  ├─ symbol_fetcher.py      # Discover available symbols from cTrader
+│  ├─ strategy.py            # Strategy switch & stubs (SMC, RSI divergence; add more here)
+│  ├─ agent_state.py         # In-memory ring buffer of recent signals (for the UI panel)
+│  ├─ agent_controller.py    # Runtime agent config (enabled, interval, min_conf, mode, autotrade, lots)
+│  ├─ agents/
+│  │  ├─ runner.py           # Background loop: poll → analyze → emit signal → (optional) execute trades
+│  │  └─ __init__.py
+│  ├─ Dockerfile             # Backend image (Python + Kaleido for chart snapshots)
+│  ├─ .env.example           # Example configuration
+│  └─ .env                   # Local secrets & model defaults (gitignored)
+├─ templates/
+│  └─ index.html             # Single-page dashboard (Lightweight-Charts UI + agent controls)
+├─ static/js/
+│  └─ lightweight-charts.standalone.production.js
+├─ images/                   # README screenshots
+├─ docker-compose.yml        # Spins up Ollama + backend
+├─ requirements.txt          # Backend Python deps
+├─ README.md
+└─ NOTES.md                  # Dev notes / scratchpad
+```
+
+### 🔧 Common edit points
+
+* **Default LLM model**: `backend/.env → OLLAMA_MODEL` (e.g., `llava:7b`).
+  Per-call override via `POST /api/analyze` body: `{"model":"llava:7b","max_bars":200,"max_tokens":256,"options":{...}}`.
+* **Agent behavior**: change in the UI (**Agent Settings**) or programmatically via `/api/agent/config`.
+* **Add a strategy**: extend `backend/strategy.py` + hook into `agents/runner.py` + add to the UI dropdown in `templates/index.html`.
+
+### 🧭 Code flow (at a glance)
+
+1. UI requests `/api/candles` → backend fetches from cTrader → UI renders chart.
+2. **Manual**: UI posts to `/api/analyze` → backend snapshots chart + SMC features → LLaVA via Ollama → returns `{signal, sl, tp, confidence, reasons}`.
+3. **Agent**: `agents/runner.py` loops over the watchlist on a schedule, repeats step 2, emits signals, and (if `autotrade=true` & mode=`live`) places/updates trades.
+
+
+
 ---
 
 ## 🔎 How LLM Analysis Works
@@ -100,7 +153,7 @@ A full-stack, **local trading system** that blends **live market data** (cTrader
 ### 1) Clone & configure
 
 ```bash
-git clone https://github.com/<you>/GenAI-MultiAgent-TradingSystem.git
+git clone https://github.com/maghdam/GenAI-MultiAgent-TradingSystem.git
 cd GenAI-MultiAgent-TradingSystem
 ```
 
