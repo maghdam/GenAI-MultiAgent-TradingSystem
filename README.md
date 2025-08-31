@@ -1,6 +1,6 @@
 # 💹 GenAI-MultiAgent-TradingSystem
 
-A full-stack, **local trading system** that blends **live market data** (cTrader OpenAPI) with **chart image understanding** (LLaVA via Ollama) to produce human-like trade decisions.
+A full-stack, local-first trading platform that blends live cTrader market data with chart image understanding (LLaVA via Ollama) to produce structured, human-like trade decisions—then executes them automatically via multi-agent workflows.
 
 * **Two ways to use it**
 
@@ -81,7 +81,6 @@ A full-stack, **local trading system** that blends **live market data** (cTrader
 ```
 
 
-yep—good call. A quick “repo structure” section helps reviewers grok the project fast. Here’s a drop-in block for your `README.md`:
 
 ---
 
