@@ -24,10 +24,15 @@ class TradeDecision:
         }
 
 
-def _figure_to_jpeg_b64(fig: go.Figure, width=720, height=380, quality=70) -> str:
+def _figure_to_jpeg_b64(fig: go.Figure, width=336, height=168, quality=60) -> str:
     """
-    Convert a Plotly figure to a base64‑encoded JPEG. Compresses the image to
-    reduce payload size when sending to vision models.
+    Convert a Plotly figure to a base64‑encoded JPEG. By default the image
+    resolution is scaled down to a width of 336 pixels and a height of 168
+    pixels (maintaining a 2:1 aspect ratio) which aligns better with the
+    patch size of many vision models like LLaVA. The JPEG quality is set to
+    60 by default to further reduce the payload size. Adjust these values
+    if you need higher fidelity images, but keep in mind that larger images
+    lead to longer inference times.
     """
     fig.update_layout(width=width, height=height)
     tmp_png = None
@@ -94,7 +99,10 @@ async def analyze_chart_with_llm(
     except Exception:
         timeout_value = 120.0
 
-    last_rows = df.tail(50)[["open", "high", "low", "close"]]
+    # Provide a smaller snapshot of the most recent OHLC candles. Reducing
+    # the number of rows helps keep the prompt concise and improves
+    # performance of the vision‑language model.
+    last_rows = df.tail(30)[["open", "high", "low", "close"]]
     smc_summary = build_feature_snapshot(df)
     smc_text = "\n".join([
         f"- {k}: {v}" for k, v in smc_summary.items() if v is not None
