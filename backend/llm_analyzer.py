@@ -109,7 +109,7 @@ Do NOT include markdown fences or extra prose beyond the JSON and a single 'Expl
         }
         r = requests.post(f"{ollama_url}/api/generate",
                           headers={"Content-Type":"application/json"},
-                          json=payload, timeout=90)
+                          json=payload, timeout=180)
         if r.status_code != 200:
             raise RuntimeError(f"Ollama API error: {r.status_code} — {r.text}")
 

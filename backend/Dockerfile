@@ -30,5 +30,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
+
+
 EXPOSE 4000
 CMD ["uvicorn","backend.app:app","--host","0.0.0.0","--port","4000","--reload","--reload-dir","/app/backend","--reload-dir","/app/templates"]

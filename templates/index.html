@@ -170,7 +170,12 @@
     async function fetchJSON(url, opts) {
       const r = await fetch(url, opts);
       if (!r.ok) {
-        let msg; try { msg = (await r.json()).detail || await r.text(); } catch { msg = await r.text(); }
+        const text = await r.text();
+        let msg = text;
+        try {
+          const json = JSON.parse(text);
+          if (json && json.detail) msg = json.detail;
+        } catch (e) {}
         throw new Error(`${r.status} ${r.statusText} — ${msg}`);
       }
       return r.json();
@@ -378,7 +383,7 @@
       cancelBtn.style.display = 'inline-block';
       cancelBtn.onclick = () => { try { _analysisCtrl.abort(); } catch {} };
 
-      const timeout = setTimeout(() => { try { _analysisCtrl.abort(); } catch {} }, 30000); // 30s hard stop
+      const timeout = setTimeout(() => { try { _analysisCtrl.abort(); } catch {} }, 90000); // 90s hard stop
 
       try {
         const resp = await fetch('/api/analyze', {
@@ -664,5 +669,8 @@
       }catch(e){ console.error('Boot error:', e); }
     })();
   </script>
+</body>
+</html>
+ript>
 </body>
 </html>

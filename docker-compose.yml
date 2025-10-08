@@ -12,7 +12,7 @@ services:
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
-      timeout: 5s
+      timeout: 90s
       retries: 30
       start_period: 30s
     restart: unless-stopped
@@ -29,16 +29,16 @@ services:
     environment:
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=llava:7b
-    volumes:
-      - .:/app
+      - PYTHONPATH=/app
+    working_dir: /app
     command: >
       uvicorn backend.app:app --host 0.0.0.0 --port 4000
-      --reload --reload-dir /app/backend --reload-dir /app/templates
-      --reload-include *.py --reload-include *.html --reload-include *.js
+      --reload --reload-dir backend --reload-dir templates
+      --reload-include="*.py" --reload-include="*.html" --reload-include="*.js"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
       interval: 10s
-      timeout: 5s
+      timeout: 90s
       retries: 30
       start_period: 20s
     depends_on:
