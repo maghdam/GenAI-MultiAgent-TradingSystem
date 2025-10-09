@@ -2,7 +2,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    # No ports -> only other containers can reach it at http://ollama:11434
+    # Only other containers can reach it at http://ollama:11434
     volumes:
       - "C:\\Users\\moham\\.ollama:/root/.ollama"
     environment:
@@ -12,8 +12,8 @@ services:
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
-      timeout: 90s
-      retries: 30
+      timeout: 30s
+      retries: 10
       start_period: 30s
     restart: unless-stopped
 
@@ -28,18 +28,24 @@ services:
       - backend/.env
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=llava:7b
+      - OLLAMA_MODEL=llama3.2:latest
+      - OLLAMA_FALLBACK_MODEL=llama3.2:latest
+      - LLM_USE_IMAGE=0
+      - LLM_JSON_ONLY=1
+      - LLM_NUM_PREDICT=48
+      - OLLAMA_TIMEOUT=45
       - PYTHONPATH=/app
     working_dir: /app
-    command: >
-      uvicorn backend.app:app --host 0.0.0.0 --port 4000
-      --reload --reload-dir backend --reload-dir templates
-      --reload-include="*.py" --reload-include="*.html" --reload-include="*.js"
+    command: uvicorn backend.app:app --host 0.0.0.0 --port 4000
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/api/health', timeout=5).status==200 else 1)"
       interval: 10s
-      timeout: 90s
-      retries: 30
+      timeout: 30s
+      retries: 10
       start_period: 20s
     depends_on:
       ollama:

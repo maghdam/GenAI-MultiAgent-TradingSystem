@@ -41,6 +41,10 @@ symbol_map        : dict[int, str] = {}   # {id: name}
 symbol_name_to_id : dict[str, int] = {}   # {name.upper(): id}
 symbol_digits_map : dict[int, int] = {}   # {id: digits}
 
+# Optional fallback if cTrader rejects symbol list (e.g., invalid credentials or maintenance)
+_fallback_symbols_cfg = os.getenv("CTRADER_FALLBACK_SYMBOLS", "XAUUSD,EURUSD,GBPUSD,US500").strip()
+FALLBACK_SYMBOLS = [s.strip().upper() for s in _fallback_symbols_cfg.split(",") if s.strip()]
+
 # connection state
 CONNECTED = False
 
@@ -59,18 +63,41 @@ def on_error(failure):
     print("[ERROR]", failure)
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
+def _install_fallback_symbols(reason: str | None = None):
+    global symbol_map, symbol_name_to_id, symbol_digits_map
+    print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
+    symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
+    for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
+        symbol_map[idx] = name
+        symbol_name_to_id[name] = idx
+        symbol_digits_map[idx] = 5
+    if symbol_map:
+        print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
+
+
 def symbols_response_cb(res):
     global symbol_map, symbol_name_to_id, symbol_digits_map
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
 
     symbols = Protobuf.extract(res)
-    for s in symbols.symbol:
+    # Some responses are error envelopes instead of the expected list
+    if hasattr(symbols, "errorCode") or symbols.__class__.__name__ == "ProtoOAErrorRes":
+        err = f"{getattr(symbols, 'errorCode', 'ERR')} {getattr(symbols, 'description', '').strip()}".strip()
+        _install_fallback_symbols(err or "ProtoOAErrorRes")
+        return
+
+    loaded = 0
+    for s in getattr(symbols, "symbol", []):
         digits = getattr(s, "digits", getattr(s, "pipPosition", 5))
         symbol_map[s.symbolId]                  = s.symbolName
         symbol_name_to_id[s.symbolName.upper()] = s.symbolId
         symbol_digits_map[s.symbolId]           = digits
+        loaded += 1
 
-    print(f"[DEBUG] Loaded {len(symbol_map)} symbols.")
+    if loaded == 0:
+        _install_fallback_symbols("empty symbol list")
+    else:
+        print(f"[DEBUG] Loaded {loaded} symbols.")
 
 def account_auth_cb(_):
     req = ProtoOASymbolsListReq(

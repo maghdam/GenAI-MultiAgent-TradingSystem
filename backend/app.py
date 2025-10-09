@@ -23,7 +23,7 @@ import backend.ctrader_client as ctd
 import backend.data_fetcher as data_fetcher
 from backend.symbol_fetcher import get_available_symbols
 from backend.indicators import add_indicators
-from backend.llm_analyzer import analyze_chart_with_llm
+from backend.llm_analyzer import analyze_data_with_llm
 from backend.smc_features import (
     detect_bos_choch,
     current_fvg,
@@ -223,109 +223,41 @@ async def analyze(req: Request):
 
     # NEW: per-request LLM knobs (fall back to env defaults)
     model      = (body.get("model") or OLLAMA_MODEL).strip()
-    options    = body.get("options") or {}
-    max_bars   = _clamp_int(body.get("max_bars", 200), 50, 1000, 200)   # candles used in the image + text
+    if not model:
+        model = OLLAMA_MODEL
+    options    = (body.get("options") or {}).copy()
     max_tokens = _clamp_int(body.get("max_tokens", options.get("num_predict", 256)), 32, 1024, 256)
+    options["num_predict"] = max_tokens
 
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol is required")
 
-    # pull a bit more than we show to the LLM if you want, but trim before passing on
-    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars=max(1000, max_bars))
+    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars=1000)
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for {symbol}:{timeframe}")
 
     if indicators:
         df = add_indicators(df, indicators)
 
-    # keep the LLM context lean
-    df_llm = df.tail(max_bars).copy()
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df["open"],
-            high=df["high"],
-            low=df["low"],
-            close=df["close"],
-            name="Candles",
+    try:
+        td = await analyze_data_with_llm(
+            df=df,
+            symbol=symbol,
+            timeframe=timeframe,
+            indicators=indicators,
+            model=model,
+            options=options,
+            ollama_url=OLLAMA_URL,
         )
-    )
-
-    # 1) BOS/CHoCH
-    structure = _scalarize(detect_bos_choch(df))
-    if _truthy(structure):
-        fig.add_annotation(
-            text=str(structure),
-            x=df.index[-1],
-            y=df["close"].iloc[-1],
-            showarrow=True,
-            arrowhead=2,
-            bgcolor="black",
-            font=dict(color="white"),
-            yshift=30,
-        )
-
-    # 2) FVG (need >= 3 rows)
-    if len(df) >= 3:
-        fvg = _scalarize(current_fvg(df))
-        if _truthy(fvg):
-            c0, c2 = df.iloc[-1], df.iloc[-3]
-            fig.add_shape(
-                type="rect",
-                x0=df.index[-3],
-                x1=df.index[-1],
-                y0=c2["high"],
-                y1=c0["low"],
-                fillcolor="rgba(255, 165, 0, 0.3)",
-                line=dict(width=0),
-                layer="below",
-            )
-            fig.add_annotation(
-                text=str(fvg),
-                x=df.index[-2],
-                y=(float(c2["high"]) + float(c0["low"])) / 2.0,
-                showarrow=False,
-                font=dict(color="orange", size=12),
-            )
-
-    # 3) Near OB tag
-    near_ob = _scalarize(ob_near_price(df))
-    if _truthy(near_ob):
-        fig.add_annotation(
-            text="Near OB",
-            x=df.index[-1],
-            y=df["close"].iloc[-1],
-            showarrow=True,
-            arrowhead=1,
-            font=dict(color="blue"),
-            yshift=-30,
-        )
-
-    # 4) Premium/Discount
-    zone = _scalarize(in_premium_discount(df))
-    if isinstance(zone, (bytes, bytearray)):
-        zone = zone.decode(errors="ignore")
-    if zone is not None:
-        zone = str(zone)
-    if zone in ("premium", "discount"):
-        swing_hi = float(df["high"].iloc[-50:].max())
-        swing_lo = float(df["low"].iloc[-50:].min())
-        if np.isfinite(swing_hi) and np.isfinite(swing_lo) and swing_hi > swing_lo:
-            mid = (swing_hi + swing_lo) / 2.0
-            fig.add_hline(y=mid, line=dict(dash="dot", color="gray"), name="Equilibrium")
-            fig.add_annotation(
-                text=zone.upper(),
-                x=df.index[-1],
-                y=mid,
-                showarrow=False,
-                font=dict(size=11, color="gray"),
-                yshift=-40,
-            )
-
-    td = await analyze_chart_with_llm(fig=fig, df=df, symbol=symbol, timeframe=timeframe, indicators=indicators)
-    return {"analysis": td.dict()}
+        return {"analysis": td.dict()}
+    except TimeoutError as e:
+        raise HTTPException(status_code=504, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ──────────────────────────────────────────────────────────────────────────

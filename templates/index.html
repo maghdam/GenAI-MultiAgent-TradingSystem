@@ -24,6 +24,12 @@
     #chart { width:100%; height:100%; }
     #loading { color: var(--accent); margin-left: 8px; }
     #llmOutput { white-space: pre-wrap; background:#0e1117; border-radius:10px; padding:12px; color:#9ef; border:1px solid #1a2030; }
+    #llmNarrative { background:#0e1117; border-radius:10px; padding:12px; color:#cfd8ff; border:1px solid #1a2030; margin-top:10px; display:none; }
+    #llmNarrative .title { font-weight:600; color:#9ef; margin-bottom:6px; }
+    #llmNarrative .summary { margin-bottom:8px; line-height:1.5; }
+    #llmNarrative ul { margin:6px 0 0 18px; padding:0; line-height:1.45; }
+    #llmNarrative li { margin-bottom:4px; }
+    #llmNarrative .meta { color: var(--muted); font-size:12px; margin-top:10px; display:block; }
     #signalsPanel { max-height: 220px; overflow:auto; background:#0e1117; border:1px solid #1a2030; border-radius:10px; padding:10px; }
     .sig { display:grid; grid-template-columns: 90px 70px 80px 1fr; gap:8px; padding:6px 8px; border-bottom:1px dashed #1e2433; align-items:center; }
     .sig:last-child { border-bottom:none; }
@@ -162,6 +168,8 @@
   <div class="box" style="margin: 0 14px 14px;">
     <div style="font-weight:600; margin-bottom:8px;">AI Output</div>
     <div id="llmOutput"></div>
+    <div id="llmNarrative"></div>
+    <div id="llmError" class="muted" style="margin-top:10px; display:none;"></div>
   </div>
 
   <script>
@@ -331,16 +339,116 @@
     // ---------- AI output ----------
     let lastAnalysis = null;
     function renderAnalysis(output) {
-      const out = document.getElementById('llmOutput'); lastAnalysis = null;
-      if (!output || typeof output !== 'object') { out.innerHTML = '<div class="ghost">⚠️ No analysis received.</div>'; return; }
+      const out = document.getElementById('llmOutput');
+      const err = document.getElementById('llmError');
+      const narrative = document.getElementById('llmNarrative');
+      lastAnalysis = null;
+      out.textContent = '';
+      err.textContent = '';
+      err.style.display = 'none';
+      if (narrative) { narrative.innerHTML = ''; narrative.style.display = 'none'; }
+      if (!output || typeof output !== 'object') {
+        out.innerHTML = '<div class="ghost">⚠️ No analysis received.</div>';
+        if (narrative) {
+          narrative.style.display = 'block';
+          narrative.innerHTML = '<div class="muted">No rationale provided.</div>';
+        }
+        return;
+      }
       lastAnalysis = structuredClone(output);
+
       const displayObj = structuredClone(output);
-      const explanationRaw = typeof output.rationale === 'string'
-          ? output.rationale : Array.isArray(output.reasons) ? output.reasons.join('\n') : '';
+      const reasoning = Array.isArray(output.reasons) ? output.reasons.filter(Boolean) : [];
+      const rationale = typeof output.rationale === 'string' ? output.rationale.trim() : '';
       delete displayObj.rationale; delete displayObj.reasons;
-      out.innerHTML =
-        `<pre style="color:#9ef;margin:0;">${JSON.stringify(displayObj, null, 2)}</pre>` +
-        (explanationRaw ? `<div style="margin-top:10px;color:#cfd8ff;white-space:pre-wrap;line-height:1.4;">${explanationRaw}</div>` : '');
+
+      const combinedReasons = [...reasoning];
+      if (rationale) combinedReasons.push(rationale);
+      const pre = document.createElement('pre');
+      pre.style.color = '#9ef';
+      pre.style.margin = '0';
+      pre.textContent = JSON.stringify(displayObj, null, 2);
+      out.appendChild(pre);
+
+      if (!narrative) return;
+
+      const summarySentences = [];
+      const upperSignal = displayObj.signal ? String(displayObj.signal).toUpperCase() : null;
+      const hasConfidence = typeof displayObj.confidence === 'number' && !Number.isNaN(displayObj.confidence);
+      if (upperSignal) {
+        let line = `Model suggests ${upperSignal}`;
+        if (hasConfidence) line += ` with ${(displayObj.confidence * 100).toFixed(0)}% confidence`;
+        summarySentences.push(line + '.');
+      } else if (hasConfidence) {
+        summarySentences.push(`Reported confidence ${(displayObj.confidence * 100).toFixed(0)}%.`);
+      }
+
+      const priceParts = [];
+      const formatVal = (val) => {
+        if (typeof val === 'number') {
+          const abs = Math.abs(val);
+          const decimals = abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
+          return val.toFixed(decimals);
+        }
+        return String(val);
+      };
+      if (displayObj.entry != null) priceParts.push(`entry ${formatVal(displayObj.entry)}`);
+      if (displayObj.tp != null) priceParts.push(`take-profit ${formatVal(displayObj.tp)}`);
+      if (displayObj.sl != null) priceParts.push(`stop-loss ${formatVal(displayObj.sl)}`);
+      if (priceParts.length) summarySentences.push(`Targets ${priceParts.join(', ')}.`);
+
+      narrative.style.display = 'block';
+
+      const summaryTitle = document.createElement('div');
+      summaryTitle.className = 'title';
+      summaryTitle.textContent = 'Decision Summary';
+      narrative.appendChild(summaryTitle);
+
+      if (summarySentences.length) {
+        const summaryText = document.createElement('div');
+        summaryText.className = 'summary';
+        summaryText.textContent = summarySentences.join(' ');
+        narrative.appendChild(summaryText);
+      } else {
+        const noSummary = document.createElement('div');
+        noSummary.className = 'muted summary';
+        noSummary.textContent = 'No key metrics were provided by the model.';
+        narrative.appendChild(noSummary);
+      }
+
+      const rationaleTitle = document.createElement('div');
+      rationaleTitle.className = 'title';
+      rationaleTitle.textContent = 'Model Rationale';
+      rationaleTitle.style.marginTop = '8px';
+      narrative.appendChild(rationaleTitle);
+
+      if (combinedReasons.length) {
+        const ul = document.createElement('ul');
+        for (const r of combinedReasons) {
+          const li = document.createElement('li');
+          li.textContent = r;
+          ul.appendChild(li);
+        }
+        narrative.appendChild(ul);
+      } else {
+        const noReasons = document.createElement('div');
+        noReasons.className = 'muted';
+        noReasons.textContent = 'No rationale supplied by the model.';
+        narrative.appendChild(noReasons);
+      }
+
+      const metaParts = [];
+      if (output.model) metaParts.push(`Model: ${output.model}`);
+      if (output.generated_at || output.timestamp) {
+        const ts = output.generated_at || output.timestamp;
+        metaParts.push(`Generated: ${ts}`);
+      }
+      if (metaParts.length) {
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = metaParts.join(' • ');
+        narrative.appendChild(meta);
+      }
     }
 
     let _analysisCtrl = null;
@@ -376,6 +484,8 @@
 
       document.getElementById('loading').style.display = 'inline';
       document.getElementById('llmOutput').innerHTML = '';
+      const narrativeEl = document.getElementById('llmNarrative');
+      if (narrativeEl) { narrativeEl.innerHTML = ''; narrativeEl.style.display = 'none'; }
 
       // abort + timeout
       _analysisCtrl = new AbortController();
@@ -393,19 +503,36 @@
           signal: _analysisCtrl.signal
         });
 
+        const errBox = document.getElementById('llmError');
         if (!resp.ok) {
-          let msg; try { msg = (await resp.json()).detail; } catch { msg = await resp.text(); }
-          document.getElementById('llmOutput').innerHTML = `<div style="color:#ff8a8a;">${msg}</div>`;
+          const raw = await resp.text();
+          let msg = raw || `${resp.status} ${resp.statusText}`;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.detail) msg = parsed.detail;
+          } catch {}
+          errBox.textContent = msg;
+          errBox.style.display = 'block';
+          document.getElementById('llmOutput').textContent = '';
+          if (narrativeEl) { narrativeEl.innerHTML = ''; narrativeEl.style.display = 'none'; }
           return;
         }
         const json = await resp.json();
         renderAnalysis(json.analysis);
         setPriceLines(json.analysis);
       } catch (e) {
+        const errBox = document.getElementById('llmError');
         if (e.name === 'AbortError') {
           document.getElementById('llmOutput').innerHTML = `<div class="muted">⏹ Analysis cancelled.</div>`;
+          if (narrativeEl) { narrativeEl.innerHTML = ''; narrativeEl.style.display = 'none'; }
+          errBox.textContent = '';
+          errBox.style.display = 'none';
         } else {
-          document.getElementById('llmOutput').innerHTML = `<div style="color:#ff8a8a;">${e}</div>`;
+          const msg = e?.message || String(e);
+          errBox.textContent = msg;
+          errBox.style.display = 'block';
+          document.getElementById('llmOutput').textContent = '';
+          if (narrativeEl) { narrativeEl.innerHTML = ''; narrativeEl.style.display = 'none'; }
         }
       } finally {
         clearTimeout(timeout);
