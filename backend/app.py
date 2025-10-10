@@ -13,7 +13,6 @@ from threading import Lock
 from pathlib import Path
 from typing import List, Tuple, Optional
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from pydantic import BaseModel, Field
@@ -325,7 +324,10 @@ def execute_trade(order: PlaceOrderRequest):
         print(f"[ORDER DEBUG] Sending order: {order=}, {symbol_id=}")
 
         # cTrader volume units: 1 lot = 100,000 units
-        volume_raw = order.volume * 100_000
+        try:
+            volume_raw = ctd.volume_lots_to_units(symbol_id, order.volume)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         deferred = ctd.place_order(
             client=ctd.client,

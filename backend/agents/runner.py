@@ -251,7 +251,11 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                 if not sid:
                     _push_err(symbol, timeframe, "symbol id not found", "order_fail", strategy_name)
                 else:
-                    vol_units = int(float(lot_size_lots) * 100_000)
+                    try:
+                        vol_units = ctd.volume_lots_to_units(sid, lot_size_lots)
+                    except ValueError as e:
+                        _push_err(symbol, timeframe, str(e), "order_fail", strategy_name)
+                        return
                     _status(
                         symbol,
                         timeframe,
