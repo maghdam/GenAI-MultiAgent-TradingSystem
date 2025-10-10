@@ -30,9 +30,10 @@ from backend.smc_features import (
     ob_near_price,
     in_premium_discount,
 )
-from backend.agent_state import recent_signals
+from backend.agent_state import recent_signals, all_task_status
 from backend.agents.runner import run_agents
 from backend.agent_controller import controller, AgentConfig
+from backend.strategy import get_strategy, available_strategies
 
 # ──────────────────────────────────────────────────────────────────────────
 # FastAPI app & middleware
@@ -112,6 +113,31 @@ async def llm_status():
 @app.get("/api/agent/signals")
 async def agent_signals(n: int = 50):
     return recent_signals(n)
+
+
+@app.get("/api/agent/status")
+async def agent_status():
+    snap = await controller.snapshot()
+    cfg = snap.get("config") or {}
+    running_pairs = snap.get("running_pairs") or []
+    tasks = all_task_status()
+
+    enabled = bool(cfg.get("enabled"))
+    watchlist = cfg.get("watchlist") or []
+    return {
+        "enabled": enabled,
+        "running": enabled and len(running_pairs) > 0,
+        "watchlist": watchlist,
+        "interval_sec": cfg.get("interval_sec"),
+        "min_confidence": cfg.get("min_confidence"),
+        "trading_mode": cfg.get("trading_mode"),
+        "autotrade": cfg.get("autotrade"),
+        "lot_size_lots": cfg.get("lot_size_lots"),
+        "strategy": cfg.get("strategy"),
+        "running_pairs": running_pairs,
+        "tasks": tasks,
+        "available_strategies": available_strategies(),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -220,6 +246,8 @@ async def analyze(req: Request):
     symbol     = (body.get("symbol") or "").strip()
     timeframe  = body.get("timeframe", "M5")
     indicators = body.get("indicators", [])
+    strategy_name = body.get("strategy") or controller.config.strategy
+    num_bars   = body.get("num_bars", 1000)
 
     # NEW: per-request LLM knobs (fall back to env defaults)
     model      = (body.get("model") or OLLAMA_MODEL).strip()
@@ -232,7 +260,7 @@ async def analyze(req: Request):
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol is required")
 
-    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars=1000)
+    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for {symbol}:{timeframe}")
 
@@ -240,11 +268,21 @@ async def analyze(req: Request):
         df = add_indicators(df, indicators)
 
     try:
-        td = await analyze_data_with_llm(
+        strategy = get_strategy(strategy_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    fig = strategy.build_figure(df) if getattr(strategy, "requires_figure", False) else None
+
+    try:
+        td = await strategy.analyze(
             df=df,
             symbol=symbol,
             timeframe=timeframe,
             indicators=indicators,
+            fig=fig,
             model=model,
             options=options,
             ollama_url=OLLAMA_URL,

@@ -11,6 +11,7 @@ from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOANewOrderReq,
     ProtoOAAmendOrderReq,
     ProtoOAAmendPositionSLTPReq,
+    ProtoOAClosePositionReq,
 )
 from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
     ProtoOAOrderType,
@@ -20,7 +21,7 @@ from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
 from google.protobuf.json_format import MessageToDict
 from twisted.internet import reactor
 from datetime import datetime, timezone, timedelta
-import calendar, time, threading, os
+import calendar, time, threading, os, json
 
 # Try to find a .env (root), otherwise fall back to backend/.env
 from dotenv import load_dotenv, find_dotenv
@@ -54,6 +55,12 @@ _PRICE_FACTOR = 100_000
 def _px(x):
     """Convert float price → cTrader int format (e.g., 1.0935 → 109350)."""
     return int(round(float(x) * _PRICE_FACTOR)) if x is not None else None
+
+
+def _lots_to_units(lots: float | int | None) -> int | None:
+    if lots is None:
+        return None
+    return int(float(lots) * 100_000)
 
 # ── helpers ────────────────────────────────────────────────────────────────
 def pips_to_relative(pips: int, digits: int) -> int:
@@ -131,14 +138,36 @@ def _log_event(event) -> None:
     except Exception as e:
         payload = {"decode_error": str(e)}
     name = getattr(event, "__class__", type("x", (), {})).__name__
+    summary = _format_payload(payload)
+
     if name == "ProtoOAExecutionEvent":
-        print(f"[CTRADER EXECUTION] {payload}")
+        print(f"[CTRADER EXECUTION] {summary}")
     elif name == "ProtoOAErrorRes":
-        print(f"[CTRADER ERROR] {payload}")
+        print(f"[CTRADER ERROR] {summary}")
     elif name == "ProtoOAAccountLogoutRes":
-        print(f"[CTRADER LOGOUT] {payload}")
+        print(f"[CTRADER LOGOUT] {summary}")
+    elif name == "ProtoOAGetTrendbarsRes" and isinstance(payload, dict):
+        bars = payload.get("trendbar") or payload.get("trendBar") or []
+        count = len(bars) if isinstance(bars, list) else 0
+        first_ts = last_ts = None
+        if count:
+            first = bars[0] if isinstance(bars[0], dict) else {}
+            last = bars[-1] if isinstance(bars[-1], dict) else {}
+            first_ts = first.get("utcTimestampInMinutes") or first.get("utc_timestamp_in_minutes")
+            last_ts = last.get("utcTimestampInMinutes") or last.get("utc_timestamp_in_minutes")
+        print(f"[CTRADER TREND] bars={count} ts_range={first_ts}->{last_ts}")
     else:
-        print(f"[CTRADER EVENT] {name}: {payload}")
+        print(f"[CTRADER EVENT] {name}: {summary}")
+
+
+def _format_payload(payload) -> str:
+    try:
+        txt = json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        txt = str(payload)
+    if len(txt) > 600:
+        return f"{txt[:600]}... (truncated, {len(txt)} chars)"
+    return txt
 
 
 def init_client():
@@ -349,6 +378,17 @@ def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_p
     req = ProtoOAAmendPositionSLTPReq(ctidTraderAccountId = account_id, positionId = position_id)
     if stop_loss   is not None: req.stopLoss   = _px(stop_loss)
     if take_profit is not None: req.takeProfit = _px(take_profit)
+    return client.send(req)
+
+
+def close_position(*, client, account_id, position_id, volume_lots=None):
+    req = ProtoOAClosePositionReq(
+        ctidTraderAccountId=account_id,
+        positionId=position_id,
+    )
+    vol_units = _lots_to_units(volume_lots)
+    if vol_units is not None:
+        req.volume = vol_units
     return client.send(req)
 
 def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=None, take_profit=None):

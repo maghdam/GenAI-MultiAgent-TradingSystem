@@ -64,12 +64,6 @@
       <option value="rsi">RSI Divergence</option>
     </select>
 
-    <span class="chip">Indicators:</span>
-    <label class="chip"><input type="checkbox" value="SMA (20)"> SMA (20)</label>
-    <label class="chip"><input type="checkbox" value="EMA (20)"> EMA (20)</label>
-    <label class="chip"><input type="checkbox" value="VWAP"> VWAP</label>
-    <label class="chip"><input type="checkbox" value="Bollinger Bands"> Bollinger Bands</label>
-
     <label class="chip"><input id="fastMode" type="checkbox" checked> Fast</label>
     <label class="chip">Bars
       <input id="maxBars" type="number" min="50" max="500" step="50" value="200" style="width:70px">
@@ -161,6 +155,12 @@
       <div class="box">
         <div style="font-weight:600;">Pending Orders</div>
         <div id="pendPanel" class="list"><div class="muted">None.</div></div>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:600;">Agent Tasks</div>
+        <div id="agentTasks" class="list"><div class="muted">No tasks.</div></div>
+        <div class="muted">Per-symbol agent telemetry from /api/agent/status.</div>
       </div>
     </div>
   </div>
@@ -477,7 +477,7 @@
       const symbol     = (document.getElementById('symbolDropdown').value || '').trim();
       const timeframe  = document.getElementById('timeframeDropdown').value;
       const strategy   = document.getElementById('strategyDropdown').value;
-      const inds       = Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.value);
+      const inds       = [];
       if (!symbol) return;
 
       const payload = { symbol, timeframe, indicators: inds, strategy, ...currentAnalyzeOptions() };
@@ -577,7 +577,7 @@
           trading_mode: s.trading_mode ?? 'paper',
           autotrade: !!s.autotrade,
           strategy: s.strategy || 'smc',
-          last_tick_ts: s.last_tick_ts ?? null,
+          tasks: Array.isArray(s.tasks) ? s.tasks : [],
         };
       } catch { /* fall back to /config */ }
       const c = await getCfg();
@@ -591,7 +591,7 @@
         trading_mode: c.trading_mode ?? 'paper',
         autotrade: !!c.autotrade,
         strategy: c.strategy || 'smc',
-        last_tick_ts: c.last_tick_ts ?? null,
+        tasks: [],
       };
     }
 
@@ -621,15 +621,56 @@
       }
     }
 
+    function fmtTs(ts){
+      if (!ts) return '—';
+      try { return new Date(ts * 1000).toLocaleTimeString(); } catch { return '—'; }
+    }
     function setAgentUI(st){
       const w = st.watchlist?.map(p=>p.join(':')).join(', ') || '—';
       const runningTxt = st.running ? 'running' : 'idle';
       document.getElementById('agent-status').textContent = `Agent: ${st.enabled?'ON':'OFF'} (${runningTxt}) • Watchlist: ${w}`;
       document.getElementById('agent-toggle').textContent = st.enabled ? '⏸ Stop Agent' : '▶ Start Agent';
+      renderAgentTasks(st.tasks || []);
     }
 
     async function refreshAgentStatus(){
       try { const st = await getAgentStatus(); setAgentUI(st); } catch { /* silent */ }
+    }
+
+    function renderAgentTasks(tasks){
+      const el = document.getElementById('agentTasks');
+      if (!el) return;
+      if (!Array.isArray(tasks) || tasks.length === 0){
+        el.innerHTML = '<div class="muted">No active tasks.</div>';
+        return;
+      }
+      const rows = tasks.map(t=>{
+        const state = t.state || 'unknown';
+        const lastSignalTs = fmtTs(t.last_signal_ts);
+        const lastBarTs = fmtTs(t.last_bar_ts);
+        const lastErrTs = fmtTs(t.last_error_ts);
+        const meta = [];
+        if (t.last_signal) meta.push(`Signal: ${t.last_signal}`);
+        if (t.last_confidence != null) meta.push(`Conf: ${(t.last_confidence*100).toFixed(0)}%`);
+        if (t.next_poll_seconds != null) meta.push(`Next poll: ${t.next_poll_seconds}s`);
+        if (t.poll_seconds != null && !meta.includes(`Next poll: ${t.poll_seconds}s`)) meta.push(`Poll: ${t.poll_seconds}s`);
+        if (t.configured_interval_seconds) meta.push(`Cfg interval: ${t.configured_interval_seconds}s`);
+        if (t.auto_trade) meta.push('Autotrade');
+        if (t.last_error) meta.push(`Error: ${t.last_error}`);
+        const metaLine = meta.length ? meta.join(' • ') : '—';
+        return `
+          <div class="row">
+            <div class="pill">${(t.symbol || '').toUpperCase()}</div>
+            <div class="muted">${(t.timeframe || '').toUpperCase()}</div>
+            <div class="muted">State: ${state}</div>
+            <div class="muted">Last bar: ${lastBarTs}</div>
+            <div class="muted">Last signal: ${lastSignalTs}</div>
+          </div>
+          <div class="muted" style="font-size:12px; margin:-6px 0 10px 8px;">${metaLine}</div>
+          ${t.last_error ? `<div class="muted" style="font-size:12px;color:#ff8a8a;margin:-6px 0 10px 8px;">Error at ${lastErrTs}: ${t.last_error}</div>` : ''}
+        `;
+      }).join('');
+      el.innerHTML = rows;
     }
 
     // ---------- Signals / positions ----------

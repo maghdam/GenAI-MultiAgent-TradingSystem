@@ -1,39 +1,187 @@
-# backend/strategy.py
-from abc import ABC, abstractmethod
-from typing import Any, Dict
-import pandas as pd
+"""Strategy registry and base implementations."""
 
-# --- Base interface ---------------------------------------------------------
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Type
+
+import pandas as pd
+import plotly.graph_objects as go
+
+from backend.llm_analyzer import TradeDecision, analyze_chart_with_llm
+
+_STRATEGY_REGISTRY: Dict[str, Type["Strategy"]] = {}
+
+
+def register_strategy(name: str):
+    """Decorator to register a strategy class by name."""
+
+    def decorator(cls: Type["Strategy"]):
+        key = name.lower()
+        cls.strategy_name = key
+        _STRATEGY_REGISTRY[key] = cls
+        return cls
+
+    return decorator
+
+
+def available_strategies() -> List[str]:
+    return sorted(_STRATEGY_REGISTRY.keys())
+
+
+def get_strategy(name: str | None, **params: Any) -> "Strategy":
+    key = (name or "smc").lower()
+    cls = _STRATEGY_REGISTRY.get(key)
+    if cls is None:
+        raise ValueError(f"Unknown strategy '{name}'")
+    return cls(**params)
+
+
 class Strategy(ABC):
+    """Abstract base class for trading strategies."""
+
+    strategy_name: str = "base"
+    requires_figure: bool = False
+
     def __init__(self, **params: Any):
         self.params = params
 
-    @abstractmethod
-    def extract_features(self, df: pd.DataFrame) -> Dict[str, Any]:
-        ...
+    @property
+    def name(self) -> str:
+        return self.strategy_name
+
+    def build_figure(self, df: pd.DataFrame):
+        """Optional candlestick figure for strategies that rely on chart context."""
+        return None
 
     @abstractmethod
-    def analyze(self, symbol: str, timeframe: str, df: pd.DataFrame, features: Dict[str, Any]) -> Dict[str, Any]:
+    async def analyze(
+        self,
+        *,
+        df: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        indicators: List[str] | None = None,
+        fig=None,
+        **kwargs: Any,
+    ) -> TradeDecision:
         ...
 
-# --- SMC adapter (reuses your existing code) --------------------------------
-from .smc_features import build_feature_snapshot
-from .llm_analyzer import analyze_chart_with_llm
 
+def _build_candlestick(df: pd.DataFrame):
+    fig = go.Figure()
+    fig.add_trace(
+        go.Candlestick(
+            x=df.index,
+            open=df["open"],
+            high=df["high"],
+            low=df["low"],
+            close=df["close"],
+            name="Candles",
+        )
+    )
+    return fig
+
+
+@register_strategy("smc")
 class SMCStrategy(Strategy):
-    def extract_features(self, df: pd.DataFrame) -> Dict[str, Any]:
-        return build_feature_snapshot(df)
+    """Smart Money Concepts strategy using the LLM analyzer pipeline."""
 
-    def analyze(self, symbol: str, timeframe: str, df: pd.DataFrame, features: Dict[str, Any]) -> Dict[str, Any]:
-        # We reuse your LLM pipeline (fig building happens in app.py).
-        # Here we just return a dict-compatible payload.
-        # app.py will still call analyze_chart_with_llm to produce TradeDecision.
-        # This method remains for future non-LLM/rule-based use if needed.
-        return {"ok": True, "features": features}
+    strategy_name = "smc"
+    requires_figure = True
 
-def load_strategy(name: str, **params) -> Strategy:
-    name = (name or "smc").lower()
-    if name == "smc":
-        return SMCStrategy(**params)
-    # Add simple stubs later, e.g., RSI/MACD without new files.
-    raise ValueError(f"Unknown strategy '{name}'")
+    def build_figure(self, df: pd.DataFrame):
+        return _build_candlestick(df)
+
+    async def analyze(
+        self,
+        *,
+        df: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        indicators: List[str] | None = None,
+        fig=None,
+        **kwargs: Any,
+    ) -> TradeDecision:
+        model = kwargs.get("model")
+        options = kwargs.get("options")
+        ollama_url = kwargs.get("ollama_url")
+        fig_to_use = fig or self.build_figure(df)
+        return await analyze_chart_with_llm(
+            fig=fig_to_use,
+            df=df,
+            symbol=symbol,
+            timeframe=timeframe,
+            indicators=indicators or [],
+            model=model,
+            options=options,
+            ollama_url=ollama_url,
+        )
+
+
+@register_strategy("rsi")
+class RSIStrategy(Strategy):
+    """Simple RSI divergence strategy (rule-based)."""
+
+    strategy_name = "rsi"
+    requires_figure = False
+
+    def __init__(self, **params: Any):
+        super().__init__(**params)
+        self.length = int(self.params.get("length", 14))
+        self.overbought = float(self.params.get("overbought", 70.0))
+        self.oversold = float(self.params.get("oversold", 30.0))
+
+    @staticmethod
+    def _compute_rsi(series: pd.Series, length: int) -> pd.Series:
+        delta = series.diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(alpha=1 / length, min_periods=length).mean()
+        avg_loss = loss.ewm(alpha=1 / length, min_periods=length).mean()
+        rs = avg_gain / avg_loss.replace(0, pd.NA)
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.fillna(method="bfill")
+
+    async def analyze(
+        self,
+        *,
+        df: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        indicators: List[str] | None = None,
+        fig=None,
+        **kwargs: Any,
+    ) -> TradeDecision:
+        if df.empty:
+            raise ValueError("RSI strategy requires historical bars.")
+
+        closes = df["close"].astype(float)
+        rsi_series = self._compute_rsi(closes, self.length)
+        if rsi_series.empty or pd.isna(rsi_series.iloc[-1]):
+            raise ValueError("Not enough data to compute RSI.")
+
+        latest_rsi = float(rsi_series.iloc[-1])
+        signal = "no_trade"
+        reasons: List[str] = [f"RSI={latest_rsi:.2f}"]
+
+        if latest_rsi >= self.overbought:
+            signal = "short"
+            reasons.append(f"RSI above overbought ({self.overbought})")
+        elif latest_rsi <= self.oversold:
+            signal = "long"
+            reasons.append(f"RSI below oversold ({self.oversold})")
+        else:
+            reasons.append("RSI within neutral range")
+
+        confidence = max(0.0, min(1.0, abs(latest_rsi - 50.0) / 50.0))
+        if signal == "no_trade":
+            confidence = 0.0
+
+        return TradeDecision(
+            signal=signal,
+            sl=None,
+            tp=None,
+            confidence=confidence,
+            reasons=reasons,
+        )

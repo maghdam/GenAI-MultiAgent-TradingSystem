@@ -1,8 +1,9 @@
 # backend/agent_controller.py
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple
 from backend.agents.runner import run_symbol
+from backend.agent_state import clear_task_status, update_task_status
 
 
 
@@ -33,6 +34,7 @@ class AgentController:
         stop = asyncio.Event()
         self._stops[pair] = stop
         sym, tf = pair
+        update_task_status(sym, tf, state="starting")
         t = asyncio.create_task(run_symbol(
             sym, tf,
             self.config.interval_sec,
@@ -47,17 +49,21 @@ class AgentController:
     async def _stop_pair(self, pair: Tuple[str, str]):
         task = self._tasks.pop(pair, None)
         stop = self._stops.pop(pair, None)
+        sym, tf = pair
+        update_task_status(sym, tf, state="stopping")
         if stop: stop.set()
         if task:
             task.cancel()
             try: await task
             except Exception: pass
+        clear_task_status(sym, tf)
 
     async def apply_config(self, new_cfg: AgentConfig):
         async with self._lock:
             restart_needed = (
                 new_cfg.trading_mode != self.config.trading_mode
                 or new_cfg.autotrade != self.config.autotrade
+                or new_cfg.interval_sec != self.config.interval_sec
                 or new_cfg.min_confidence != self.config.min_confidence
                 or new_cfg.lot_size_lots != self.config.lot_size_lots
                 or new_cfg.strategy != self.config.strategy
@@ -85,5 +91,14 @@ class AgentController:
     async def stop_all(self):
         for pair in list(self._tasks.keys()):
             await self._stop_pair(pair)
+
+    async def snapshot(self) -> Dict[str, object]:
+        async with self._lock:
+            cfg = self.config
+            running = list(self._tasks.keys())
+        return {
+            "config": asdict(cfg),
+            "running_pairs": running,
+        }
 
 controller = AgentController()
