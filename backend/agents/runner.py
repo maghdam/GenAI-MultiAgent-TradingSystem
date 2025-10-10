@@ -134,7 +134,8 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                 if not sid:
                     _push_err(symbol, timeframe, "symbol id not found", "order_fail")
                 else:
-                    vol_units = int(float(lot_size_lots) * 10_000_000)
+                    # cTrader units: 1 lot = 100,000 units
+                    vol_units = int(float(lot_size_lots) * 100_000)
                     d = ctd.place_order(
                         client=ctd.client, account_id=ctd.ACCOUNT_ID, symbol_id=sid,
                         order_type="MARKET", side=desired_side, volume=vol_units,

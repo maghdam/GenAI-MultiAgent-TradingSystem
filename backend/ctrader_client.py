@@ -17,6 +17,7 @@ from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
     ProtoOATradeSide,
     ProtoOATrendbarPeriod,
 )
+from google.protobuf.json_format import MessageToDict
 from twisted.internet import reactor
 from datetime import datetime, timezone, timedelta
 import calendar, time, threading, os
@@ -124,10 +125,34 @@ def _on_disconnected(c, reason):
     CONNECTED = False
     print("[INFO] Disconnected:", reason)
 
+def _log_event(event) -> None:
+    try:
+        payload = MessageToDict(event, preserving_proto_field_name=True)
+    except Exception as e:
+        payload = {"decode_error": str(e)}
+    name = getattr(event, "__class__", type("x", (), {})).__name__
+    if name == "ProtoOAExecutionEvent":
+        print(f"[CTRADER EXECUTION] {payload}")
+    elif name == "ProtoOAErrorRes":
+        print(f"[CTRADER ERROR] {payload}")
+    elif name == "ProtoOAAccountLogoutRes":
+        print(f"[CTRADER LOGOUT] {payload}")
+    else:
+        print(f"[CTRADER EVENT] {name}: {payload}")
+
+
 def init_client():
     client.setConnectedCallback(_on_connected)
     client.setDisconnectedCallback(_on_disconnected)
-    client.setMessageReceivedCallback(lambda c, m: None)
+    def _on_message(_client, message):
+        try:
+            event = Protobuf.extract(message)
+        except Exception as e:
+            print(f"[CTRADER EVENT] decode_error: {e}")
+            return
+        _log_event(event)
+
+    client.setMessageReceivedCallback(_on_message)
     client.startService()
     reactor.run(installSignalHandlers=False)
 
@@ -208,7 +233,7 @@ def get_open_positions():
                 position_id=p.positionId,
                 direction="buy" if td.tradeSide==ProtoOATradeSide.BUY else "sell",
                 entry_price=getattr(p,"price",0),
-                volume_lots=td.volume/10_000_000,
+                volume_lots=td.volume/100_000,
             ))
         ev.set()
     def _err(f): nonlocal err; err=str(f); ev.set()
@@ -250,20 +275,22 @@ def place_order(
     if order_type.upper() == "LIMIT":
         if price is None:
             raise ValueError("Limit order requires price.")
-        req.limitPrice = float(price)
+        req.limitPrice = _px(price)
     elif order_type.upper() == "STOP":
         if price is None:
             raise ValueError("Stop order requires price.")
-        req.stopPrice = float(price)
+        req.stopPrice = _px(price)
+
+    sl_price = stop_loss
+    tp_price = take_profit
 
     if order_type.upper() in ("LIMIT", "STOP"):
-        if stop_loss   is not None: req.stopLoss   = float(stop_loss)
-        if take_profit is not None: req.takeProfit = float(take_profit)
+        if stop_loss   is not None: req.stopLoss   = _px(stop_loss)
+        if take_profit is not None: req.takeProfit = _px(take_profit)
     else:
-        # MARKET: relative distances (1/100000 units)
-        digits = symbol_digits_map.get(symbol_id, 5)
-        if stop_loss   is not None: req.relativeStopLoss   = pips_to_relative(int(stop_loss),   digits)
-        if take_profit is not None: req.relativeTakeProfit = pips_to_relative(int(take_profit), digits)
+        # MARKET: defer SL/TP to post-fill amendment so we can use absolute prices
+        stop_loss = None
+        take_profit = None
 
     print(
         f"[DEBUG] Sending order: {order_type=} {side=} price={price} SL={stop_loss} TP={take_profit}"
@@ -272,7 +299,24 @@ def place_order(
 
     # Optionally amend SL/TP post-fill for MARKET
     if order_type.upper() == "MARKET":
-        def _delayed_sltp(_):
+        def _delayed_sltp(res):
+            info: dict[str, object] = {}
+            try:
+                event = Protobuf.extract(res)
+                info["ack"] = MessageToDict(event, preserving_proto_field_name=True)
+                if getattr(event, "rejectReason", 0):
+                    info["status"] = "order_rejected"
+                    info["reject_reason"] = int(getattr(event, "rejectReason", 0))
+                    print(f"[ERROR] Order rejected: {info['reject_reason']} ack={info['ack']}")
+                    return info
+                if getattr(event, "executionType", None) is not None:
+                    info["execution_type"] = int(getattr(event, "executionType"))
+                if getattr(event, "orderStatus", None) is not None:
+                    info["order_status"] = int(getattr(event, "orderStatus"))
+            except Exception as e:
+                info["ack_parse_error"] = str(e)
+                print(f"[WARN] Unable to parse order acknowledgement: {e}")
+
             time.sleep(8)
             open_pos = get_open_positions()
             for p in open_pos:
@@ -280,14 +324,22 @@ def place_order(
                     p["symbol_name"].upper() == symbol_map[symbol_id].upper()
                     and p["direction"].upper() == side.upper()
                 ):
-                    return modify_position_sltp(
+                    info["status"] = "position_found"
+                    info["position_id"] = p["position_id"]
+                    if sl_price is None and tp_price is None:
+                        return info
+                    amend_res = modify_position_sltp(
                         client=client,
                         account_id=account_id,
                         position_id=p["position_id"],
-                        stop_loss=stop_loss,
-                        take_profit=take_profit,
+                        stop_loss=sl_price,
+                        take_profit=tp_price,
                     )
-            return {"status": "position_not_found"}
+                    info["amend_submitted"] = True
+                    info["amend_result"] = str(amend_res)
+                    return info
+            info.setdefault("status", "position_not_found")
+            return info
         d.addCallback(_delayed_sltp)
 
     return d
@@ -305,14 +357,38 @@ def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=N
         orderId             = order_id,
         version             = version,
     )
-    if stop_loss   is not None: req.stopLoss   = stop_loss
-    if take_profit is not None: req.takeProfit = take_profit
+    if stop_loss   is not None: req.stopLoss   = _px(stop_loss)
+    if take_profit is not None: req.takeProfit = _px(take_profit)
     return client.send(req)
 
 # ── blocking helper used by FastAPI layer ─────────────────────────────────
 def wait_for_deferred(deferred, timeout=40):
-    try:
-        return deferred.result(timeout=timeout)
-    except Exception as e:
-        print(f"[FATAL] Deferred result timeout or failure: {e}")
-        return {"status": "failed", "error": str(e)}
+    ev = threading.Event()
+    outcome = {"resolved": False, "value": None, "error": None}
+
+    def _ok(res):
+        outcome["resolved"] = True
+        outcome["value"] = res
+        ev.set()
+        return res
+
+    def _err(err):
+        outcome["resolved"] = True
+        outcome["error"] = err
+        ev.set()
+        return err
+
+    deferred.addCallbacks(_ok, _err)
+
+    if not ev.wait(timeout):
+        msg = "deferred timeout"
+        print(f"[FATAL] Deferred result timeout or failure: {msg}")
+        return {"status": "failed", "error": msg}
+
+    if outcome["error"] is not None:
+        err = outcome["error"]
+        err_txt = getattr(getattr(err, "value", err), "message", None) or str(err)
+        print(f"[FATAL] Deferred result timeout or failure: {err_txt}")
+        return {"status": "failed", "error": err_txt}
+
+    return outcome["value"]

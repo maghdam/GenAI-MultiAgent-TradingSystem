@@ -55,6 +55,14 @@ class AgentController:
 
     async def apply_config(self, new_cfg: AgentConfig):
         async with self._lock:
+            restart_needed = (
+                new_cfg.trading_mode != self.config.trading_mode
+                or new_cfg.autotrade != self.config.autotrade
+                or new_cfg.min_confidence != self.config.min_confidence
+                or new_cfg.lot_size_lots != self.config.lot_size_lots
+                or new_cfg.strategy != self.config.strategy
+            )
+
             if not new_cfg.enabled:
                 await self.stop_all()
                 self.config = new_cfg
@@ -65,6 +73,12 @@ class AgentController:
 
             for pair in running - desired: await self._stop_pair(pair)
             for pair in desired - running: await self._start_pair(pair)
+
+            if restart_needed:
+                # restart all currently running pairs so they pick up new settings
+                await asyncio.gather(*(self._stop_pair(pair) for pair in list(self._tasks.keys())))
+                for pair in desired:
+                    await self._start_pair(pair)
 
             self.config = new_cfg
 
