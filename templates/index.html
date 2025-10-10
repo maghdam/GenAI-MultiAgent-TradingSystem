@@ -64,6 +64,10 @@
       <option value="rsi">RSI Divergence</option>
     </select>
 
+    <label class="chip">Lot size
+      <input id="lotSize" type="number" min="0.01" step="0.01" value="0.10" style="width:70px">
+    </label>
+
     <label class="chip"><input id="fastMode" type="checkbox" checked> Fast</label>
     <label class="chip">Bars
       <input id="maxBars" type="number" min="50" max="500" step="50" value="200" style="width:70px">
@@ -452,6 +456,32 @@
     }
 
     let _analysisCtrl = null;
+    let lotSizePrimed = false;
+
+    function clampLotSize(val){
+      const n = Number.parseFloat(val);
+      if (!Number.isFinite(n) || n <= 0) return 0.10;
+      return Math.max(0.01, Math.min(100, Number(n.toFixed(2))));
+    }
+
+    function setLotSizeInput(val, persist = false){
+      const el = document.getElementById('lotSize');
+      if (!el) return;
+      const clamped = clampLotSize(val ?? el.value);
+      el.value = clamped.toFixed(2);
+      if (persist) {
+        localStorage.setItem('lotSize', el.value);
+        lotSizePrimed = true;
+      }
+    }
+
+    function getSelectedLotSize(){
+      const el = document.getElementById('lotSize');
+      if (!el) return 0.10;
+      const clamped = clampLotSize(el.value);
+      el.value = clamped.toFixed(2);
+      return clamped;
+    }
 
     function currentAnalyzeOptions() {
       const fast = document.getElementById('fastMode').checked;
@@ -549,8 +579,10 @@
       if (sig === 'no_trade' || sig === 'flat') return alert('No trade suggested.');
       const symbol = (document.getElementById('symbolDropdown').value || '').trim();
       if (!symbol) return alert('Select a symbol first.');
+      const lotSize = getSelectedLotSize();
+      setLotSizeInput(lotSize, true);
       const payload = {
-        symbol, action: sig === 'long' ? 'BUY' : 'SELL', order_type:'MARKET', volume:0.10,
+        symbol, action: sig === 'long' ? 'BUY' : 'SELL', order_type:'MARKET', volume:lotSize,
         stop_loss: lastAnalysis.sl ?? null, take_profit: lastAnalysis.tp ?? null
       };
       const resp = await fetch('/api/execute_trade', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
@@ -597,12 +629,14 @@
 
     async function callBestEffortEnable(on){
       // Try common endpoints; ignore failures and keep going until one works.
-      const body = { enabled: !!on };
+      const lotSize = getSelectedLotSize();
+      setLotSizeInput(lotSize, true);
+      const body = { enabled: !!on, lot_size_lots: lotSize };
       const tries = [
         () => fetchJSON('/api/agent/enable', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}),
         () => fetchJSON('/api/agent/toggle', { method:'POST' }),
         () => fetchJSON(on ? '/api/agent/start' : '/api/agent/stop', { method:'POST' }),
-        async () => { const c = await getCfg(); c.enabled = !!on; if (!c.watchlist?.length) {
+        async () => { const c = await getCfg(); c.enabled = !!on; c.lot_size_lots = lotSize; if (!c.watchlist?.length) {
                         const sym=(document.getElementById('symbolDropdown').value||'').trim();
                         const tf=document.getElementById('timeframeDropdown').value;
                         if (sym) c.watchlist = [[sym, tf]];
@@ -630,6 +664,9 @@
       const runningTxt = st.running ? 'running' : 'idle';
       document.getElementById('agent-status').textContent = `Agent: ${st.enabled?'ON':'OFF'} (${runningTxt}) • Watchlist: ${w}`;
       document.getElementById('agent-toggle').textContent = st.enabled ? '⏸ Stop Agent' : '▶ Start Agent';
+      if (!lotSizePrimed && st.lot_size_lots != null) {
+        setLotSizeInput(st.lot_size_lots);
+      }
       renderAgentTasks(st.tasks || []);
     }
 
@@ -741,6 +778,21 @@
     }
 
     // ---------- wire-up ----------
+    const lotInput = document.getElementById('lotSize');
+    if (lotInput) {
+      const storedLot = Number.parseFloat(localStorage.getItem('lotSize') || '');
+      if (Number.isFinite(storedLot) && storedLot > 0) {
+        setLotSizeInput(storedLot);
+        lotSizePrimed = true;
+      } else {
+        setLotSizeInput(lotInput.value || 0.10);
+      }
+      lotInput.addEventListener('change', () => {
+        const v = getSelectedLotSize();
+        setLotSizeInput(v, true);
+      });
+    }
+
     document.getElementById('analyzeBtn').addEventListener('click', runAIAnalysis);
     document.getElementById('placeBtn').addEventListener('click', placeOrderFromLLM);
     document.getElementById('symbolDropdown').addEventListener('change', async (e)=>{
