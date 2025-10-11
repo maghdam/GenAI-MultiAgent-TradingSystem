@@ -43,9 +43,13 @@ A full-stack, local-first trading platform that blends live cTrader market data 
 
 ```mermaid
 graph TD
-    subgraph "Autonomous Agent Workflow<br/>"
+    subgraph "Autonomous Agent Workflow"
         direction TB
-        
+
+        %% Invisible node for spacing
+        spacer( ):::hidden
+        spacer ~~~ A
+
         A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
         B --> C[Watcher];
         C -- "Fetches Market Data" --> D[Scout];
@@ -60,6 +64,7 @@ graph TD
         F -- "Journals Trade" --> J((Trade Journal));
     end
 
+    classDef hidden fill:none,stroke:none;
     style A fill:#8ab4f8,stroke:#333,stroke-width:2px,color:#000
     style I fill:#58d68d,stroke:#333,stroke-width:2px,color:#000
     classDef default fill:#11131a,stroke:#8aa1c1,color:#e5e9f0;
