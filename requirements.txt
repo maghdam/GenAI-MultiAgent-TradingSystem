@@ -15,3 +15,4 @@ kaleido
 python-dotenv
 watchfiles
 Pillow
+websockets

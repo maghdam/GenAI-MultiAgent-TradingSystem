@@ -204,9 +204,10 @@ def _parse_trade_decision(content: str, json_only: bool) -> TradeDecision:
     return TradeDecision(**parsed, reasons=[explanation] if explanation else [])
 
 
-def warm_ollama(model: Optional[str] = None) -> None:
-    """Optional: call once at app start to keep model hot."""
+def _warm_ollama_sync(model: Optional[str] = None) -> None:
+    """Synchronous part of the warm-up logic."""
     mdl = (model or MODEL_DEFAULT).strip()
+    print(f"[LLM Warmup] Starting model load for '{mdl}'...")
     try:
         requests.post(
             f"{OLLAMA_URL}/api/generate",
@@ -219,10 +220,17 @@ def warm_ollama(model: Optional[str] = None) -> None:
                 "options": {"num_predict": 8},
                 "keep_alive": KEEP_ALIVE,
             },
-            timeout=(3, 6),
+            timeout=(5, 120),  # Increased read timeout to 120 seconds
         )
-    except Exception:
-        pass
+        print(f"[LLM Warmup] Model '{mdl}' is ready.")
+    except Exception as e:
+        print(f"[LLM Warmup] Failed to warm up model '{mdl}': {e}")
+
+def warm_ollama(model: Optional[str] = None) -> None:
+    """Run the model warmup in a background thread to avoid blocking startup."""
+    import threading
+    thread = threading.Thread(target=_warm_ollama_sync, args=(model,), daemon=True)
+    thread.start()
 
 
 # ==========================================================

@@ -301,6 +301,7 @@ You can configure all of this in the UI drawer or via the API.
 
 ![Dashboard Screenshot](images/Dashboard.png)
 ![Dashboard Screenshot](images/Dashboard2.png)
+![Dashboard Screenshot](images/Dashboard3.png)
 ![Dashboard Screenshot](images/FastAPI.png)
 
 ---

@@ -33,12 +33,15 @@ from backend.agent_state import recent_signals, all_task_status
 from backend.agents.runner import run_agents
 from backend.agent_controller import controller, AgentConfig
 from backend.strategy import get_strategy, available_strategies
+from backend.llm_analyzer import warm_ollama
+from backend.chat.router import router as chat_router
 
 # ──────────────────────────────────────────────────────────────────────────
 # FastAPI app & middleware
 # ──────────────────────────────────────────────────────────────────────────
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.include_router(chat_router, prefix="/api/chat")
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,7 +73,10 @@ def health():
 
 
 @app.on_event("startup")
-async def _maybe_start_agents():
+async def on_startup():
+    # Pre-load the LLM model to avoid cold-start timeouts on first use
+    warm_ollama()
+
     # Start background agents (optional)
     if os.getenv("AGENTS_ENABLED", "false").lower() == "true":
         asyncio.create_task(run_agents())  # don't block server

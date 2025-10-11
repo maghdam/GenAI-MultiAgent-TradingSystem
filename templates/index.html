@@ -51,6 +51,7 @@
     .dot.ok { background:#58d68d; } .dot.bad { background:#ff6b6b; } .dot.wait { background:#8aa1c1; }
     .ghost { opacity:.55; }
   </style>
+  <link rel="stylesheet" href="/static/css/chat.css">
 </head>
 <body>
   <header class="stack">
@@ -176,6 +177,17 @@
     <div id="llmError" class="muted" style="margin-top:10px; display:none;"></div>
   </div>
 
+  <!-- Chat Interface -->
+  <div id="chat-window">
+    <div id="chat-messages"></div>
+    <div id="chat-input-area">
+      <input type="text" id="chat-input" placeholder="Ask the AI..."/>
+      <button id="chat-send">Send</button>
+    </div>
+  </div>
+  <button id="chat-toggle">💬</button>
+
+  <script src="/static/js/chat.js"></script>
   <script>
     // ---------- helpers ----------
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
