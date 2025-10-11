@@ -45,6 +45,12 @@ A full-stack, local-first trading platform that blends live cTrader market data 
   * Lightweight-Charts for candles, indicator overlays (SMA/EMA/VWAP/BB), SL/TP price lines.
   * Status chips for cTrader + LLM health.
   * Signals, Open Positions, Pending Orders side panels.
+* **Conversational AI Assistant**
+
+  * Interact with the platform using natural language (e.g., `buy 0.1 lots of EURUSD`).
+  * Recognizes intents like `place_order`, `get_price`, and `run_analysis`.
+  * Includes a confirmation step for trade execution to prevent mistakes.
+  * Real-time communication via WebSockets.
 * **Configurable model & performance knobs**
 
   * Global defaults via `.env` (e.g., `OLLAMA_MODEL=llava:7b`).
@@ -100,6 +106,9 @@ GenAI-MultiAgent-TradingSystem/
 │  ├─ strategy.py            # Strategy switch & stubs (SMC, RSI divergence; add more here)
 │  ├─ agent_state.py         # In-memory ring buffer of recent signals (for the UI panel)
 │  ├─ agent_controller.py    # Runtime agent config (enabled, interval, min_conf, mode, autotrade, lots)
+│  ├─ chat/
+│  │  ├─ router.py           # WebSocket endpoint for the chat
+│  │  └─ service.py          # Chat logic, intent parsing, trade confirmation
 │  ├─ agents/
 │  │  ├─ runner.py           # Background loop: poll → analyze → emit signal → (optional) execute trades
 │  │  └─ __init__.py
@@ -108,8 +117,11 @@ GenAI-MultiAgent-TradingSystem/
 │  └─ .env                   # Local secrets & model defaults (gitignored)
 ├─ templates/
 │  └─ index.html             # Single-page dashboard (Lightweight-Charts UI + agent controls)
+├─ static/css/
+│  └─ chat.css             # Styles for the chat widget
 ├─ static/js/
-│  └─ lightweight-charts.standalone.production.js
+│  ├─ main.js              # Main dashboard logic
+│  └─ chat.js              # Frontend logic for the chat widget
 ├─ images/                   # README screenshots
 ├─ docker-compose.yml        # Spins up Ollama + backend
 ├─ requirements.txt          # Backend Python deps
@@ -129,8 +141,43 @@ GenAI-MultiAgent-TradingSystem/
 1. UI requests `/api/candles` → backend fetches from cTrader → UI renders chart.
 2. **Manual**: UI posts to `/api/analyze` → backend snapshots chart + SMC features → LLaVA via Ollama → returns `{signal, sl, tp, confidence, reasons}`.
 3. **Agent**: `agents/runner.py` loops over the watchlist on a schedule, repeats step 2, emits signals, and (if `autotrade=true` & mode=`live`) places/updates trades.
+* **Chatbot**: `chat/service.py` receives a message via WebSocket, uses an LLM to determine intent (`place_order`, etc.), and executes the corresponding action, including a confirmation flow for trades.
 
 
+
+---
+
+## 💬 AI Assistant (Chatbot)
+
+The platform includes a conversational AI assistant, accessible via the chat widget in the bottom-right corner. You can interact with the system using natural language to perform key actions.
+
+**Core Capabilities:**
+
+*   **Execute Trades:** Place market orders with a specified volume. All trades require a confirmation step.
+*   **Get Prices:** Ask for the current price of any symbol.
+*   **Run Analysis:** Trigger the main AI analysis for the currently selected symbol and timeframe.
+
+**Example Commands:**
+
+*   `buy 0.1 lots of EURUSD`
+*   `sell 1.5 lots of XAUUSD`
+*   `what's the price of GBPUSD?`
+*   `price for US500`
+*   `run analysis`
+*   `analyze the chart`
+*   `start the agent`
+
+**Example Conversation:**
+
+> **You:** `buy 0.1 lots of EURUSD`
+> 
+> **Assistant:** `You want to BUY 0.1 lots of EURUSD. Is this correct? (yes/no)`
+> 
+> **You:** `yes`
+> 
+> **Assistant:** `✅ Trade executed successfully! ...`
+
+This is powered by a WebSocket backend that uses an LLM to parse your intent and then calls the appropriate service, making the dashboard a truly interactive tool.
 
 ---
 
@@ -262,6 +309,9 @@ You can configure all of this in the UI drawer or via the API.
   * `POST /api/agent/watchlist/add?symbol=XAUUSD&timeframe=H1`
   * `POST /api/agent/watchlist/remove?symbol=XAUUSD&timeframe=H1`
   * `GET /api/agent/signals?n=10`
+* WebSocket
+
+  * `GET /api/chat/ws` – Establishes a WebSocket connection for the AI assistant.
 
 ---
 
@@ -273,6 +323,7 @@ You can configure all of this in the UI drawer or via the API.
 * **SL/TP** lines appear on the chart when provided by the LLM.
 * **Recent Signals** mirrors the latest agent outputs (click a row to preview on the chart).
 * **Open Positions / Pending Orders** update live from cTrader.
+* **AI Assistant** is a chat widget in the bottom-right for conversational trading.
 
 ---
 
