@@ -2,7 +2,7 @@ import logging
 import json
 from backend import data_fetcher
 from backend.strategy import get_strategy
-from backend.llm_analyzer import _ollama_generate, MODEL_DEFAULT
+from backend.llm_analyzer import _ollama_generate, MODEL_DEFAULT, TradeDecision
 
 async def _get_intent(message: str) -> dict:
     """Use an LLM to determine the user's intent and extract entities."""
@@ -30,6 +30,37 @@ Respond with ONLY a single JSON object in the following format and nothing else:
     except Exception as e:
         logging.error(f"Error getting intent from LLM: {e}")
         return {"intent": "error", "detail": str(e)}
+
+async def _summarize_analysis(analysis: TradeDecision) -> str:
+    """Use an LLM to generate a human-readable summary of the analysis."""
+    if not analysis.reasons:
+        return "The analysis did not provide specific reasons for its decision."
+
+    reasons_text = '\n'.join([f'- {r}' for r in analysis.reasons])
+    prompt = f"""You are a trading analyst. Your colleague has produced the following trading signal and technical reasons.
+
+Signal: {analysis.signal}
+Confidence: {analysis.confidence}
+SL: {analysis.sl}
+TP: {analysis.tp}
+
+Technical Reasons:
+{reasons_text}
+
+Your task is to write a concise, one-paragraph explanation of this trade idea for a report. Combine the technical reasons into a fluent, easy-to-understand narrative. Do not just list the reasons; synthesize them."""
+
+    try:
+        summary = _ollama_generate(
+            prompt=prompt,
+            model=MODEL_DEFAULT,
+            timeout=45, # Longer timeout for a more detailed response
+            json_only=False, # We want a text response
+            options_overrides={"num_predict": 128}
+        )
+        return summary
+    except Exception as e:
+        logging.error(f"Error summarizing analysis: {e}")
+        return "I was unable to generate a summary for the analysis."
 
 async def process_message(message: str) -> str:
     """Processes an incoming chat message and returns a response."""
@@ -73,7 +104,9 @@ async def process_message(message: str) -> str:
             # Format the result for the user
             sig = analysis_result.signal.replace('_', ' ').title()
             conf = f"{analysis_result.confidence * 100:.0f}%" if analysis_result.confidence is not None else "N/A"
-            reasons = '\n'.join([f'- {r}' for r in (analysis_result.reasons or [])])
+
+            # NEW: Generate a human-readable summary
+            summary = await _summarize_analysis(analysis_result)
 
             return f"""Analysis Complete for {symbol.upper()}:
 
@@ -82,8 +115,8 @@ Confidence: {conf}
 SL: {analysis_result.sl}
 TP: {analysis_result.tp}
 
-Rationale:
-{reasons}"""
+Summary:
+{summary}"""
 
         except Exception as e:
             logging.error(f"Chat: Error running analysis: {e}")
