@@ -40,6 +40,27 @@ A full-stack, local-first trading platform that blends live cTrader market data 
   * **Executor / Trader** – places/updates/ closes trades (paper or live)
   * **Scribe / Journal Keeper** – records signals (optional Notion/DB hook)
   * **Commander / Supervisor** – orchestrates schedules & watchlists
+
+```mermaid
+graph TD
+    subgraph "Autonomous Agent Workflow"
+        direction TB
+
+        A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
+        B --> C[Watcher];
+        C -- "Fetches Market Data" --> D[Scout];
+        D -- "Detects Patterns & Queries LLM" --> E[Guardian];
+        E -- "Validates Signal (Confidence & Rules)" --> F[Scribe];
+        F -- "Logs Signal" --> G((Signal Log));
+        E -- "Signal is Valid" --> H{Executor};
+        H -- "Autotrade is ON" --> I[cTrader API];
+    end
+
+    style A fill:#8ab4f8,stroke:#333,stroke-width:2px,color:#000
+    style I fill:#58d68d,stroke:#333,stroke-width:2px,color:#000
+    classDef default fill:#11131a,stroke:#8aa1c1,color:#e5e9f0;
+```
+
 * **Fast, smooth charting UI**
 
   * Lightweight-Charts for candles, indicator overlays (SMA/EMA/VWAP/BB), SL/TP price lines.
