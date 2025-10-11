@@ -35,6 +35,8 @@ from backend.agent_controller import controller, AgentConfig
 from backend.strategy import get_strategy, available_strategies
 from backend.llm_analyzer import warm_ollama
 from backend.chat.router import router as chat_router
+from backend.journal import db as journal_db
+from backend.journal.router import router as journal_router
 
 # ──────────────────────────────────────────────────────────────────────────
 # FastAPI app & middleware
@@ -42,6 +44,7 @@ from backend.chat.router import router as chat_router
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(chat_router, prefix="/api/chat")
+app.include_router(journal_router, prefix="/api/journal")
 
 app.add_middleware(
     CORSMiddleware,
@@ -314,6 +317,7 @@ class PlaceOrderRequest(BaseModel):
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    rationale: Optional[str] = None
 
 
 @app.post("/api/execute_trade")
@@ -348,6 +352,17 @@ def execute_trade(order: PlaceOrderRequest):
         )
 
         result = ctd.wait_for_deferred(deferred, timeout=25)
+
+        # Journal the trade
+        journal_db.add_trade_entry(
+            symbol=order.symbol,
+            direction=order.direction,
+            volume=order.volume,
+            entry_price=result.get('price'), # Use actual executed price
+            stop_loss=order.stop_loss,
+            take_profit=order.take_profit,
+            rationale=order.rationale
+        )
 
         if order.order_type.upper() == "MARKET" and (order.stop_loss or order.take_profit):
             print("[INFO] Waiting to amend SL/TP after market execution...")

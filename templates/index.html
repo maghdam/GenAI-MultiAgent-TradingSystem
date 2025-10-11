@@ -52,6 +52,7 @@
     .ghost { opacity:.55; }
   </style>
   <link rel="stylesheet" href="/static/css/chat.css">
+  <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
   <header class="stack">
@@ -171,6 +172,29 @@
   </div>
 
   <div class="box" style="margin: 0 14px 14px;">
+    <h2 class="panel-title">Trade Journal</h2>
+    <div class="journal-table-container">
+        <table class="journal-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Symbol</th>
+                    <th>Direction</th>
+                    <th>Volume</th>
+                    <th>Entry</th>
+                    <th>SL</th>
+                    <th>TP</th>
+                    <th>Rationale</th>
+                </tr>
+            </thead>
+            <tbody id="journal-panel-content">
+                <!-- Trades will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+  </div>
+
+  <div class="box" style="margin: 0 14px 14px;">
     <div style="font-weight:600; margin-bottom:8px;">AI Output</div>
     <div id="llmOutput"></div>
     <div id="llmNarrative"></div>
@@ -188,6 +212,7 @@
   <button id="chat-toggle">💬</button>
 
   <script src="/static/js/chat.js"></script>
+  <script src="/static/js/journal.js"></script>
   <script>
     // ---------- helpers ----------
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
@@ -595,7 +620,8 @@
       setLotSizeInput(lotSize, true);
       const payload = {
         symbol, action: sig === 'long' ? 'BUY' : 'SELL', order_type:'MARKET', volume:lotSize,
-        stop_loss: lastAnalysis.sl ?? null, take_profit: lastAnalysis.tp ?? null
+        stop_loss: lastAnalysis.sl ?? null, take_profit: lastAnalysis.tp ?? null,
+        rationale: lastAnalysis.rationale || (lastAnalysis.reasons || []).join(' ')
       };
       const resp = await fetch('/api/execute_trade', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
       alert(JSON.stringify(await resp.json(), null, 2));

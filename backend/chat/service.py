@@ -5,6 +5,7 @@ from backend import data_fetcher, ctrader_client as ctd
 from backend.strategy import get_strategy
 from backend.agent_controller import controller, AgentConfig
 from backend.llm_analyzer import _ollama_generate, MODEL_DEFAULT, TradeDecision
+from backend.journal import db as journal_db
 
 # In-memory store for pending trade confirmations
 _pending_trades = {}
@@ -89,6 +90,16 @@ async def process_message(message: str, websocket) -> str:
                 volume=volume_units
             )
             result = ctd.wait_for_deferred(deferred, timeout=15)
+
+            # Journal the trade
+            journal_db.add_trade_entry(
+                symbol=trade_details['symbol'],
+                direction=trade_details['direction'].upper(),
+                volume=trade_details['volume'],
+                entry_price=result.get('price'),
+                rationale="Trade placed via chatbot"
+            )
+
             return f"✅ Trade executed successfully! Details: {result}"
         except Exception as e:
             logging.error(f"Chat: Error executing trade: {e}")

@@ -72,6 +72,11 @@ graph TD
   * Recognizes intents like `place_order`, `get_price`, and `run_analysis`.
   * Includes a confirmation step for trade execution to prevent mistakes.
   * Real-time communication via WebSockets.
+
+* **Automatic Trade Journaling**
+
+  * All executed trades (from UI, Agent, or Chatbot) are automatically logged to a local **SQLite database** (`data/journal.db`).
+  * The dashboard features a **Trade Journal** panel that provides a read-only, immutable history of all trading activity.
 * **Configurable model & performance knobs**
 
   * Global defaults via `.env` (e.g., `OLLAMA_MODEL=llava:7b`).
@@ -130,6 +135,9 @@ GenAI-MultiAgent-TradingSystem/
 │  ├─ chat/
 │  │  ├─ router.py           # WebSocket endpoint for the chat
 │  │  └─ service.py          # Chat logic, intent parsing, trade confirmation
+│  ├─ journal/
+│  │  ├─ db.py               # SQLite database connection and queries
+│  │  └─ router.py           # API endpoint for fetching journal entries
 │  ├─ agents/
 │  │  ├─ runner.py           # Background loop: poll → analyze → emit signal → (optional) execute trades
 │  │  └─ __init__.py
@@ -330,9 +338,13 @@ You can configure all of this in the UI drawer or via the API.
   * `POST /api/agent/watchlist/add?symbol=XAUUSD&timeframe=H1`
   * `POST /api/agent/watchlist/remove?symbol=XAUUSD&timeframe=H1`
   * `GET /api/agent/signals?n=10`
+  * `GET /api/agent/status`: Get the current status of all running agent tasks.
+* Journal
+
+  * `GET /api/journal/trades`: Get a list of all recorded trades from the journal.
 * WebSocket
 
-  * `GET /api/chat/ws` – Establishes a WebSocket connection for the AI assistant.
+  * `GET /api/chat/ws`: WebSocket endpoint for the conversational assistant.
 
 ---
 

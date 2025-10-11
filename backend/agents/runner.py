@@ -13,7 +13,7 @@ from backend.agent_state import (
 )
 import backend.ctrader_client as ctd
 from backend.strategy import get_strategy
-
+from backend.journal import db as journal_db
 
 # ---------- status helpers ----------
 def _status(symbol: str, timeframe: str, *, strategy_name: str | None = None, **fields) -> None:
@@ -276,6 +276,18 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                         take_profit=td.tp,
                     )
                     result = ctd.wait_for_deferred(d, timeout=25)
+
+                    # Journal the trade
+                    journal_db.add_trade_entry(
+                        symbol=symbol,
+                        direction=desired_side,
+                        volume=lot_size_lots,
+                        entry_price=result.get('price'),
+                        stop_loss=td.sl,
+                        take_profit=td.tp,
+                        rationale=td.rationale or (td.reasons[0] if td.reasons else None)
+                    )
+
                     push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • order submitted", "order_result": str(result)})
         except Exception as e:
             _push_err(symbol, timeframe, f"order error: {e}", "order_fail", strategy_name)
