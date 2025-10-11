@@ -31,7 +31,7 @@ Respond with ONLY a single JSON object in the following format and nothing else:
         response_text = _ollama_generate(
             prompt=prompt,
             model=MODEL_DEFAULT, 
-            timeout=25, # A longer timeout for chat responses
+            timeout=120, # A longer timeout for chat responses
             json_only=True,
             options_overrides={"num_predict": 48}
         )

@@ -1,6 +1,6 @@
 # 💹 GenAI-MultiAgent-TradingSystem
 
-A full-stack, local-first trading platform that blends live cTrader market data with chart image understanding (LLaVA via Ollama) to produce structured, human-like trade decisions—then executes them automatically via multi-agent workflows.
+A full-stack, local-first trading platform that blends live cTrader market data with chart image understanding (llama3.2 via Ollama) to produce structured, human-like trade decisions—then executes them automatically via multi-agent workflows.
 
 * **Two ways to use it**
 
@@ -15,7 +15,7 @@ A full-stack, local-first trading platform that blends live cTrader market data 
 
 * **Multimodal LLM analysis (keeps chart images)**
 
-  * Uses Plotly→Kaleido to snapshot the chart, compresses to JPEG, and sends it to **LLaVA** together with **last N OHLC rows** and **SMC features**.
+  * Uses Plotly→Kaleido to snapshot the chart, compresses to JPEG, and sends it to **llama3.2** together with **last N OHLC rows** and **SMC features**.
   * Strict, machine-readable output:
 
     ```json
@@ -88,7 +88,7 @@ graph TD
   * The dashboard features a **Trade Journal** panel that provides a read-only, immutable history of all trading activity.
 * **Configurable model & performance knobs**
 
-  * Global defaults via `.env` (e.g., `OLLAMA_MODEL=llava:7b`).
+  * Global defaults via `.env` (e.g., `OLLAMA_MODEL= llama3.2`).
   * Per-request overrides from the UI/backend: `model`, `max_bars`, `max_tokens`, and Ollama `options`.
 
 ---
@@ -114,7 +114,7 @@ graph TD
                 │               │
                 │               ▼
                 │        ┌──────────────┐
-                │        │   Ollama     │  (e.g., llava:7b)
+                │        │   Ollama     │  (e.g., llama3.2)
                 │        └──────────────┘
                 │
                 ▼
@@ -135,7 +135,7 @@ GenAI-MultiAgent-TradingSystem/
 │  ├─ ctrader_client.py      # cTrader TCP/OpenAPI client + order helpers (place/modify, positions, pending)
 │  ├─ data_fetcher.py        # Candle fetcher (symbol/timeframe), thin adapter over cTrader client
 │  ├─ indicators.py          # SMA/EMA/VWAP/Bollinger—merged into /api/candles response
-│  ├─ llm_analyzer.py        # Plotly→image + SMC summary → Ollama (LLaVA) → parse strict trade JSON
+│  ├─ llm_analyzer.py        # Plotly→image + SMC summary → Ollama (llama3.2) → parse strict trade JSON
 │  ├─ smc_features.py        # SMC primitives: CHOCH/BOS, FVG, OB proximity, premium/discount
 │  ├─ symbol_fetcher.py      # Discover available symbols from cTrader
 │  ├─ strategy.py            # Strategy switch & stubs (SMC, RSI divergence; add more here)
@@ -169,15 +169,15 @@ GenAI-MultiAgent-TradingSystem/
 
 ### 🔧 Common edit points
 
-* **Default LLM model**: `backend/.env → OLLAMA_MODEL` (e.g., `llava:7b`).
-  Per-call override via `POST /api/analyze` body: `{"model":"llava:7b","max_bars":200,"max_tokens":256,"options":{...}}`.
+* **Default LLM model**: `backend/.env → OLLAMA_MODEL` (e.g., `llama3.2`).
+  Per-call override via `POST /api/analyze` body: `{"model":"llama3.2","max_bars":200,"max_tokens":256,"options":{...}}`.
 * **Agent behavior**: change in the UI (**Agent Settings**) or programmatically via `/api/agent/config`.
 * **Add a strategy**: extend `backend/strategy.py` + hook into `agents/runner.py` + add to the UI dropdown in `templates/index.html`.
 
 ### 🧭 Code flow (at a glance)
 
 1. UI requests `/api/candles` → backend fetches from cTrader → UI renders chart.
-2. **Manual**: UI posts to `/api/analyze` → backend snapshots chart + SMC features → LLaVA via Ollama → returns `{signal, sl, tp, confidence, reasons}`.
+2. **Manual**: UI posts to `/api/analyze` → backend snapshots chart + SMC features → llama3.2 via Ollama → returns `{signal, sl, tp, confidence, reasons}`.
 3. **Agent**: `agents/runner.py` loops over the watchlist on a schedule, repeats step 2, emits signals, and (if `autotrade=true` & mode=`live`) places/updates trades.
 * **Chatbot**: `chat/service.py` receives a message via WebSocket, uses an LLM to determine intent (`place_order`, etc.), and executes the corresponding action, including a confirmation flow for trades.
 
@@ -223,7 +223,7 @@ This is powered by a WebSocket backend that uses an LLM to parse your intent and
 1. Fetch OHLC from cTrader for the selected symbol/timeframe.
 2. Render a Plotly candlestick chart (same data you see in the UI).
 3. Extract SMC features (CHOCH/BOS, OB proximity, FVG, premium/discount).
-4. Send **the chart image + last N OHLC rows + SMC summary** to **Ollama** (LLaVA).
+4. Send **the chart image + last N OHLC rows + SMC summary** to **Ollama** (llama3.2).
 5. Parse strict JSON (signal, SL, TP, confidence) + a one-line explanation.
 6. Draw **SL/TP lines** on the chart and show the analysis in the panel.
 
@@ -252,7 +252,7 @@ CTRADER_ACCOUNT_ID=...
 
 # ===== LLM =====
 OLLAMA_URL=http://ollama:11434
-OLLAMA_MODEL=llava:7b   # vision model used by default
+OLLAMA_MODEL=llama3.2   # vision model used by default
 
 # Optional defaults
 DEFAULT_SYMBOL=XAUUSD
@@ -282,7 +282,7 @@ Global defaults (in `.env`):
 
 ```ini
 OLLAMA_URL=http://ollama:11434
-OLLAMA_MODEL=llava:7b
+OLLAMA_MODEL=llama3.2
 ```
 
 Per-request overrides (frontend → `/api/analyze`):
@@ -292,7 +292,7 @@ Per-request overrides (frontend → `/api/analyze`):
   "symbol": "XAUUSD",
   "timeframe": "H1",
   "indicators": ["SMA (20)", "EMA (20)"],
-  "model": "llava:7b",
+  "model": "llama3.2",
   "max_bars": 200,
   "max_tokens": 256,
   "options": { "num_thread": 6 }   // passed to Ollama
@@ -301,7 +301,7 @@ Per-request overrides (frontend → `/api/analyze`):
 
 **Tips for speed on CPU**
 
-* Keep `llava:7b` (good balance).
+* Keep `llama3.2` (good balance).
 * Use `max_bars` \~ 150–250 and `max_tokens` \~ 192–256.
 * JPEG chart is auto-compressed for faster upload.
 * Ensure `OLLAMA_URL` points to your running Ollama service (Docker-compose sets this).
@@ -372,7 +372,7 @@ You can configure all of this in the UI drawer or via the API.
 
 ## 🧰 Troubleshooting
 
-* **LLM feels slow on CPU**: use `llava:7b`, reduce `max_bars`/`max_tokens`.
+* **LLM feels slow on CPU**: use `llama3.2`, reduce `max_bars`/`max_tokens`.
 * **Chart image errors**: ensure Kaleido is available in the backend image.
 * **Agent not trading**: set **Mode=Live** and **Autotrade=On**; confirm cTrader is connected and account has permissions.
 * **No symbols**: wait for cTrader to load or verify your credentials in `.env`.
