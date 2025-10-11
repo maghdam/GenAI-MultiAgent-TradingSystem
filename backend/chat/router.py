@@ -10,7 +10,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            response = await process_message(data)
+            response = await process_message(data, websocket)
             await manager.send_personal_message(response, websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)

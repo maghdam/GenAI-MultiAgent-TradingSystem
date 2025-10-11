@@ -1,8 +1,13 @@
 import logging
 import json
-from backend import data_fetcher
+from dataclasses import asdict
+from backend import data_fetcher, ctrader_client as ctd
 from backend.strategy import get_strategy
+from backend.agent_controller import controller, AgentConfig
 from backend.llm_analyzer import _ollama_generate, MODEL_DEFAULT, TradeDecision
+
+# In-memory store for pending trade confirmations
+_pending_trades = {}
 
 async def _get_intent(message: str) -> dict:
     """Use an LLM to determine the user's intent and extract entities."""
@@ -10,10 +15,11 @@ async def _get_intent(message: str) -> dict:
 
 The user said: '{message}'
 
-Possible intents are 'get_price', 'run_analysis', 'help', or 'unknown'.
+Possible intents are 'get_price', 'run_analysis', 'start_agents', 'stop_agents', 'get_agent_status', 'place_order', 'confirm_action', 'cancel_action', 'help', or 'unknown'.
 
 - If the intent is 'get_price', extract the 'symbol'.
 - If the intent is 'run_analysis', extract the 'symbol', 'timeframe', and 'strategy'.
+- If the intent is 'place_order', extract the 'symbol', 'direction' (buy/sell), and 'volume' (in lots).
 
 Respond with ONLY a single JSON object in the following format and nothing else:
 {{"intent": "<intent>", "symbol": "<symbol or null>", "timeframe": "<timeframe or null>", "strategy": "<strategy or null>"}}"""
@@ -62,9 +68,34 @@ Your task is to write a concise, one-paragraph explanation of this trade idea fo
         logging.error(f"Error summarizing analysis: {e}")
         return "I was unable to generate a summary for the analysis."
 
-async def process_message(message: str) -> str:
+async def process_message(message: str, websocket) -> str:
     """Processes an incoming chat message and returns a response."""
     logging.info(f"Processing chat message: '{message}'")
+
+    # First, check if this is a confirmation for a pending trade
+    client_id = websocket.client.host
+    if client_id in _pending_trades and message.lower() in ["yes", "y"]:
+        trade_details = _pending_trades.pop(client_id)
+        try:
+            symbol_id = ctd.symbol_name_to_id[trade_details['symbol'].upper()]
+            volume_units = ctd.volume_lots_to_units(symbol_id, trade_details['volume'])
+
+            deferred = ctd.place_order(
+                client=ctd.client,
+                account_id=ctd.ACCOUNT_ID,
+                symbol_id=symbol_id,
+                order_type="MARKET",
+                side=trade_details['direction'].upper(),
+                volume=volume_units
+            )
+            result = ctd.wait_for_deferred(deferred, timeout=15)
+            return f"✅ Trade executed successfully! Details: {result}"
+        except Exception as e:
+            logging.error(f"Chat: Error executing trade: {e}")
+            return f"❌ Failed to execute trade. Error: {e}"
+    elif client_id in _pending_trades:
+        _pending_trades.pop(client_id) # Clear pending trade on any other message
+        return "Trade cancelled."
     
     intent_data = await _get_intent(message)
     intent = intent_data.get("intent")
@@ -122,10 +153,66 @@ Summary:
             logging.error(f"Chat: Error running analysis: {e}")
             return f"I hit an error while trying to analyze {symbol.upper()}: {e}"
 
+    elif intent == "start_agents":
+        current_config = controller.config
+        new_config = AgentConfig(**asdict(current_config))
+        new_config.enabled = True
+        await controller.apply_config(new_config)
+        return "🤖 Agents have been enabled. They will start running based on the current watchlist."
+
+    elif intent == "stop_agents":
+        await controller.stop_all()
+        current_config = controller.config
+        new_config = AgentConfig(**asdict(current_config))
+        new_config.enabled = False
+        await controller.apply_config(new_config)
+        return "🛑 Agents have been disabled and all running tasks have been stopped."
+
+    elif intent == "place_order":
+        symbol = intent_data.get("symbol")
+        direction = intent_data.get("direction")
+        volume = intent_data.get("volume")
+
+        if not all([symbol, direction, volume]):
+            return "I can place a trade, but I need a symbol, direction (buy/sell), and volume (in lots)."
+
+        try:
+            volume = float(volume)
+        except (ValueError, TypeError):
+            return f"The volume '{volume}' doesn't look like a valid number."
+
+        # Store the pending trade and ask for confirmation
+        _pending_trades[websocket.client.host] = {
+            "symbol": symbol,
+            "direction": direction,
+            "volume": volume
+        }
+        return f"You want to {direction.upper()} {volume} lots of {symbol.upper()}. Is this correct? (yes/no)"
+
+    elif intent == "get_agent_status":
+        snap = await controller.snapshot()
+        cfg = snap.get("config") or {}
+        running_pairs = snap.get("running_pairs") or []
+        enabled = cfg.get("enabled", False)
+
+        status_text = "✅ Enabled" if enabled else "❌ Disabled"
+        pairs_text = ', '.join([f'{s}/{tf}' for s, tf in running_pairs]) if running_pairs else "none"
+        watchlist_text = ', '.join([f'{s}/{tf}' for s, tf in cfg.get('watchlist', [])]) if cfg.get('watchlist') else "not set"
+
+
+        return f"""Agent Status:
+- Main switch: {status_text}
+- Running pairs: {pairs_text}
+- Watchlist: {watchlist_text}
+- Strategy: {cfg.get('strategy')}
+- Confidence threshold: {cfg.get('min_confidence')}"""
+
     elif intent == "help":
         return """I can help with the following:
 - Get asset prices (e.g., 'price of gold?')
 - Run analysis (e.g., 'analyze EURUSD on H1 with smc')
+- Start, stop, or get the status of the trading agents.
+- Execute trades with confirmation (e.g., 'buy 0.1 lots of EURUSD')
 """
     
     elif intent == "error":
