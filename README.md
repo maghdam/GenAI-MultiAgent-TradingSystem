@@ -46,6 +46,7 @@ graph TD
     subgraph "Autonomous Agent Workflow"
         direction TB
 
+        
         A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
         B --> C[Watcher];
         C -- "Fetches Market Data" --> D[Scout];
