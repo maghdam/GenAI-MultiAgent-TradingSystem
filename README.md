@@ -43,9 +43,8 @@ A full-stack, local-first trading platform that blends live cTrader market data 
 
 ```mermaid
 graph TD
-    subgraph "Autonomous Agent Workflow"
+    subgraph "Autonomous Agent Workflow<br/>"
         direction TB
-
         
         A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
         B --> C[Watcher];
