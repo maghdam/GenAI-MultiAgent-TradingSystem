@@ -44,6 +44,7 @@ A full-stack, local-first trading platform that blends live cTrader market data 
 ```mermaid
 graph TD
     subgraph "Autonomous Agent Workflow"
+    
         direction TB
 
         A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
@@ -383,7 +384,8 @@ You can configure all of this in the UI drawer or via the API.
 
 ## 📸 Dashboard Example
 
-![Dashboard Screenshot](images/Dashboard.png)
+![Dashboard Screenshot](images/Dashboard0.png)
+![Dashboard Screenshot](images/Dashboard1.png)
 ![Dashboard Screenshot](images/Dashboard2.png)
 ![Dashboard Screenshot](images/Dashboard3.png)
 ![Dashboard Screenshot](images/FastAPI.png)
