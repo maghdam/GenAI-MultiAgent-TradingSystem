@@ -44,17 +44,20 @@ A full-stack, local-first trading platform that blends live cTrader market data 
 ```mermaid
 graph TD
     subgraph "Autonomous Agent Workflow"
-    
         direction TB
 
         A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
         B --> C[Watcher];
         C -- "Fetches Market Data" --> D[Scout];
         D -- "Detects Patterns & Queries LLM" --> E[Guardian];
-        E -- "Validates Signal (Confidence & Rules)" --> F[Scribe];
+        
+        E -- "All Signals" --> F(Scribe);
         F -- "Logs Signal" --> G((Signal Log));
-        E -- "Signal is Valid" --> H{Executor};
+        
+        E -- "Signal is Valid" --> H(Executor);
         H -- "Autotrade is ON" --> I[cTrader API];
+        H -- "Trade Executed" --> F;
+        F -- "Journals Trade" --> J((Trade Journal));
     end
 
     style A fill:#8ab4f8,stroke:#333,stroke-width:2px,color:#000
