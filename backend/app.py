@@ -1,4 +1,12 @@
-# app.py
+# MONKEY-PATCH: Fix for Twisted dependency issue in ctrader-open-api
+# The version of Twisted required by ctrader-open-api has a bug where
+# CertificateOptions is not imported. We inject it here before it's used.
+try:
+    from twisted.internet import ssl, endpoints
+    if not hasattr(endpoints, 'CertificateOptions'):
+        endpoints.CertificateOptions = ssl.CertificateOptions
+except ImportError:
+    pass # If twisted isn't installed, app will fail later with a clearer error.
 
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware

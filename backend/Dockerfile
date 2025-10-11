@@ -30,7 +30,12 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
+# Make port 8000 available to the world outside this container
+EXPOSE 8000
 
+# Copy the start script and make it executable
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
-EXPOSE 4000
-CMD ["uvicorn","backend.app:app","--host","0.0.0.0","--port","4000","--reload","--reload-dir","/app/backend","--reload-dir","/app/templates"]
+# Run the start script when the container launches
+CMD ["/app/start.sh"]

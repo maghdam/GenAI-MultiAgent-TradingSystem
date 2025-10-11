@@ -20,7 +20,7 @@ services:
   llm-smc:
     container_name: llm-smc
     build:
-      context: .
+      context: /
       dockerfile: backend/Dockerfile
     ports:
       - "4000:4000"              # expose the web UI

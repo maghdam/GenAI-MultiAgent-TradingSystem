@@ -6,6 +6,7 @@ from backend.strategy import get_strategy
 from backend.agent_controller import controller, AgentConfig
 from backend.llm_analyzer import _ollama_generate, MODEL_DEFAULT, TradeDecision
 from backend.journal import db as journal_db
+from backend import web_search
 
 # In-memory store for pending trade confirmations
 _pending_trades = {}
@@ -16,20 +17,21 @@ async def _get_intent(message: str) -> dict:
 
 The user said: '{message}'
 
-Possible intents are 'get_price', 'run_analysis', 'start_agents', 'stop_agents', 'get_agent_status', 'place_order', 'confirm_action', 'cancel_action', 'help', or 'unknown'.
+Possible intents are 'get_price', 'run_analysis', 'start_agents', 'stop_agents', 'get_agent_status', 'place_order', 'confirm_action', 'cancel_action', 'get_news', 'help', or 'unknown'.
 
 - If the intent is 'get_price', extract the 'symbol'.
 - If the intent is 'run_analysis', extract the 'symbol', 'timeframe', and 'strategy'.
 - If the intent is 'place_order', extract the 'symbol', 'direction' (buy/sell), and 'volume' (in lots).
+- If the intent is 'get_news', extract the 'topic' or 'symbol'.
 
 Respond with ONLY a single JSON object in the following format and nothing else:
-{{"intent": "<intent>", "symbol": "<symbol or null>", "timeframe": "<timeframe or null>", "strategy": "<strategy or null>"}}"""
+{{"intent": "<intent>", "symbol": "<symbol or null>", "topic": "<topic or null>", "timeframe": "<timeframe or null>", "strategy": "<strategy or null>"}}"""
 
     try:
         response_text = _ollama_generate(
             prompt=prompt,
             model=MODEL_DEFAULT, 
-            timeout=15, # A shorter timeout for quick chat responses
+            timeout=25, # A longer timeout for chat responses
             json_only=True,
             options_overrides={"num_predict": 48}
         )
@@ -199,6 +201,18 @@ Summary:
             "volume": volume
         }
         return f"You want to {direction.upper()} {volume} lots of {symbol.upper()}. Is this correct? (yes/no)"
+
+    elif intent == "get_news":
+        topic = intent_data.get("topic") or intent_data.get("symbol")
+        # If no specific topic, default to a general one
+        if not topic:
+            topic = "global financial markets"
+        
+        # This can be slow, so let the user know we're working on it
+        await websocket.send_text(f"Searching for news on '{topic}'... This may take a moment.")
+        
+        summary = await web_search.get_news_summary(topic)
+        return summary
 
     elif intent == "get_agent_status":
         snap = await controller.snapshot()

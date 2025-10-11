@@ -75,12 +75,12 @@ graph TD
   * Lightweight-Charts for candles, indicator overlays (SMA/EMA/VWAP/BB), SL/TP price lines.
   * Status chips for cTrader + LLM health.
   * Signals, Open Positions, Pending Orders side panels.
-* **Conversational AI Assistant**
+* **Hybrid Analysis Chatbot**
 
-  * Interact with the platform using natural language (e.g., `buy 0.1 lots of EURUSD`).
-  * Recognizes intents like `place_order`, `get_price`, and `run_analysis`.
-  * Includes a confirmation step for trade execution to prevent mistakes.
-  * Real-time communication via WebSockets.
+  * Blends technical and fundamental analysis in a conversational interface.
+  * **Technical:** `get_price`, `run_analysis`, `place_order`.
+  * **Fundamental:** `news for [symbol/topic]` (e.g., "news on US inflation").
+  * **Agent Control:** `start_agents`, `stop_agents`, `get_agent_status`.
 
 * **Automatic Trade Journaling**
 
@@ -191,19 +191,18 @@ The platform includes a conversational AI assistant, accessible via the chat wid
 
 **Core Capabilities:**
 
-*   **Execute Trades:** Place market orders with a specified volume. All trades require a confirmation step.
-*   **Get Prices:** Ask for the current price of any symbol.
-*   **Run Analysis:** Trigger the main AI analysis for the currently selected symbol and timeframe.
-
-**Example Commands:**
-
-*   `buy 0.1 lots of EURUSD`
-*   `sell 1.5 lots of XAUUSD`
-*   `what's the price of GBPUSD?`
-*   `price for US500`
-*   `run analysis`
-*   `analyze the chart`
-*   `start the agent`
+*   **Technical Analysis & Trading:**
+    *   `buy 0.1 lots of EURUSD`
+    *   `sell 1.5 lots of XAUUSD`
+    *   `what's the price of GBPUSD?`
+    *   `run analysis on the current chart`
+*   **Fundamental Analysis:**
+    *   `news for EURUSD`
+    *   `what's the latest on US inflation?`
+*   **Agent & System Control:**
+    *   `start agents`
+    *   `stop agents`
+    *   `what is the agent status?`
 
 **Example Conversation:**
 
@@ -380,8 +379,13 @@ You can configure all of this in the UI drawer or via the API.
 
 ---
 
+## 🔧 Stability & Reliability
+
+This project uses specific versions of its dependencies to ensure stability. Recent updates have resolved complex dependency conflicts related to the `Twisted` library, ensuring a smooth and reliable startup experience in the Docker environment.
+
 ## 🗺️ Roadmap
 
+* [x] **Fundamental Analysis:** Integrate news and event data into the chatbot.
 * [ ] More strategies (MACD, Volume Profile, Order Flow)
 * [ ] Backtesting & walk-forward
 * [ ] Message-bus multi-agent comms + memory
