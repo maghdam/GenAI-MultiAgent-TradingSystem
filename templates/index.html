@@ -574,7 +574,7 @@
     async function runAIAnalysis() {
       if (_analysisCtrl) return; // already running
 
-      const symbol     = (document.getElementById('symbolDropdown').value || '').trim();
+      const symbol     = (currentSymbol || '').trim();
       const timeframe  = document.getElementById('timeframeDropdown').value;
       const strategy   = document.getElementById('strategyDropdown').value;
       const inds       = [];
@@ -647,7 +647,7 @@
       if (!lastAnalysis || !lastAnalysis.signal) return alert('⚠️ No parsed analysis. Run AI Analysis first.');
       const sig = (lastAnalysis.signal || '').toLowerCase();
       if (sig === 'no_trade' || sig === 'flat') return alert('No trade suggested.');
-      const symbol = (document.getElementById('symbolDropdown').value || '').trim();
+      const symbol = (currentSymbol || '').trim();
       if (!symbol) return alert('Select a symbol first.');
       const lotSize = getSelectedLotSize();
       setLotSizeInput(lotSize, true);
@@ -708,7 +708,7 @@
         () => fetchJSON('/api/agent/toggle', { method:'POST' }),
         () => fetchJSON(on ? '/api/agent/start' : '/api/agent/stop', { method:'POST' }),
         async () => { const c = await getCfg(); c.enabled = !!on; c.lot_size_lots = lotSize; if (!c.watchlist?.length) {
-                        const sym=(document.getElementById('symbolDropdown').value||'').trim();
+                        const sym=(currentSymbol || '').trim();
                         const tf=document.getElementById('timeframeDropdown').value;
                         if (sym) c.watchlist = [[sym, tf]];
                       } return setCfg(c); },
@@ -937,7 +937,7 @@
     document.getElementById('cfg-close').onclick   = () => drawer.style.display = 'none';
     document.getElementById('agent-add').onclick = async ()=>{
       try{
-        const symbol=(document.getElementById('symbolDropdown').value||'').trim();
+        const symbol=(currentSymbol || '').trim();
         const timeframe=document.getElementById('timeframeDropdown').value;
         if(!symbol) return alert('Pick a symbol first.');
         await fetchJSON(`/api/agent/watchlist/add?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`,{method:'POST'});
@@ -952,7 +952,7 @@
         const turnOn = !st.enabled;
         // ensure watchlist has at least one pair
         if (turnOn && (!st.watchlist || !st.watchlist.length)) {
-          const symbol=(document.getElementById('symbolDropdown').value||'').trim();
+          const symbol=(currentSymbol || '').trim();
           const timeframe=document.getElementById('timeframeDropdown').value;
           if (symbol) await fetchJSON(`/api/agent/watchlist/add?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`,{method:'POST'});
         }
