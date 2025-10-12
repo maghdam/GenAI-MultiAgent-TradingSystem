@@ -10,9 +10,25 @@
     * { box-sizing: border-box; }
     body { background:var(--bg); color:#e5e9f0; margin:0; font-family:system-ui, Segoe UI, Roboto, sans-serif; }
     header { padding:12px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#0e1117; position:sticky; top:0; z-index:10; }
-    select, input[type="number"], input[type="checkbox"], button, .chip {
+    select, input, input[type="number"], input[type="checkbox"], button, .chip {
       background:#151823; color:#e5e9f0; border:1px solid #22283a; border-radius:8px; padding:8px 10px;
     }
+    #symbolSearch { width: 100%; margin-bottom: 8px; }
+    .custom-select-wrapper { position: relative; width: 200px; }
+    .custom-select-trigger {
+      display: block; width: 100%; background: #151823; color: #e5e9f0; border: 1px solid #22283a;
+      border-radius: 8px; padding: 8px 10px; cursor: pointer; user-select: none;
+    }
+    .custom-options {
+      display: none; position: absolute; top: 100%; left: 0; right: 0; background: #151823;
+      border: 1px solid #22283a; border-radius: 0 0 8px 8px; max-height: 600px; overflow-y: auto; z-index: 100;
+    }
+    .custom-options.open { display: block; }
+    .custom-option {
+      padding: 8px 10px; cursor: pointer;
+    }
+    .custom-option:hover, .custom-option.selected { background-color: #1b2437; }
+    .custom-option.hidden { display: none; }
     button.btn { cursor:pointer; transition:transform .02s ease; }
     button.btn:active { transform:translateY(1px); }
     .btn.primary { background:#1b2437; border-color:#2a3550; }
@@ -56,7 +72,13 @@
 </head>
 <body>
   <header class="stack">
-    <select id="symbolDropdown" title="Symbol"></select>
+    <div class="custom-select-wrapper">
+      <div id="symbolDropdownTrigger" class="custom-select-trigger">Select Symbol</div>
+      <div id="symbolDropdownOptions" class="custom-options">
+        <input type="text" id="symbolSearch" placeholder="Search...">
+        <div id="symbolList"></div>
+      </div>
+    </div>
     <select id="timeframeDropdown" title="Timeframe">
       <option value="M1">M1</option><option value="M5">M5</option><option value="M15">M15</option>
       <option value="H1">H1</option><option value="H4">H4</option><option value="D1">D1</option>
@@ -216,6 +238,17 @@
   <script>
     // ---------- helpers ----------
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
     async function fetchJSON(url, opts) {
       const r = await fetch(url, opts);
       if (!r.ok) {
@@ -322,7 +355,7 @@
       }
     }
     async function fetchCandles(forceFull=false) {
-      const symbol    = (document.getElementById('symbolDropdown').value || '').trim();
+      const symbol    = (currentSymbol || '').trim();
       const timeframe = document.getElementById('timeframeDropdown').value;
       if (!symbol) return;
       const url = buildCandlesURL(symbol, timeframe, selectedIndicators());
@@ -832,11 +865,61 @@
     }
 
     document.getElementById('analyzeBtn').addEventListener('click', runAIAnalysis);
-    document.getElementById('placeBtn').addEventListener('click', placeOrderFromLLM);
-    document.getElementById('symbolDropdown').addEventListener('change', async (e)=>{
-      localStorage.setItem('symbol', e.target.value || '');
-      await fetchCandles(true);
+    let allSymbols = [];
+    let currentSymbol = '';
+
+    const symbolDropdownTrigger = document.getElementById('symbolDropdownTrigger');
+    const symbolDropdownOptions = document.getElementById('symbolDropdownOptions');
+    const symbolSearch = document.getElementById('symbolSearch');
+    const symbolList = document.getElementById('symbolList');
+
+    function selectSymbol(symbol) {
+      if (currentSymbol !== symbol) {
+        currentSymbol = symbol;
+        symbolDropdownTrigger.textContent = symbol;
+        localStorage.setItem('symbol', symbol);
+        document.dispatchEvent(new CustomEvent('symbolChanged', { detail: { symbol } }));
+      }
+      symbolDropdownOptions.classList.remove('open');
+    }
+
+    function populateSymbolList(symbols) {
+      symbolList.innerHTML = '';
+      symbols.forEach(sym => {
+        const option = document.createElement('div');
+        option.classList.add('custom-option');
+        option.textContent = sym;
+        option.dataset.value = sym;
+        if (sym === currentSymbol) {
+          option.classList.add('selected');
+        }
+        option.addEventListener('click', () => selectSymbol(sym));
+        symbolList.appendChild(option);
+      });
+    }
+
+    symbolDropdownTrigger.addEventListener('click', () => {
+      symbolDropdownOptions.classList.toggle('open');
+      if (symbolDropdownOptions.classList.contains('open')) {
+        symbolSearch.focus();
+      }
     });
+
+    symbolSearch.addEventListener('input', debounce((e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      const filtered = allSymbols.filter(s => s.toLowerCase().includes(searchTerm));
+      populateSymbolList(filtered);
+    }, 250));
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.custom-select-wrapper')) {
+        symbolDropdownOptions.classList.remove('open');
+      }
+    });
+
+    document.addEventListener('symbolChanged', () => fetchCandles(true));
+
+    document.getElementById('placeBtn').addEventListener('click', placeOrderFromLLM);
     document.getElementById('timeframeDropdown').addEventListener('change', async (e)=>{
       localStorage.setItem('timeframe', e.target.value || '');
       await fetchCandles(true);
@@ -901,17 +984,21 @@
     // ---------- boot ----------
     async function loadSymbols(){
       const payload = await fetchJSON('/api/symbols');
-      const symbols = payload.symbols || [];
+      allSymbols = (payload.symbols || []).slice().sort();
       const def = payload.default || '';
-      const dd = document.getElementById('symbolDropdown');
-      dd.innerHTML = '';
-      symbols.slice().sort().forEach(sym=>{
-        const o=document.createElement('option'); o.value=sym; o.textContent=sym; dd.appendChild(o);
-      });
+
       const savedSym = localStorage.getItem('symbol');
-      const start = (savedSym && symbols.includes(savedSym)) ? savedSym
-                    : (['XAUUSD','EURUSD','NAS100','SPX500'].find(s=>symbols.includes(s)) || def || symbols[0] || '');
-      if (start) { dd.value = start; localStorage.setItem('symbol', start); }
+      const start = (savedSym && allSymbols.includes(savedSym)) ? savedSym
+                    : (['XAUUSD','EURUSD','NAS100','SPX500'].find(s=>allSymbols.includes(s)) || def || allSymbols[0] || '');
+
+      if (start) {
+        currentSymbol = start;
+        symbolDropdownTrigger.textContent = start;
+        localStorage.setItem('symbol', start);
+      }
+
+      populateSymbolList(allSymbols);
+
       const savedTf = localStorage.getItem('timeframe');
       if (savedTf) document.getElementById('timeframeDropdown').value = savedTf;
     }
