@@ -30,12 +30,13 @@ _ANALYZE_LOCK = asyncio.Semaphore(1)
 
 class TradeDecision:
     def __init__(self, signal: str, sl: float = None, tp: float = None,
-                 confidence: float = None, reasons: Optional[List[str]] = None):
+                 confidence: float = None, reasons: Optional[List[str]] = None, rationale: str = ''):
         self.signal = signal
         self.sl = sl
         self.tp = tp
         self.confidence = confidence
         self.reasons = reasons or []
+        self.rationale = rationale or ' '.join(self.reasons)
 
     def dict(self):
         return {
@@ -44,6 +45,7 @@ class TradeDecision:
             "tp": self.tp,
             "confidence": self.confidence,
             "reasons": self.reasons,
+            "rationale": self.rationale,
         }
 
 
