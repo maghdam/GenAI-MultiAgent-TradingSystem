@@ -1,0 +1,1 @@
+{"enabled": false, "watchlist": [], "interval_sec": 60, "min_confidence": 0.65, "trading_mode": "paper", "autotrade": false, "lot_size_lots": 0.1, "strategy": "smc"}

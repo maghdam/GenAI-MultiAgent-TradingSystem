@@ -49,6 +49,8 @@ symbol_name_to_id     : dict[str, int] = {}   # {name.upper(): id}
 symbol_digits_map     : dict[int, int] = {}   # {id: digits}
 symbol_min_volume_map : dict[int, int] = {}   # {id: minimum volume in units}
 symbol_step_volume_map: dict[int, int] = {}   # {id: step volume in units}
+symbol_max_volume_map: dict[int, int] = {}   # {id: maximum volume in units}
+symbol_lot_size_map: dict[int, int] = {}   # {id: lot size in units}
 
 # Optional fallback if cTrader rejects symbol list (e.g., invalid credentials or maintenance)
 _fallback_symbols_cfg = os.getenv("CTRADER_FALLBACK_SYMBOLS", "XAUUSD,EURUSD,GBPUSD,US500").strip()
@@ -58,19 +60,18 @@ FALLBACK_SYMBOLS = [s.strip().upper() for s in _fallback_symbols_cfg.split(",") 
 CONNECTED = False
 
 _PRICE_FACTOR = 100_000
-_UNITS_PER_LOT = 100_000           # base units (1 lot)
 _VOLUME_PRECISION = 100            # cTrader volumes are expressed in 1/100 units
-_API_VOLUME_PER_LOT = _UNITS_PER_LOT * _VOLUME_PRECISION  # 10,000,000
 
 def _px(x):
     """Convert float price → cTrader int format (e.g., 1.0935 → 109350)."""
     return int(round(float(x) * _PRICE_FACTOR)) if x is not None else None
 
 
-def _lots_to_units(lots: float | int | None) -> int | None:
+def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
     if lots is None:
         return None
-    return int(round(float(lots) * _UNITS_PER_LOT))
+    lot_size = symbol_lot_size_map.get(symbol_id) or 100_000
+    return int(round(float(lots) * lot_size))
 
 
 def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
@@ -82,22 +83,30 @@ def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
     if lots_val <= 0:
         raise ValueError("Lot size must be greater than zero")
 
-    api_volume = int(round(lots_val * _API_VOLUME_PER_LOT))
-    min_api = symbol_min_volume_map.get(symbol_id) or (_API_VOLUME_PER_LOT // 100)
+    lot_size = symbol_lot_size_map.get(symbol_id) or 100_000
+    api_volume = int(round(lots_val * lot_size * _VOLUME_PRECISION))
+
+    min_api = symbol_min_volume_map.get(symbol_id) or (lot_size * _VOLUME_PRECISION // 100)
     step_api = symbol_step_volume_map.get(symbol_id) or min_api
+    max_api = symbol_max_volume_map.get(symbol_id)
 
     if api_volume < min_api:
         raise ValueError(
-            f"Lot size too small for symbol; minimum is {min_api / _API_VOLUME_PER_LOT:.2f} lots"
+            f"Lot size too small for symbol; minimum is {min_api / (lot_size * _VOLUME_PRECISION):.2f} lots"
+        )
+
+    if max_api is not None and api_volume > max_api:
+        raise ValueError(
+            f"Lot size too large for symbol; maximum is {max_api / (lot_size * _VOLUME_PRECISION):.2f} lots"
         )
 
     if api_volume % step_api:
         raise ValueError(
-            f"Lot size must align to step {step_api / _API_VOLUME_PER_LOT:.2f} lots"
+            f"Lot size must align to step {step_api / (lot_size * _VOLUME_PRECISION):.2f} lots"
         )
 
     print(
-        f"[VOLUME] symbol_id={symbol_id} lots={lots_val} api_volume={api_volume} min={min_api} step={step_api}"
+        f"[VOLUME] symbol_id={symbol_id} lots={lots_val} api_volume={api_volume} min={min_api} step={step_api} max={max_api}"
     )
     return api_volume
 
@@ -111,24 +120,26 @@ def on_error(failure):
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
 def _install_fallback_symbols(reason: str | None = None):
-    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map
+    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map
     print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
-    symbol_min_volume_map.clear(); symbol_step_volume_map.clear()
+    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear()
     for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
         symbol_map[idx] = name
         symbol_name_to_id[name] = idx
         symbol_digits_map[idx] = 5
-        symbol_min_volume_map[idx] = _API_VOLUME_PER_LOT // 100  # 0.01 lot
-        symbol_step_volume_map[idx] = _API_VOLUME_PER_LOT // 100
+        lot_size = 100_000 if name in ["EURUSD", "GBPUSD"] else 100 # A guess for others
+        symbol_lot_size_map[idx] = lot_size
+        symbol_min_volume_map[idx] = lot_size * _VOLUME_PRECISION // 100
+        symbol_step_volume_map[idx] = lot_size * _VOLUME_PRECISION // 100
+        symbol_max_volume_map[idx] = 500 * lot_size * _VOLUME_PRECISION
     if symbol_map:
         print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
 
-
 def symbols_response_cb(res):
-    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map
+    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
-    symbol_min_volume_map.clear(); symbol_step_volume_map.clear()
+    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear()
 
     symbols = Protobuf.extract(res)
     # Some responses are error envelopes instead of the expected list
@@ -145,10 +156,19 @@ def symbols_response_cb(res):
         symbol_digits_map[s.symbolId]           = digits
         min_vol_raw = getattr(s, "minVolume", None) or getattr(s, "min_volume", None)
         step_vol_raw = getattr(s, "stepVolume", None) or getattr(s, "step_volume", None)
-        min_api = max(1, int(min_vol_raw or (_API_VOLUME_PER_LOT // 100)))
-        step_api = max(1, int(step_vol_raw or min_vol_raw or (_API_VOLUME_PER_LOT // 100)))
+        max_vol_raw = getattr(s, "maxVolume", None) or getattr(s, "max_volume", None)
+        lot_size_raw = getattr(s, "lotSize", None) or getattr(s, "lot_size", None)
+        
+        lot_size = int(lot_size_raw or 100_000)
+        symbol_lot_size_map[s.symbolId] = lot_size
+
+        min_api = max(1, int(min_vol_raw or (lot_size * _VOLUME_PRECISION // 100)))
+        step_api = max(1, int(step_vol_raw or min_vol_raw or (lot_size * _VOLUME_PRECISION // 100)))
+        max_api = int(max_vol_raw or (500 * lot_size * _VOLUME_PRECISION))
+        
         symbol_min_volume_map[s.symbolId] = min_api
         symbol_step_volume_map[s.symbolId] = step_api
+        symbol_max_volume_map[s.symbolId] = max_api
         loaded += 1
 
     if loaded == 0:
@@ -180,6 +200,7 @@ def _on_disconnected(c, reason):
     global CONNECTED
     CONNECTED = False
     print("[INFO] Disconnected:", reason)
+
 
 def _log_event(event) -> None:
     try:
@@ -363,8 +384,8 @@ def place_order(
     tp_price = take_profit
 
     if order_type.upper() in ("LIMIT", "STOP"):
-        if stop_loss   is not None: req.stopLoss   = _px(stop_loss)
-        if take_profit is not None: req.takeProfit = _px(take_profit)
+        if stop_loss   is not None: req.stopLoss   = stop_loss
+        if take_profit is not None: req.takeProfit = take_profit
     else:
         # MARKET: defer SL/TP to post-fill amendment so we can use absolute prices
         stop_loss = None
@@ -425,8 +446,8 @@ def place_order(
 # ── amend helpers ──────────────────────────────────────────────────────────
 def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_profit=None):
     req = ProtoOAAmendPositionSLTPReq(ctidTraderAccountId = account_id, positionId = position_id)
-    if stop_loss   is not None: req.stopLoss   = _px(stop_loss)
-    if take_profit is not None: req.takeProfit = _px(take_profit)
+    if stop_loss   is not None: req.stopLoss   = stop_loss
+    if take_profit is not None: req.takeProfit = take_profit
     return client.send(req)
 
 
@@ -435,7 +456,9 @@ def close_position(*, client, account_id, position_id, volume_lots=None):
         ctidTraderAccountId=account_id,
         positionId=position_id,
     )
-    vol_units = _lots_to_units(volume_lots)
+    # This part is tricky, as we need symbol_id to correctly convert lots to units.
+    # For now, we assume forex default.
+    vol_units = _lots_to_units(volume_lots, -1) if volume_lots is not None else None
     if vol_units is not None:
         req.volume = vol_units
     return client.send(req)
@@ -446,8 +469,8 @@ def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=N
         orderId             = order_id,
         version             = version,
     )
-    if stop_loss   is not None: req.stopLoss   = _px(stop_loss)
-    if take_profit is not None: req.takeProfit = _px(take_profit)
+    if stop_loss   is not None: req.stopLoss   = stop_loss
+    if take_profit is not None: req.takeProfit = take_profit
     return client.send(req)
 
 # ── blocking helper used by FastAPI layer ─────────────────────────────────

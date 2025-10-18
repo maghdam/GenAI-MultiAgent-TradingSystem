@@ -353,24 +353,3 @@ async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float
     _status(symbol, timeframe, state="stopped", stopped_ts=time.time(), strategy=strategy)
 
 
-# ---------- env-driven legacy entry ----------
-async def run_agents():
-    watch = os.getenv("AGENT_WATCHLIST", "EURUSD:M15")
-    interval = int(os.getenv("AGENT_INTERVAL_SEC", "60"))
-    min_conf = float(os.getenv("AGENT_MIN_CONFIDENCE", "0.65"))
-    mode = os.getenv("TRADING_MODE", "paper").lower()
-    auto_trade = mode == "live" and os.getenv("AGENT_AUTOTRADE", "false").lower() == "true"
-
-    tasks = []
-    for sym, tf in _parse_watchlist(watch):
-        tasks.append(asyncio.create_task(run_symbol(
-            sym,
-            tf,
-            interval,
-            min_conf,
-            auto_trade,
-            lot_size_lots=0.10,
-            strategy="smc",
-            stop=asyncio.Event(),
-        )))
-    await asyncio.gather(*tasks)

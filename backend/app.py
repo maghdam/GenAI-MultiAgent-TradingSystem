@@ -10,8 +10,6 @@ except ImportError:
 
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 import asyncio
 import httpx
@@ -50,7 +48,6 @@ from backend.journal.router import router as journal_router
 # FastAPI app & middleware
 # ──────────────────────────────────────────────────────────────────────────
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(chat_router, prefix="/api/chat")
 app.include_router(journal_router, prefix="/api/journal")
 
@@ -87,10 +84,8 @@ def health():
 async def on_startup():
     # Pre-load the LLM model to avoid cold-start timeouts on first use
     warm_ollama()
-
-    # Start background agents (optional)
-    if os.getenv("AGENTS_ENABLED", "false").lower() == "true":
-        asyncio.create_task(run_agents())  # don't block server
+    await asyncio.sleep(5) # Give cTrader client time to connect
+    await controller.start_from_config()
 
 
 # cTrader TCP client — ensure we start it only once even with reloads
@@ -154,15 +149,6 @@ async def agent_status():
         "tasks": tasks,
         "available_strategies": available_strategies(),
     }
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# UI: serve index.html
-# ──────────────────────────────────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    return Path("templates/index.html").read_text()
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # Symbols & candles

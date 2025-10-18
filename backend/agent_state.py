@@ -102,6 +102,13 @@ def set_last_bar_ts(sym: str, tf: str, ts: int) -> None:
     _LAST_BAR_TS[_key(sym, tf)] = int(ts)
     _save_state()
 
+def clear_last_bar_ts(sym: str, tf: str) -> None:
+    """Force a re-scan on next agent loop by clearing the last-seen bar."""
+    k = _key(sym, tf)
+    if k in _LAST_BAR_TS:
+        del _LAST_BAR_TS[k]
+        _save_state()
+
 
 # --- task status tracking --------------------------------------------------
 
