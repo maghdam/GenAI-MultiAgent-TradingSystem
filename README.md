@@ -422,7 +422,7 @@ Specific dependency versions are pinned to ensure stability. Recent updates reso
 
 ## 📜 License
 
-MIT — free to use, extend, and share.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 -----
 
