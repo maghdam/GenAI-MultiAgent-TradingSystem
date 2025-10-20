@@ -223,8 +223,7 @@ DEFAULT_SYMBOL=XAUUSD
 **2) Bring up the stack**
 
 ```bash
-docker compose up -d
-```
+docker compose up --build -d```
 
 **3) Open the dashboard**
 
