@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 
-import type { AgentSignal } from './SidePanel';
+import type { AgentSignal } from '../types';
 import type { AnalysisResult } from '../types/analysis';
 
 export interface AIOutputHandle {
@@ -235,15 +235,11 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
         entry: prior?.entry ?? null,
         sl:
           selectedSignal.sl ??
-          selectedSignal.stop_loss ??
           prior?.sl ??
-          prior?.stop_loss ??
           null,
         tp:
           selectedSignal.tp ??
-          selectedSignal.take_profit ??
           prior?.tp ??
-          prior?.take_profit ??
           null,
         model: prior?.model ?? null,
         generated_at: prior?.generated_at ?? null,
@@ -272,8 +268,8 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
         action: signal === 'long' ? 'BUY' : 'SELL',
         order_type: 'MARKET',
         volume: lotSize,
-        stop_loss: analysis.sl ?? analysis.stop_loss ?? null,
-        take_profit: analysis.tp ?? analysis.take_profit ?? null,
+        stop_loss: analysis.sl ?? null,
+        take_profit: analysis.tp ?? null,
         rationale:
           analysis.rationale || (Array.isArray(analysis.reasons) ? analysis.reasons.filter(Boolean).join(' ') : ''),
       };
@@ -328,8 +324,8 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
     };
 
     const entry = formatVal(analysis.entry);
-    const tp = formatVal(analysis.tp ?? analysis.take_profit);
-    const sl = formatVal(analysis.sl ?? analysis.stop_loss);
+    const tp = formatVal(analysis.tp);
+    const sl = formatVal(analysis.sl);
 
     if (entry) targets.push(`entry ${entry}`);
     if (tp) targets.push(`take-profit ${tp}`);

@@ -1,19 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import './styles/global.css';
-import './styles/chat.css';
 
 import type { AIOutputHandle } from './components/AIOutput';
 import type { AnalysisResult } from './types/analysis';
-import { getAgentStatus, setAgentConfig, type AgentStatus } from './services/api';
-import { AgentSignal } from './types';
+import { getAgentStatus, setAgentConfig, addToWatchlist, type AgentStatus } from './services/api';
+import type { AgentSignal } from './types';
 import Header from './components/Header';
 import Chart from './components/Chart';
 import SidePanel from './components/SidePanel';
 import Journal from './components/Journal';
 import AIOutput from './components/AIOutput';
-import Chat from './components/Chat';
 import AgentSettings from './components/AgentSettings';
 import SymbolSelector from './components/SymbolSelector';
+import ChatWidget from './components/ChatWidget';
 
 function App() {
   const [symbol, setSymbol] = useState('XAUUSD');
@@ -60,11 +59,31 @@ function App() {
   const handleToggleAgent = async () => {
     if (!agentStatus) return;
     try {
-      const newConfig = { ...agentStatus, enabled: !agentStatus.enabled };
+      const newConfig = {
+        enabled: !agentStatus.enabled,
+        watchlist: agentStatus.watchlist,
+        interval_sec: agentStatus.interval_sec,
+        min_confidence: agentStatus.min_confidence,
+        trading_mode: agentStatus.trading_mode,
+        autotrade: agentStatus.autotrade ?? false,
+        lot_size_lots: agentStatus.lot_size_lots ?? 0.1,
+        strategy: agentStatus.strategy ?? 'smc',
+      };
       await setAgentConfig(newConfig);
-      setAgentStatus(newConfig);
+      const status = await getAgentStatus();
+      setAgentStatus(status);
     } catch (error) {
       console.error('Failed to toggle agent', error);
+    }
+  };
+
+  const handleWatchCurrent = async () => {
+    try {
+      await addToWatchlist(symbol, timeframe);
+      const status = await getAgentStatus();
+      setAgentStatus(status);
+    } catch (error) {
+      console.error('Failed to add current pair to watchlist', error);
     }
   };
 
@@ -100,6 +119,7 @@ function App() {
         onOpenAgentSettings={() => setIsAgentSettingsOpen(true)}
         agentStatus={agentStatus}
         onToggleAgent={handleToggleAgent}
+        onWatchCurrent={handleWatchCurrent}
       />
       <div className="toolbar">
         <SymbolSelector onSymbolChange={setSymbol} value={symbol} />
@@ -143,10 +163,9 @@ function App() {
           selectedSignal={selectedSignal}
         />
       </div>
-      <Chat />
+      <ChatWidget />
     </>
   );
 }
 
 export default App;
-

@@ -129,10 +129,10 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     priceLinesRef.current = [];
 
     if (analysis) {
-      const { entry, tp, take_profit, sl, stop_loss, signal } = analysis;
+      const { entry, tp, sl, signal } = analysis;
       const color = signal === 'long' ? '#58d68d' : '#ff6b6b';
-      const tpPrice = tp ?? take_profit;
-      const slPrice = sl ?? stop_loss;
+      const tpPrice = tp;
+      const slPrice = sl;
 
       const createLine = (price: number, label: string, lineStyle: LineStyle = LineStyle.Dotted) => {
         const line = candleSeriesRef.current?.createPriceLine({

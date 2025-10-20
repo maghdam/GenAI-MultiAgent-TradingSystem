@@ -110,6 +110,30 @@ def clear_last_bar_ts(sym: str, tf: str) -> None:
         _save_state()
 
 
+# --- global reset helpers --------------------------------------------------
+
+def clear_all_signals() -> None:
+    _SIGNALS.clear()
+    _save_state()
+
+
+def clear_all_bars() -> None:
+    _LAST_BAR_TS.clear()
+    _save_state()
+
+
+def clear_all_task_statuses() -> None:
+    with _STATUS_LOCK:
+        _TASK_STATUS.clear()
+
+
+def reset_all_state() -> None:
+    """Clear signals, last-bar timestamps, and task status."""
+    clear_all_signals()
+    clear_all_bars()
+    clear_all_task_statuses()
+
+
 # --- task status tracking --------------------------------------------------
 
 def update_task_status(sym: str, tf: str, **fields: Any) -> None:

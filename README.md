@@ -1,40 +1,106 @@
+
 # 💹 GenAI-MultiAgent-TradingSystem
 
-A full-stack, local-first trading platform that blends live cTrader market data with chart image understanding (llama3.2 via Ollama) to produce structured, human-like trade decisions—then executes them automatically via multi-agent workflows.
+A full-stack, local-first trading platform that blends live cTrader market data with chart image understanding (via Ollama vision models) to produce structured, human-like trade decisions—and optionally executes them automatically using a multi-agent workflow.
 
-> ⚡ Runs 100% locally via **Docker + Ollama** — **no OpenAI keys required**.
-
----
-
-## ✨ Key Features
-
-*   **Multimodal LLM Analysis**: Leverages `llama3.2` to analyze chart snapshots, OHLC data, and SMC features, providing structured trade signals (long/short/no_trade) with stop-loss, take-profit, confidence levels, and detailed reasoning.
-*   **Live Trading Integration**: Connects to cTrader for real-time market data, order execution (market and pending), and management of open positions. Supports both paper and live trading modes.
-*   **Multi-Agent Workflow**: A production-style system with specialized agent roles:
-    *   **Commander/Supervisor**: Orchestrates the trading process.
-    *   **Watcher/Market Observer**: Streams market data.
-    *   **Scout/Pattern Detector**: Identifies SMC patterns.
-    *   **Guardian/Risk Manager**: Validates trade signals and risk.
-    *   **Executor/Trader**: Executes trades.
-    *   **Scribe/Journal Keeper**: Logs all trading activity.
-*   **Interactive Charting UI**: A smooth and responsive interface built with Lightweight-Charts, featuring indicator overlays, real-time status updates, and side panels for signals and positions.
-*   **AI Assistant (Chatbot)**: A conversational interface for technical and fundamental analysis, agent control, and trade execution.
-*   **Automatic Trade Journaling**: All trades are automatically logged to a local SQLite database for immutable record-keeping.
-*   **Configurable and Extensible**: Easily configure the LLM model, agent behavior, and trading parameters. The system is designed to be extensible with new strategies.
+> ⚡ Runs 100% locally with **Docker + Ollama** — **no OpenAI keys required**.
 
 ---
 
-## 🏗 Architecture
+## 📚 Table of Contents
 
-The system is composed of a frontend UI, a backend server, and an Ollama container for local LLM inference.
+* [Highlights](#-highlights)
+* [Demo Screens](#-demo-screens)
+* [Architecture](#-architecture)
+* [Repository Layout](#-repository-layout)
+* [Quickstart](#-quickstart)
+* [Configuration](#-configuration)
+* [How It Works](#-how-it-works)
+* [Agents](#-agents)
+* [API (Selected Endpoints)](#-api-selected-endpoints)
+* [UI Walkthrough](#-ui-walkthrough)
+* [Performance & Model Tuning](#-performance--model-tuning)
+* [Troubleshooting](#-troubleshooting)
+* [Stability & Reliability](#-stability--reliability)
+* [Roadmap](#-roadmap)
+* [License](#-license)
+* [Disclaimer](#-disclaimer)
+
+---
+
+## ✨ Highlights
+
+* **Two ways to use it**
+    * **Manual**: Pick a symbol/timeframe and click **Run AI Analysis** to get a structured trade idea from a vision-capable LLM.
+    * **Autonomous Agent**: Click **Start Agent** and let background agents monitor markets, emit **signals**, and (optionally) **trade automatically** using your risk settings.
+* **Multimodal LLM analysis (chart stays in the loop)**
+    * Snapshots Plotly charts (via Kaleido), compresses to JPEG, and sends the image to your Ollama model along with the latest OHLC rows and SMC features.
+    * Strict, machine-readable output:
+        ```json
+        {
+          "signal": "long" | "short" | "no_trade",
+          "sl": 3389.06,
+          "tp": 3417.74,
+          "confidence": 0.56,
+          "reasons": ["plain English explanation"]
+        }
+        ```
+* **Live trading integration (cTrader OpenAPI)**
+    * Realtime candles, open positions & pending orders
+    * Market & pending order placement with SL/TP amendment logic
+    * **Paper** and **Live** modes
+* **Multi-Agent workflow (production-style roles)**
+    * **Watcher / Market Observer** – streams OHLC + session/HTF bias
+    * **Scout / Pattern Detector** – detects SMC objects (CHOCH/BOS, FVG, OB, liquidity)
+    * **Guardian / Risk Manager** – validates SL/TP & confidence thresholds
+    * **Executor / Trader** – places/updates/closes trades (paper or live)
+    * **Scribe / Journal Keeper** – records signals (optional Notion/DB hook)
+    * **Commander / Supervisor** – orchestrates schedules & watchlists
+```mermaid
+graph TD
+  subgraph "Autonomous Agent Workflow"
+    A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist}
+    B --> C[Watcher]
+    C -- "Fetches Market Data" --> D[Scout]
+    D -- "Detects Patterns & Queries LLM" --> E[Guardian]
+    E -- "All Signals" --> F(Scribe)
+    F -- "Logs Signal" --> G((Signal Log))
+    E -- "Signal is Valid" --> H(Executor)
+    H -- "Autotrade is ON" --> I[cTrader API]
+    H -- "Trade Executed" --> F
+    F -- "Journals Trade" --> J((Trade Journal))
+  end
+````
+
+  * **Hybrid Analysis Chatbot**
+      * **Technical:** `get_price`, `run_analysis`, `place_order`
+      * **Fundamental:** `news for [symbol/topic]` (e.g., "news on US inflation")
+      * **Agent Control:** `start_agents`, `stop_agents`, `get_agent_status`
+  * **Automatic Trade Journaling**
+      * All executed trades (UI, Agent, or Chatbot) are logged to local **SQLite** (`data/journal.db`)
+      * The dashboard provides a read-only, immutable **Trade Journal**
+  * **Fast, modern frontend**
+      * React 18 + TypeScript + Vite SPA, served by NGINX in the `frontend` container
+      * Lightweight-Charts candles, overlays (SMA/EMA/VWAP/BB), SL/TP lines
+      * Status chips for cTrader + LLM health; side panels for Signals, Positions & Orders
+
+-----
+
+## 📸 Demo Screens
+
+![Dashboard Screenshot](docs/images/Dashboard0.png)
+![Dashboard Screenshot](docs/images/Dashboard1.png)
+![Dashboard Screenshot](docs/images/FastAPI.png)
+
+-----
+
+## 🏗️ Architecture
 
 ```
-┌─────────────── UI ────────────────┐
-│  Manual run & Agent control       │
-│  Lightweight-Charts + overlays    │
-└───────────────▲───────────────────┘
-                │
-                │ HTTP (FastAPI)
+┌─────────────── UI (React + Vite + NGINX) ────────────────┐
+│  Manual run & Agent control; Lightweight‑Charts + overlays│
+└───────────────▲───────────────────────────────────────────┘
+                │ HTTP (FastAPI) via /api proxy
                 ▼
 ┌──────────── Backend (llm-smc) ────────────┐
 │ - cTrader client (candles, positions)     │
@@ -43,7 +109,6 @@ The system is composed of a frontend UI, a backend server, and an Ollama contain
 │ - Multi-agent runner + controller         │
 │ - Order execution                         │
 └───────────────▲───────────────┬───────────┘
-                │               │
                 │               │
                 │               ▼
                 │        ┌──────────────┐
@@ -54,23 +119,91 @@ The system is composed of a frontend UI, a backend server, and an Ollama contain
        cTrader OpenAPI (live feed & orders)
 ```
 
----
+-----
 
-## 🚀 Getting Started
+## 🗂 Repository Layout
 
-### Prerequisites
+```text
+GenAI-MultiAgent-TradingSystem/
+├─ backend/
+│  ├─ agent_config.json
+│  ├─ agent_controller.py
+│  ├─ agent_state.py
+│  ├─ app.py
+│  ├─ ctrader_client.py
+│  ├─ data_fetcher.py
+│  ├─ indicators.py
+│  ├─ llm_analyzer.py
+│  ├─ prestart.py
+│  ├─ smc_features.py
+│  ├─ strategy.py
+│  ├─ symbol_fetcher.py
+│  ├─ web_search.py
+│  ├─ agents/
+│  │  └─ runner.py
+│  ├─ chat/
+│  │  ├─ manager.py
+│  │  ├─ router.py
+│  │  └─ service.py
+│  ├─ journal/
+│  │  ├─ db.py
+│  │  └─ router.py
+│  ├─ strategies_generated/
+│  ├─ Dockerfile
+│  ├─ .env.example
+│  └─ __init__.py
+├─ frontend/
+│  ├─ Dockerfile
+│  ├─ eslint.config.js
+│  ├─ index.html
+│  ├─ nginx.conf
+│  ├─ package.json
+│  ├─ tsconfig.json
+│  ├─ vite.config.ts
+│  ├─ public/
+│  │  └─ vite.svg
+│  └─ src/
+│     ├─ App.tsx
+│     ├─ components/
+│     │  ├─ AgentSettings.tsx
+│     │  ├─ AIOutput.tsx
+│     │  ├─ Chart.tsx
+│     │  ├─ Chat.tsx
+│     │  ├─ Header.tsx
+│     │  ├─ Journal.tsx
+│     │  ├─ SidePanel.tsx
+│     │  └─ SymbolSelector.tsx
+│     ├─ services/
+│     │  └─ api.ts
+│     ├─ styles/
+│     │  ├─ chat.css
+│     │  └─ global.css
+│     └─ types/
+│        ├─ analysis.ts
+│        └─ index.ts
+├─ docs/
+├─ docker-compose.yml
+├─ docker_usage_guide.md
+├─ requirements.txt
+├─ package-lock.json
+├─ start.sh
+├─ NOTES.md
+└─ README.md
+```
 
-*   [Docker](https://www.docker.com/get-started)
-*   [Git](https://git-scm.com/downloads)
 
-### 1. Clone and Configure
+-----
+
+## 🚀 Quickstart
+
+**1) Clone & configure**
 
 ```bash
-git clone https://github.com/maghdam/GenAI-MultiAgent-TradingSystem.git
+git clone [https://github.com/maghdam/GenAI-MultiAgent-TradingSystem.git](https://github.com/maghdam/GenAI-MultiAgent-TradingSystem.git)
 cd GenAI-MultiAgent-TradingSystem
 ```
 
-Create a `backend/.env` file from the example:
+Create `backend/.env`:
 
 ```ini
 # ===== cTrader =====
@@ -82,167 +215,223 @@ CTRADER_ACCOUNT_ID=...
 
 # ===== LLM =====
 OLLAMA_URL=http://ollama:11434
-OLLAMA_MODEL=llama3.2   # vision model used by default
+OLLAMA_MODEL=llama3.2  # vision model used by default
 
-# Optional defaults
+# ===== Optional defaults =====
 DEFAULT_SYMBOL=XAUUSD
 ```
 
-### 2. Start the Application
+**2) Bring up the stack**
 
 ```bash
 docker compose up -d
 ```
 
-### 3. Access the Dashboard
+**3) Open the dashboard**
 
-Open your browser and navigate to `http://localhost:8080`.
-
----
-
-## 📖 How to Use
-
-*   **Manual Analysis**: Select a symbol and timeframe, then click **Run AI Analysis** to get a trade idea from the LLM.
-*   **Autonomous Agent**: Add the current symbol to the agent's watchlist by clicking **Watch current**. Then, start the autonomous trading loop by clicking **Start Agent**.
-*   **AI Assistant**: Use the chat widget in the bottom-right corner to interact with the system using natural language.
-
----
-
-## 🤖 Agent-Based Autonomous Trading
-
-The autonomous mode uses a multi-agent system to monitor markets, generate signals, and execute trades.
-
-### Agent Workflow
-
-```mermaid
-graph TD
-    subgraph "Autonomous Agent Workflow"
-        direction TB
-
-        %% Invisible node for spacing
-        spacer( ):::hidden
-        spacer ~~~ A
-
-        A[Commander / Supervisor] -- "Starts Loop" --> B{For each pair in Watchlist};
-        B --> C[Watcher];
-        C -- "Fetches Market Data" --> D[Scout];
-        D -- "Detects Patterns & Queries LLM" --> E[Guardian];
-        
-        E -- "All Signals" --> F(Scribe);
-        F -- "Logs Signal" --> G((Signal Log));
-        
-        E -- "Signal is Valid" --> H(Executor);
-        H -- "Autotrade is ON" --> I[cTrader API];
-        H -- "Trade Executed" --> F;
-        F -- "Journals Trade" --> J((Trade Journal));
-    end
-
-    classDef hidden fill:none,stroke:none;
-    style A fill:#8ab4f8,stroke:#333,stroke-width:2px,color:#000
-    style I fill:#58d68d,stroke:#333,stroke-width:2px,color:#000
-    classDef default fill:#11131a,stroke:#8aa1c1,color:#e5e9f0;
+```
+http://localhost:8080
 ```
 
-### Configuration
+  * Use **Run AI Analysis** for one-off insights
+  * Use **Watch current** to add the current pair to the agent’s watchlist
+  * Click **Start Agent** to begin the autonomous loop (adjust thresholds in **Agent Settings**)
 
-Agent behavior can be configured in the UI (**Agent Settings**) or via the API. Key settings include:
-*   `enabled`: Start or stop the agent.
-*   `interval_sec`: The interval for the agent to check for new signals.
-*   `confidence_threshold`: The minimum confidence level for a signal to be considered for a trade.
-*   `trading_mode`: `live` or `paper`.
-*   `autotrade`: `true` or `false`.
+> **Rebuild Reminder:** After frontend or backend changes, rebuild containers to keep UI & API in sync:
+> `docker compose down && docker compose build --no-cache && docker compose up -d`
 
----
-
-## 💬 AI Assistant (Chatbot)
-
-The AI assistant provides a conversational interface for various actions:
-
-*   **Technical Analysis & Trading**: `buy 0.1 lots of EURUSD`, `run analysis on the current chart`
-*   **Fundamental Analysis**: `news for EURUSD`, `what's the latest on US inflation?`
-*   **Agent & System Control**: `start agents`, `stop agents`, `what is the agent status?`
-
----
+-----
 
 ## ⚙️ Configuration
 
-*   **LLM Model**: Set the default model in `backend/.env` with the `OLLAMA_MODEL` variable. You can also override the model per request in the UI or API.
-*   **Agent Behavior**: Configure agent settings in the UI or programmatically via the `/api/agent/config` endpoint.
-*   **Strategies**: Extend the system with new strategies by modifying `backend/strategy.py` and `backend/agents/runner.py`.
+### Backend environment (`backend/.env`)
 
----
+| Key | Description |
+| :--- | :--- |
+| `CTRADER_CLIENT_ID` | cTrader client ID |
+| `CTRADER_CLIENT_SECRET` | cTrader client secret |
+| `CTRADER_HOST_TYPE` | `demo` or `live` |
+| `CTRADER_ACCESS_TOKEN` | Auth token |
+| `CTRADER_ACCOUNT_ID` | Account ID |
+| `OLLAMA_URL` | e.g., `http://ollama:11434` |
+| `OLLAMA_MODEL` | Default model, e.g., `llama3.2` |
+| `DEFAULT_SYMBOL` | Optional initial chart symbol |
 
-## 🔌 API Endpoints
+### Frontend → Backend proxy (NGINX)
 
-*   `GET /api/health`: Check the health of the system.
-*   `GET /api/llm_status`: Check the status of the LLM.
-*   `GET /api/symbols`: Get a list of available symbols.
-*   `GET /api/candles`: Get candle data for a symbol.
-*   `POST /api/analyze`: Run a manual analysis.
-*   `POST /api/execute_trade`: Execute a trade.
-*   `GET /api/open_positions`: Get open positions.
-*   `GET /api/pending_orders`: Get pending orders.
-*   `GET /api/agent/config`: Get the agent configuration.
-*   `POST /api/agent/config`: Set the agent configuration.
-*   `POST /api/agent/watchlist/add`: Add a symbol to the agent's watchlist.
-*   `POST /api/agent/watchlist/remove`: Remove a symbol from the agent's watchlist.
-*   `GET /api/agent/signals`: Get recent agent signals.
-*   `GET /api/agent/status`: Get the status of the agent.
-*   `GET /api/journal/trades`: Get all recorded trades.
-*   `POST /api/chat/stream`: The streaming chat endpoint.
+All `/api/*` requests are proxied to the backend (`llm-smc:4000`) via `frontend/nginx.conf`:
 
----
-
-## 🗂 Repository Structure
-
-```text
-GenAI-MultiAgent-TradingSystem/
-├─ backend/
-├─ frontend/
-├─ docs/
-├─ docker-compose.yml
-├─ requirements.txt
-└─ README.md
+```nginx
+location /api {
+  proxy_pass http://llm-smc:4000;
+}
 ```
 
----
+-----
+
+## 💡 How It Works
+
+  * **UI** requests `/api/candles` → **backend** fetches from cTrader → **UI** renders chart
+  * **Manual**: **UI** posts to `/api/analyze` → **backend** snapshots chart + SMC features → **Ollama** vision model → returns `{signal, sl, tp, confidence, reasons}`
+  * **Agent**: `agents/runner.py` loops over watchlist on a schedule, repeats step 2, emits signals, and (if `autotrade=true` & `mode=live`) places/updates trades
+  * **Chatbot**: `chat/service.py` parses intent and calls the relevant service (e.g., `place_order`) with a confirmation flow
+
+-----
+
+## 🧠 Agents
+
+When **Start Agent** is ON, the supervisor wakes up every `interval_sec` and:
+
+1.  Pulls fresh candles for each `(symbol, timeframe)` in **watchlist**
+2.  Builds features + chart snapshot and queries the LLM
+3.  Emits a **signal** with a confidence score
+4.  If `autotrade=true` and mode is **Live**, the **Executor** opens/closes positions according to thresholds and SL/TP rules
+
+### Key agents & roles
+
+  * **Watcher/Observer**: fetches OHLC for each watchlist pair
+  * **Scout/Pattern Detector**: computes SMC features & prompt inputs
+  * **Analyzer**: queries the LLM and parses a structured `TradeDecision`
+  * **Guardian/Risk**: enforces confidence/SL/TP rules
+  * **Executor/Trader**: places, amends, or closes orders when `autotrade` is ON (Live only)
+  * **Scribe/Journal**: records signals and executed trades
+  * **Commander/Supervisor**: manages watchlist; starts/stops loops per pair
+
+-----
+
+## 🔌 API (Selected Endpoints)
+
+  * **Health & LLM**
+      * `GET /api/health` → `{ status, connected }`
+      * `GET /api/llm_status` → `{ ollama: 200|"unreachable", model }`
+  * **Market Data**
+      * `GET /api/symbols`
+      * `GET /api/candles?symbol=EURUSD&timeframe=M15&indicators=SMA%20(20)&indicators=VWAP`
+  * **Manual Analysis**
+      * `POST /api/analyze` – optional overrides: `model`, `max_bars`, `max_tokens`, `options` (forwarded to Ollama)
+  * **Trading**
+      * `POST /api/execute_trade`
+      * `GET /api/open_positions`
+      * `GET /api/pending_orders`
+  * **Agent Control**
+      * `GET /api/agent/config`
+      * `POST /api/agent/config` (toggle enabled, set interval/confidence/mode/autotrade/strategy)
+      * `POST /api/agent/watchlist/add?symbol=XAUUSD&timeframe=H1`
+      * `POST /api/agent/watchlist/remove?symbol=XAUUSD&timeframe=H1`
+      * `GET /api/agent/signals?n=10`
+      * `GET /api/agent/status`
+  * **Journal**
+      * `GET /api/journal/trades`
+  * **Chat**
+      * `POST /api/chat/stream` (streaming assistant)
+
+-----
+
+## 🖥️ UI Walkthrough
+
+  * **Status chips**: cTrader connectivity + current LLM model
+  * **Indicators**: add SMA/EMA/VWAP/BB to server-side candle fetch
+  * **AI Output**: renders JSON decision + explanation
+  * **SL/TP**: drawn on chart when provided
+  * **Recent Signals**: latest agent outputs (click to preview on chart)
+  * **Open Positions / Pending Orders**: live from cTrader
+  * **AI Assistant**: chat widget (bottom-right) for conversational trading
+
+### "Watch current"
+
+  * Header button adds the current `symbol:timeframe` to the agent watchlist
+  * **Frontend wiring**:
+      * `frontend/src/services/api.ts` → `addToWatchlist(symbol, timeframe)` → `POST /api/agent/watchlist/add?symbol=...&timeframe=...`
+      * `frontend/src/App.tsx` → `handleWatchCurrent` calls `addToWatchlist(...)` then refreshes `/api/agent/status`
+  * Backend normalizes entries (uppercase, discards empties) before persisting
+
+### "Start/Stop Agent"
+
+  * Toggle sends supported fields to `/api/agent/config` and refreshes status upon success
+
+-----
+
+## 📈 Performance & Model Tuning
+
+Global defaults (`backend/.env`):
+
+```ini
+OLLAMA_URL=http://ollama:11434
+OLLAMA_MODEL=llama3.2
+```
+
+Per-request overrides (frontend → `/api/analyze`):
+
+```json
+{
+  "symbol": "XAUUSD",
+  "timeframe": "H1",
+  "indicators": ["SMA (20)", "EMA (20)"],
+  "model": "llama3.2",
+  "max_bars": 200,
+  "max_tokens": 256,
+  "options": { "num_thread": 6 }
+}
+```
+
+### Tips for CPU speed
+
+  * Keep `llama3.2` (balanced for vision + speed)
+  * Use `max_bars` ≈ 150–250 and `max_tokens` ≈ 192–256
+  * JPEG chart is auto-compressed for faster upload
+  * Ensure `OLLAMA_URL` points to your running Ollama service (docker-compose sets this)
+
+-----
 
 ## 🧰 Troubleshooting
 
-*   **Slow LLM on CPU**: Use a smaller model like `llama3.2` and reduce `max_bars` and `max_tokens`.
-*   **Chart image errors**: Ensure Kaleido is installed in the backend Docker image.
-*   **Agent not trading**: Make sure **Mode=Live** and **Autotrade=On**.
-*   **No symbols**: Wait for cTrader to connect or check your credentials in `.env`.
+  * **LLM feels slow on CPU**
+      * Use `llama3.2` and reduce `max_bars` / `max_tokens`
+  * **Chart image errors**
+      * Ensure Kaleido is available in the backend image
+  * **Agent not trading**
+      * Set **Mode=Live** and **Autotrade=On**; confirm cTrader connection and permissions
+  * **No symbols**
+      * Wait for cTrader to load or verify credentials in `.env`
+  * **Watchlist & “Watch current”**
+      * `POST /api/agent/watchlist/add?...` should return `{ ok: true }`
+      * Confirm `/api/agent/status` shows the updated watchlist
+      * After UI/API changes, **rebuild containers**
+  * **If tasks don’t run:**
+      * Ensure **Start Agent** is enabled
+      * `/api/health` → `connected: true`
+      * `/api/llm_status` indicates a reachable Ollama
 
----
+-----
+
+## 🔧 Stability & Reliability
+
+Specific dependency versions are pinned to ensure stability. Recent updates resolved dependency conflicts (notably around `Twisted`) to provide reliable startup in Docker.
+
+
+
+-----
 
 ## 🗺️ Roadmap
 
-*   [x] **Fundamental Analysis:** Integrate news and event data into the chatbot.
-*   [ ] More strategies (MACD, Volume Profile, Order Flow)
-*   [ ] Backtesting & walk-forward
-*   [ ] Message-bus multi-agent comms + memory
-*   [ ] Risk dashboard (exposure, VaR)
-*   [ ] Cloud deploy templates (Render / Fly.io)
+  * [x] **Fundamental Analysis:** Integrate news/event data into the chatbot
+  * [ ] More strategies (MACD, Volume Profile, Order Flow)
+  * [ ] Backtesting & walk-forward
+  * [ ] Message-bus multi-agent comms + memory
+  * [ ] Risk dashboard (exposure, VaR)
+  * [ ] Cloud deploy templates (Render / Fly.io)
 
----
-
-## 📸 Dashboard Screenshots
-
-![Dashboard Screenshot](docs/images/Dashboard0.png)
-![Dashboard Screenshot](docs/images/Dashboard1.png)
-![Dashboard Screenshot](docs/images/Dashboard2.png)
-![Dashboard Screenshot](docs/images/Dashboard3.png)
-![Dashboard Screenshot](docs/images/FastAPI.png)
-
----
+-----
 
 ## 📜 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+MIT — free to use, extend, and share.
 
----
+-----
 
 ## ⚠️ Disclaimer
 
-This project is for educational and research purposes only. It is not financial advice. Trading involves substantial risk. Do not use this project for live trading with a real account without fully understanding the risks involved.
+This project is for **education and research**. It is **not financial advice**. Trading involves substantial risk. Do not use live trading with a real account before extensive testing on demo environments.
+
+```
+```

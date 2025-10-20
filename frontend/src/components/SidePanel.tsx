@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AgentSignal } from '../types';
+import type { AgentSignal } from '../types';
 
 interface AgentTask {
   symbol?: string;

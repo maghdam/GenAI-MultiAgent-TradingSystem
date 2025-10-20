@@ -1,4 +1,4 @@
-import { AgentSignal } from '../types';
+import type { AgentSignal } from '../types';
 
 export interface Candle {
   time: number;
@@ -97,6 +97,18 @@ export const getAgentSignals = async (limit = 50): Promise<AgentSignal[]> => {
   const response = await fetch(`/api/agent/signals?n=${limit}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch agent signals: ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const addToWatchlist = async (symbol: string, timeframe: string): Promise<{ ok: boolean }> => {
+  const params = new URLSearchParams({ symbol, timeframe });
+  const response = await fetch(`/api/agent/watchlist/add?${params.toString()}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to add ${symbol}:${timeframe} to watchlist`);
   }
   return response.json();
 };

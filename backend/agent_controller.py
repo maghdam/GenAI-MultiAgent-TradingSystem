@@ -79,8 +79,30 @@ class AgentController:
     async def apply_config(self, new_cfg: AgentConfig):
         async with self._lock:
             old_cfg = self.config
-            self.config = new_cfg
-            self._save_config(new_cfg)
+
+            # Sanitize watchlist: drop empty entries and normalize casing
+            sanitized_watchlist = []
+            for item in (new_cfg.watchlist or []):
+                try:
+                    sym, tf = item
+                except Exception:
+                    continue
+                sym = (sym or '').strip().upper()
+                tf = (tf or '').strip().upper()
+                if sym and tf:
+                    sanitized_watchlist.append((sym, tf))
+
+            self.config = AgentConfig(
+                enabled=new_cfg.enabled,
+                watchlist=sanitized_watchlist,
+                interval_sec=new_cfg.interval_sec,
+                min_confidence=new_cfg.min_confidence,
+                trading_mode=new_cfg.trading_mode,
+                autotrade=new_cfg.autotrade,
+                lot_size_lots=new_cfg.lot_size_lots,
+                strategy=new_cfg.strategy,
+            )
+            self._save_config(self.config)
 
             if not new_cfg.enabled:
                 await self.stop_all()
@@ -95,7 +117,7 @@ class AgentController:
                 or new_cfg.strategy != old_cfg.strategy
             )
 
-            desired = set(new_cfg.watchlist)
+            desired = set(self.config.watchlist)
             running = set(self._tasks.keys())
 
             to_stop = running - desired
