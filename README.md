@@ -1,7 +1,7 @@
 
 # 💹 GenAI-MultiAgent-TradingSystem
 
-A full-stack, local-first trading platform that blends live cTrader market data with chart image understanding (via Ollama vision models) to produce structured, human-like trade decisions—and optionally executes them automatically using a multi-agent workflow.
+A full-stack, local-first trading platform that uses live cTrader market data and LLM analysis to produce structured trade decisions—and optionally executes them automatically using a multi-agent workflow.
 
 > ⚡ Runs 100% locally with **Docker + Ollama** — **no OpenAI keys required**.
 
@@ -31,10 +31,10 @@ A full-stack, local-first trading platform that blends live cTrader market data 
 ## ✨ Highlights
 
 * **Two ways to use it**
-    * **Manual**: Pick a symbol/timeframe and click **Run AI Analysis** to get a structured trade idea from a vision-capable LLM.
+    * **Manual**: Pick a symbol/timeframe and click **Run AI Analysis** to get a structured trade idea from an LLM.
     * **Autonomous Agent**: Click **Start Agent** and let background agents monitor markets, emit **signals**, and (optionally) **trade automatically** using your risk settings.
-* **Multimodal LLM analysis (chart stays in the loop)**
-    * Snapshots Plotly charts (via Kaleido), compresses to JPEG, and sends the image to your Ollama model along with the latest OHLC rows and SMC features.
+* **LLM-based analysis**
+    * Sends the latest OHLC rows and computed SMC features to your Ollama model.
     * Strict, machine-readable output:
         ```json
         {
@@ -105,7 +105,6 @@ graph TD
 ┌──────────── Backend (llm-smc) ────────────┐
 │ - cTrader client (candles, positions)     │
 │ - SMC feature extractor                   │
-│ - Plotly→Kaleido chart snapshot (image)   │
 │ - Multi-agent runner + controller         │
 │ - Order execution                         │
 └───────────────▲───────────────┬───────────┘
@@ -215,7 +214,7 @@ CTRADER_ACCOUNT_ID=...
 
 # ===== LLM =====
 OLLAMA_URL=http://ollama:11434
-OLLAMA_MODEL=llama3.2  # vision model used by default
+OLLAMA_MODEL=llama3.2
 
 # ===== Optional defaults =====
 DEFAULT_SYMBOL=XAUUSD
@@ -272,7 +271,7 @@ location /api {
 ## 💡 How It Works
 
   * **UI** requests `/api/candles` → **backend** fetches from cTrader → **UI** renders chart
-  * **Manual**: **UI** posts to `/api/analyze` → **backend** snapshots chart + SMC features → **Ollama** vision model → returns `{signal, sl, tp, confidence, reasons}`
+  * **Manual**: **UI** posts to `/api/analyze` → **backend** gets SMC features → **Ollama** model → returns `{signal, sl, tp, confidence, reasons}`
   * **Agent**: `agents/runner.py` loops over watchlist on a schedule, repeats step 2, emits signals, and (if `autotrade=true` & `mode=live`) places/updates trades
   * **Chatbot**: `chat/service.py` parses intent and calls the relevant service (e.g., `place_order`) with a confirmation flow
 
@@ -283,7 +282,7 @@ location /api {
 When **Start Agent** is ON, the supervisor wakes up every `interval_sec` and:
 
 1.  Pulls fresh candles for each `(symbol, timeframe)` in **watchlist**
-2.  Builds features + chart snapshot and queries the LLM
+2.  Builds features and queries the LLM
 3.  Emits a **signal** with a confidence score
 4.  If `autotrade=true` and mode is **Live**, the **Executor** opens/closes positions according to thresholds and SL/TP rules
 
@@ -376,9 +375,8 @@ Per-request overrides (frontend → `/api/analyze`):
 
 ### Tips for CPU speed
 
-  * Keep `llama3.2` (balanced for vision + speed)
+  * Keep `llama3.2`
   * Use `max_bars` ≈ 150–250 and `max_tokens` ≈ 192–256
-  * JPEG chart is auto-compressed for faster upload
   * Ensure `OLLAMA_URL` points to your running Ollama service (docker-compose sets this)
 
 -----
@@ -387,8 +385,6 @@ Per-request overrides (frontend → `/api/analyze`):
 
   * **LLM feels slow on CPU**
       * Use `llama3.2` and reduce `max_bars` / `max_tokens`
-  * **Chart image errors**
-      * Ensure Kaleido is available in the backend image
   * **Agent not trading**
       * Set **Mode=Live** and **Autotrade=On**; confirm cTrader connection and permissions
   * **No symbols**
@@ -420,6 +416,7 @@ Specific dependency versions are pinned to ensure stability. Recent updates reso
   * [ ] Message-bus multi-agent comms + memory
   * [ ] Risk dashboard (exposure, VaR)
   * [ ] Cloud deploy templates (Render / Fly.io)
+  * [ ] Add optional chart image analysis (vision model) for multimodal insights
 
 -----
 
