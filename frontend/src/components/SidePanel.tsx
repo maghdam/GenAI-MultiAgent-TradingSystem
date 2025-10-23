@@ -335,6 +335,12 @@ export default function SidePanel({ onSignalSelected, onAgentStatus }: SidePanel
   return (
     <>
       <div className="box">
+        <div style={{ fontWeight: 600, marginBottom: '10px' }}>Navigation</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <a href="/strategy-studio" className="nav-link" target="_blank" rel="noopener noreferrer">Strategy Studio</a>
+        </div>
+      </div>
+      <div className="box">
         <div style={{ fontWeight: 600 }}>Recent Signals</div>
         <div className="list">
           {errors.signals && <div className="muted">{errors.signals}</div>}

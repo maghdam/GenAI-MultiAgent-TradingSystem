@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import './styles/global.css';
 
 import type { AIOutputHandle } from './components/AIOutput';
@@ -13,8 +14,9 @@ import AIOutput from './components/AIOutput';
 import AgentSettings from './components/AgentSettings';
 import SymbolSelector from './components/SymbolSelector';
 import ChatWidget from './components/ChatWidget';
+import StrategyStudioPage from './pages/StrategyStudio/index';
 
-function App() {
+function Dashboard() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [timeframe, setTimeframe] = useState('M5');
   const [strategy, setStrategy] = useState('smc');
@@ -168,4 +170,11 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/strategy-studio" element={<StrategyStudioPage />} />
+    </Routes>
+  );
+}

@@ -112,3 +112,30 @@ export const addToWatchlist = async (symbol: string, timeframe: string): Promise
   }
   return response.json();
 };
+
+// --- Strategy Studio Tasks ---
+
+export interface TaskRequest {
+  task_type: 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy';
+  goal: string;
+  params?: Record<string, any>;
+}
+
+export interface TaskResponse {
+  status: 'success' | 'error';
+  message?: string;
+  result?: any;
+}
+
+export const executeTask = async (request: TaskRequest): Promise<TaskResponse> => {
+  const response = await fetch('/api/agent/execute_task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};

@@ -152,7 +152,8 @@ async def agent_status():
     snap = await controller.snapshot()
     cfg = snap.get("config") or {}
     running_pairs = snap.get("running_pairs") or []
-    tasks = all_task_status()
+    # Ensure tasks is always a list for the frontend
+    tasks = list((all_task_status() or {}).values())
 
     enabled = bool(cfg.get("enabled"))
     watchlist = cfg.get("watchlist") or []
@@ -170,6 +171,46 @@ async def agent_status():
         "tasks": tasks,
         "available_strategies": available_strategies(),
     }
+
+@app.post("/api/agent/execute_task")
+async def execute_task_endpoint(req: Request):
+    """Compatibility endpoint for Strategy Studio tasks.
+
+    Accepts task_type values like:
+    - 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy'
+
+    Maps them to controller types and normalizes the response to:
+    { status: 'success'|'error', message?: str, result?: any }
+    """
+    body = await req.json()
+    t = (body.get("task_type") or "").strip().lower()
+    goal = body.get("goal")
+    params = body.get("params") or {}
+
+    if t in ("calculate_indicator",):
+        mapped = "indicator"
+    elif t in ("backtest_strategy",):
+        mapped = "backtest"
+    elif t in ("save_strategy", "research_strategy", "create_strategy", "strategy"):
+        mapped = "strategy"
+    else:
+        mapped = t or "strategy"
+
+    try:
+        ctrl_res = await controller.execute_task({"task_type": mapped, "goal": goal, "params": params})
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+    if not isinstance(ctrl_res, dict):
+        return {"status": "success", "message": "Task completed.", "result": ctrl_res}
+
+    if ctrl_res.get("status") == "error":
+        return {"status": "error", "message": ctrl_res.get("message") or "Task failed"}
+
+    if "code" in ctrl_res:
+        return {"status": "success", "message": "Task completed.", "result": {"stdout": ctrl_res.get("code")}}
+
+    return {"status": "success", "message": "Task completed.", "result": ctrl_res}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Symbols & candles
