@@ -19,6 +19,8 @@ A full-stack, local-first trading platform that uses live cTrader market data an
 * [Agents](#-agents)
 * [API (Selected Endpoints)](#-api-selected-endpoints)
 * [UI Walkthrough](#-ui-walkthrough)
+* [Strategy Studio](#strategy-studio)
+* [Strategy Studio](#-strategy-studio)
 * [Performance & Model Tuning](#-performance--model-tuning)
 * [Troubleshooting](#-troubleshooting)
 * [Stability & Reliability](#-stability--reliability)
@@ -432,3 +434,23 @@ This project is for **education and research**. It is **not financial advice**. 
 
 ```
 ```
+
+## Strategy Studio
+
+Strategy Studio is a separate page focused on strategy creation and backtesting.
+
+- Access: open http://localhost:8080/strategy-studio (also via the sidebar link; opens in a new tab).
+- Create strategies: type a prompt like "Create an SMA crossover strategy". The result shows generated, copyable code.
+- Backtest: select Symbol, Timeframe, Bars and click Run Backtest. Returns compact metrics (Total Return, Win Rate, Max Drawdown, Sharpe, etc.). If vectorbt is installed in the backend container, richer metrics are returned automatically.
+- Save: click "Save Strategy" to persist the code to `backend/strategies_generated/<name>.py`. This folder is bind-mounted from the container to the host.
+
+Backend endpoints used:
+- POST /api/agent/execute_task
+  - task_type: one of `calculate_indicator | create_strategy | backtest_strategy | save_strategy`
+  - params for backtests: `{ symbol, timeframe, num_bars }`
+  - params for save: `{ strategy_name, code }`
+
+Docker note (persisting saved strategies):
+- `llm-smc` mounts `./backend/strategies_generated:/app/backend/strategies_generated` so saved strategies are visible on the host.
+- Rebuild after updating compose: `docker compose down; docker compose build --no-cache; docker compose up`.
+
