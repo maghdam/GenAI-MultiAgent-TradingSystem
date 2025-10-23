@@ -197,6 +197,22 @@ async def execute_task_endpoint(req: Request):
 
     # Execute mapped task without relying on autonomous agents
     try:
+        # Save Strategy: if explicit request and code provided, persist to file
+        if t == "save_strategy":
+            name = ((params or {}).get("strategy_name") or "").strip() if isinstance(params, dict) else ""
+            code = ((params or {}).get("code") or "") if isinstance(params, dict) else ""
+            if not name:
+                return {"status": "error", "message": "strategy_name is required"}
+            if not code:
+                return {"status": "error", "message": "code is required"}
+            # sanitize filename
+            safe = "".join(ch if ch.isalnum() or ch in ("_","-") else "_" for ch in name)
+            dest_dir = Path("backend/strategies_generated")
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / f"{safe}.py"
+            dest_path.write_text(str(code), encoding="utf-8")
+            return {"status": "success", "message": f"Strategy saved as {dest_path}"}
+
         if mapped == "backtest":
             sym = (params.get("symbol") if isinstance(params, dict) else None) or DEFAULT_SYMBOL
             tf = (params.get("timeframe") if isinstance(params, dict) else None) or "M5"
