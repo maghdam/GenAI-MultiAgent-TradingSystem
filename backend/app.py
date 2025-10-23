@@ -47,6 +47,8 @@ from backend.smc_features import (
 )
 from backend.agent_state import recent_signals, all_task_status, reset_all_state
 from backend.agent_controller import controller, AgentConfig
+from backend.programmer_agent import ProgrammerAgent
+from backend.backtesting_agent import run_backtest, BacktestParams
 from backend.strategy import get_strategy, available_strategies
 from backend.llm_analyzer import warm_ollama
 from backend import web_search
@@ -187,30 +189,27 @@ async def execute_task_endpoint(req: Request):
     goal = body.get("goal")
     params = body.get("params") or {}
 
-    if t in ("calculate_indicator",):
-        mapped = "indicator"
-    elif t in ("backtest_strategy",):
-        mapped = "backtest"
-    elif t in ("save_strategy", "research_strategy", "create_strategy", "strategy"):
-        mapped = "strategy"
-    else:
-        mapped = t or "strategy"
+    mapped = (
+        "indicator" if t in ("calculate_indicator",)
+        else "backtest" if t in ("backtest_strategy",)
+        else "strategy"
+    )
 
+    # Execute mapped task without relying on autonomous agents
     try:
-        ctrl_res = await controller.execute_task({"task_type": mapped, "goal": goal, "params": params})
+        if mapped == "backtest":
+            sym = (params.get("symbol") if isinstance(params, dict) else None) or DEFAULT_SYMBOL
+            tf = (params.get("timeframe") if isinstance(params, dict) else None) or "M5"
+            n = int((params.get("num_bars") if isinstance(params, dict) else 1500) or 1500)
+            result = run_backtest(BacktestParams(symbol=sym, timeframe=tf, num_bars=n))
+            return {"status": "success", "message": "Backtest complete.", "result": result}
+
+        # strategy or indicator -> generate code snippet for the user
+        pa = ProgrammerAgent()
+        code = await pa.generate_code(goal or "", mapped)
+        return {"status": "success", "message": "Code generated.", "result": {"stdout": code}}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
-    if not isinstance(ctrl_res, dict):
-        return {"status": "success", "message": "Task completed.", "result": ctrl_res}
-
-    if ctrl_res.get("status") == "error":
-        return {"status": "error", "message": ctrl_res.get("message") or "Task failed"}
-
-    if "code" in ctrl_res:
-        return {"status": "success", "message": "Task completed.", "result": {"stdout": ctrl_res.get("code")}}
-
-    return {"status": "success", "message": "Task completed.", "result": ctrl_res}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Symbols & candles

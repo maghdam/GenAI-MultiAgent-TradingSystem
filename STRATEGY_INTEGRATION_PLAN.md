@@ -24,6 +24,31 @@ Backend
   - Maps UI task types to controller: indicator/backtest/strategy.
   - Normalizes responses. If controller returns `{ code: string }`, expose as `{ result: { stdout: string } }` for the UI to render.
 
+Agents
+- ProgrammerAgent (backend/programmer_agent.py)
+  - Generates compact, readable code snippets for indicators and strategies.
+  - Returned as `result.stdout` so the UI’s CodeDisplay shows copyable code.
+- BacktestingAgent (backend/backtesting_agent.py)
+  - Minimal buy-and-hold metrics over a window (symbol/timeframe/num_bars).
+  - Returns metrics like `Total Return [%]`, `Win Rate [%]`, `Number of Trades]`.
+- CodeExecutor (future)
+  - Optional sandbox to run generated snippets and capture `stdout`/`stderr`.
+  - Not wired yet; can be integrated later for richer workflows.
+
+Request Flow
+- UI (Strategy Studio) → `POST /api/agent/execute_task` with `{ task_type, goal, params? }`.
+- Backend maps `task_type`:
+  - `backtest_strategy` → BacktestingAgent.run_backtest → metrics (JSON)
+  - `create_strategy`/`save_strategy`/`calculate_indicator` → ProgrammerAgent.generate_code → `stdout` (text)
+- UI renders `stdout` as code or metrics table for backtests; Raw JSON tab is available.
+
+Sequence
+1. User types request (e.g., “backtest RSI on XAUUSD H1”).
+2. Frontend parses to TaskRequest and calls executeTask.
+3. Backend maps to backtest and runs BacktestingAgent with defaults or provided params.
+4. Backend returns `{ status: 'success', result: { ...metrics } }`.
+5. UI chooses BacktestResult for known metrics; otherwise shows CodeDisplay / Raw JSON.
+
 Tasks (examples)
 - Calculate indicator: "Calculate 14-period RSI for XAUUSD on H1 and summarize key divergences"
 - Create strategy: "Create an SMA crossover strategy with 50/200 and risk management notes"
@@ -38,4 +63,3 @@ Validation
 - Hitting `/strategy-studio` loads the page.
 - A prompt that generates code displays under the results area.
 - Backtest task returns a structured metrics object or error; UI renders whatever the backend returns in the `result` field.
-
