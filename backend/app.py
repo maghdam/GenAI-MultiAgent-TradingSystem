@@ -49,7 +49,7 @@ from backend.agent_state import recent_signals, all_task_status, reset_all_state
 from backend.agent_controller import controller, AgentConfig
 from backend.programmer_agent import ProgrammerAgent
 from backend.backtesting_agent import run_backtest, BacktestParams
-from backend.strategy import get_strategy, available_strategies
+from backend.strategy import get_strategy, available_strategies, load_generated_strategies
 from backend.llm_analyzer import warm_ollama
 from backend import web_search
 
@@ -94,6 +94,11 @@ def health():
 
 @app.on_event("startup")
 async def on_startup():
+    # Load any user-saved strategies
+    try:
+        load_generated_strategies()
+    except Exception:
+        pass
     # Pre-load the LLM model to avoid cold-start timeouts on first use
     warm_ollama()
     await asyncio.sleep(5) # Give cTrader client time to connect

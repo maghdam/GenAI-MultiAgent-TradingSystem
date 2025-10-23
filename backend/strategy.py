@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Type
+import importlib.util
+from pathlib import Path
+import types
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -11,6 +14,7 @@ import plotly.graph_objects as go
 from backend.llm_analyzer import TradeDecision, analyze_chart_with_llm
 
 _STRATEGY_REGISTRY: Dict[str, Type["Strategy"]] = {}
+_GENERATED_LOADED: bool = False
 
 
 def register_strategy(name: str):
@@ -66,6 +70,77 @@ class Strategy(ABC):
         **kwargs: Any,
     ) -> TradeDecision:
         ...
+
+
+def _register_generated_module(name: str, module: types.ModuleType) -> None:
+    """Wrap a simple module (with a `signals(df, ...)` function) as a Strategy.
+
+    This allows saved files under `backend/strategies_generated/*.py` to appear in
+    the dashboard's strategy selector without requiring users to subclass
+    Strategy manually.
+    """
+    signals_fn = getattr(module, "signals", None)
+    if not callable(signals_fn):
+        return
+
+    class GeneratedStrategy(Strategy):
+        strategy_name = name
+        requires_figure = False
+
+        async def analyze(self, *, df: pd.DataFrame, symbol: str, timeframe: str, indicators: List[str] | None = None, fig=None, **kwargs: Any) -> TradeDecision:
+            if df is None or df.empty:
+                raise ValueError("Generated strategy requires historical bars.")
+            try:
+                sig_series = signals_fn(df)
+            except Exception as e:
+                raise ValueError(f"generated strategy error: {e}") from e
+            # Expect a numeric series; derive last signal
+            last = None
+            try:
+                last = float(sig_series.iloc[-1])
+            except Exception:
+                pass
+            signal = "no_trade"
+            if last is not None:
+                if last > 0:
+                    signal = "long"
+                elif last < 0:
+                    signal = "short"
+            reasons = [f"generated: {name}", f"last={last}"]
+            return TradeDecision(signal=signal, sl=None, tp=None, confidence=0.5 if signal != "no_trade" else 0.0, reasons=reasons)
+
+    _STRATEGY_REGISTRY[name] = GeneratedStrategy
+
+
+def load_generated_strategies(root: str | Path = "backend/strategies_generated") -> int:
+    """Load user-saved strategy modules from disk and register them.
+
+    A file is considered a strategy if it defines a callable `signals(df, ...)`.
+    Returns the number of strategies registered.
+    """
+    global _GENERATED_LOADED
+    count = 0
+    try:
+        p = Path(root)
+        if not p.exists():
+            return 0
+        for path in p.glob("*.py"):
+            name = path.stem
+            key = name.lower()
+            if key in _STRATEGY_REGISTRY:
+                continue
+            try:
+                spec = importlib.util.spec_from_file_location(f"strategies_generated.{name}", str(path))
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)  # type: ignore[arg-type]
+                    _register_generated_module(key, mod)
+                    count += 1
+            except Exception:
+                continue
+    finally:
+        _GENERATED_LOADED = True
+    return count
 
 
 def _build_candlestick(df: pd.DataFrame):
