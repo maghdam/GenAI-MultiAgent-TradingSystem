@@ -37,6 +37,9 @@ services:
       - PYTHONPATH=/app
     working_dir: /app
     command: uvicorn backend.app:app --host 0.0.0.0 --port 4000
+    volumes:
+      # Persist generated strategies to the host so you can see saved files
+      - ./backend/strategies_generated:/app/backend/strategies_generated
     healthcheck:
       test:
         - CMD
