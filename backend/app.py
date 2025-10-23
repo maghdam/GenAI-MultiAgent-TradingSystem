@@ -155,7 +155,7 @@ async def agent_status():
     cfg = snap.get("config") or {}
     running_pairs = snap.get("running_pairs") or []
     # Ensure tasks is always a list for the frontend
-    tasks = list((all_task_status() or {}).values())
+    tasks = all_task_status() or []
 
     enabled = bool(cfg.get("enabled"))
     watchlist = cfg.get("watchlist") or []
