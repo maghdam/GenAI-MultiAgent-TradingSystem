@@ -69,7 +69,7 @@ function Dashboard() {
         trading_mode: agentStatus.trading_mode,
         autotrade: agentStatus.autotrade ?? false,
         lot_size_lots: agentStatus.lot_size_lots ?? 0.1,
-        strategy: agentStatus.strategy ?? 'smc',
+        strategy: strategy || agentStatus.strategy || 'smc',
       };
       await setAgentConfig(newConfig);
       const status = await getAgentStatus();

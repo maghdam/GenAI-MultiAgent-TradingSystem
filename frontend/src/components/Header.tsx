@@ -89,11 +89,21 @@ export default function Header({
     ? `Agent: ${agentStatus.enabled ? (agentStatus.running ? 'ON (running)' : 'ON (idle)') : 'OFF'} • Watchlist: ${agentStatus.watchlist.length}`
     : 'Agent: checking…';
 
+  const strategyOptions = Array.from(
+    new Set([
+      ...(agentStatus?.available_strategies || []),
+      'smc',
+      'rsi',
+      strategy,
+    ])
+  );
+
   return (
     <header className="stack">
       <select title="Strategy" value={strategy} onChange={event => onStrategyChange(event.target.value)}>
-        <option value="smc">SMC</option>
-        <option value="rsi">RSI Divergence</option>
+        {strategyOptions.map((name) => (
+          <option key={name} value={name}>{name.toUpperCase()}</option>
+        ))}
       </select>
 
       <label className="chip">
