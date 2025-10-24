@@ -467,8 +467,9 @@ This project is for **education and research**. It is **not financial advice**. 
 
 ---
 
-## Architecture (with Strategy Studio)
+### Architecture (with Strategy Studio)
 
+```mermaid
 graph TD
   %% System overview (Dashboard + Studio + Backend)
   subgraph Main Dashboard
@@ -503,12 +504,13 @@ graph TD
   PA -->|"generated code → stdout"| R
   BA -->|"metrics: JSON"| R
   R -->|"Save Strategy"| FS
-  %% ⚠️ self-loops can be buggy on GitHub, comment if it breaks
+  %% (If this line breaks rendering on GitHub, delete it)
   H -->|"reload strategies"| H
 
   %% Backend integrations
   H -->|"market data / orders"| CTD
   H -->|"LLM prompts"| OLL
+```
 
 
 ---
