@@ -5,7 +5,7 @@ A full-stack, local-first trading platform that uses live cTrader market data an
 
 > âš¡ Runs 100% locally with **Docker + Ollama** â€” **no OpenAI keys required**.
 
----
+---  
 
 ## ðŸ“š Table of Contents
 
@@ -507,26 +507,26 @@ graph TD
 ## Repository Layout (updated)
 
 - backend/
-  - app.py — FastAPI app and routes (includes strategies reload/list endpoints)
-  - strategy.py — base Strategy classes (SMC, RSI) + loader for generated strategies
-  - programmer_agent.py — generates indicator/strategy code (used by Strategy Studio)
-  - backtesting_agent.py — runs backtests (internal SMA crossover; optional vectorbt)
-  - strategies_generated/ — saved strategies from Strategy Studio (auto-loaded)
-  - llm_analyzer.py — LLM orchestration for analysis
-  - ctrader_client.py — cTrader OpenAPI integration
-  - journal/ — trade journaling API + DB
-  - data_fetcher.py, indicators.py, smc_features.py …
-  - agents/ — autonomous agent runner (optional)
+  - app.py ï¿½ FastAPI app and routes (includes strategies reload/list endpoints)
+  - strategy.py ï¿½ base Strategy classes (SMC, RSI) + loader for generated strategies
+  - programmer_agent.py ï¿½ generates indicator/strategy code (used by Strategy Studio)
+  - backtesting_agent.py ï¿½ runs backtests (internal SMA crossover; optional vectorbt)
+  - strategies_generated/ ï¿½ saved strategies from Strategy Studio (auto-loaded)
+  - llm_analyzer.py ï¿½ LLM orchestration for analysis
+  - ctrader_client.py ï¿½ cTrader OpenAPI integration
+  - journal/ ï¿½ trade journaling API + DB
+  - data_fetcher.py, indicators.py, smc_features.py ï¿½
+  - agents/ ï¿½ autonomous agent runner (optional)
 - frontend/
   - src/
-    - App.tsx — routes ("/" dashboard, "/strategy-studio")
-    - components/ — Header, Chart, SidePanel, Journal, AIOutput, AgentSettings …
-      - StrategyChat.tsx — chat UI for Studio
-      - CodeDisplay.tsx — code viewer with Copy
-      - BacktestResult.tsx — backtest metrics table
+    - App.tsx ï¿½ routes ("/" dashboard, "/strategy-studio")
+    - components/ ï¿½ Header, Chart, SidePanel, Journal, AIOutput, AgentSettings ï¿½
+      - StrategyChat.tsx ï¿½ chat UI for Studio
+      - CodeDisplay.tsx ï¿½ code viewer with Copy
+      - BacktestResult.tsx ï¿½ backtest metrics table
     - pages/
-      - StrategyStudio/index.tsx — Strategy Studio page
-    - services/api.ts — backend calls (executeTask + strategies reload)
+      - StrategyStudio/index.tsx ï¿½ Strategy Studio page
+    - services/api.ts ï¿½ backend calls (executeTask + strategies reload)
 
 ## Strategy Studio endpoints
 
@@ -534,8 +534,8 @@ graph TD
   - task_type: `calculate_indicator | create_strategy | backtest_strategy | save_strategy`
   - params (backtests): `{ symbol, timeframe, num_bars }`\r
   - params (save): `{ strategy_name, code }`
-- GET|POST /api/strategies/reload — re-scan `backend/strategies_generated` and register any `signals(df, ...)` strategies
-- GET /api/strategies — list available strategy names and last load errors
+- GET|POST /api/strategies/reload ï¿½ re-scan `backend/strategies_generated` and register any `signals(df, ...)` strategies
+- GET /api/strategies ï¿½ list available strategy names and last load errors
 
 
 ## Creating Custom Strategies
