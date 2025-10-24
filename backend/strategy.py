@@ -132,39 +132,31 @@ def load_generated_strategies(root: str | Path = "backend/strategies_generated")
             key = name.lower()
             if key in _STRATEGY_REGISTRY:
                 continue
+            # Normalize + compile from source, then register directly without importlib
+            txt: str = ""
+            norm: str = ""
             try:
-                # Normalize previously saved code that may have leading indentation
+                txt = path.read_text(encoding="utf-8")
+                norm = textwrap.dedent(txt).lstrip("\n").replace("\r\n", "\n")
+                # If still not compilable, aggressively strip leading spaces on all lines
                 try:
-                    txt = path.read_text(encoding="utf-8")
-                    norm = textwrap.dedent(txt).lstrip("\n").replace("\r\n", "\n")
-                    # If dedent doesn't fix global indentation (e.g., first line has 0 indent
-                    # but the rest are indented), try a more aggressive normalization that
-                    # left-strips all lines and then re-joins.
-                    needs_aggressive = False
+                    compile(norm, str(path.name), 'exec')
+                except SyntaxError:
+                    norm2 = "\n".join([ln.lstrip() for ln in norm.splitlines()]) + "\n"
+                    compile(norm2, str(path.name), 'exec')
+                    norm = norm2
+                # Persist normalized source back to disk for transparency
+                if norm and norm != txt:
                     try:
-                        compile(norm, str(path.name), 'exec')
-                    except SyntaxError:
-                        needs_aggressive = True
-                    if needs_aggressive:
-                        norm2 = "\n".join([ln.lstrip() for ln in norm.splitlines()]) + "\n"
-                        try:
-                            compile(norm2, str(path.name), 'exec')
-                            norm = norm2
-                        except SyntaxError:
-                            # leave as-is; the loader import will report error below
-                            pass
-                    if norm != txt:
                         path.write_text(norm, encoding="utf-8")
-                except Exception:
-                    pass
-                spec = importlib.util.spec_from_file_location(f"strategies_generated.{name}", str(path))
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)  # type: ignore[arg-type]
-                    _register_generated_module(key, mod)
-                    count += 1
+                    except Exception:
+                        pass
+                # Create a module from normalized source and register
+                mod = types.ModuleType(f"strategies_generated.{name}")
+                exec(norm, mod.__dict__)
+                _register_generated_module(key, mod)
+                count += 1
             except Exception as e:
-                # Keep going but record the failure for diagnostics
                 errors.append({"file": str(path), "error": str(e)})
                 try:
                     print(f"[strategy-load] Failed to load {path}: {e}")

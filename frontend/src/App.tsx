@@ -4,7 +4,7 @@ import './styles/global.css';
 
 import type { AIOutputHandle } from './components/AIOutput';
 import type { AnalysisResult } from './types/analysis';
-import { getAgentStatus, setAgentConfig, addToWatchlist, type AgentStatus } from './services/api';
+import { getAgentStatus, setAgentConfig, addToWatchlist, reloadStrategies, type AgentStatus } from './services/api';
 import type { AgentSignal } from './types';
 import Header from './components/Header';
 import Chart from './components/Chart';
@@ -89,6 +89,16 @@ function Dashboard() {
     }
   };
 
+  const handleReloadStrategies = async () => {
+    try {
+      await reloadStrategies();
+      const status = await getAgentStatus();
+      setAgentStatus(status);
+    } catch (error) {
+      console.error('Failed to reload strategies', error);
+    }
+  };
+
   const handleSignalSelect = (signal: AgentSignal) => {
     if (signal.symbol) {
       setSymbol(signal.symbol);
@@ -122,6 +132,7 @@ function Dashboard() {
         agentStatus={agentStatus}
         onToggleAgent={handleToggleAgent}
         onWatchCurrent={handleWatchCurrent}
+        onReloadStrategies={handleReloadStrategies}
       />
       <div className="toolbar">
         <SymbolSelector onSymbolChange={setSymbol} value={symbol} />

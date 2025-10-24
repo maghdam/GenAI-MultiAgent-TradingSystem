@@ -29,6 +29,7 @@ interface HeaderProps {
   onWatchCurrent?: () => void;
   onToggleAgent?: () => void;
   onOpenAgentSettings?: () => void;
+  onReloadStrategies?: () => void;
 }
 
 const DEFAULT_FEED_STATUS: StatusChip = { status: 'wait', label: 'cTrader: checking…' };
@@ -57,6 +58,7 @@ export default function Header({
   onWatchCurrent,
   onToggleAgent,
   onOpenAgentSettings,
+  onReloadStrategies,
 }: HeaderProps) {
   const handleLotSizeChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextValue = parseFloat(event.target.value);
@@ -200,6 +202,9 @@ export default function Header({
       </button>
       <button className="btn" type="button" onClick={onOpenAgentSettings}>
         ⚙️ Agent Settings
+      </button>
+      <button className="btn" type="button" onClick={onReloadStrategies}>
+        Reload Strategies
       </button>
       <span className="muted">{agentStatusText}</span>
     </header>

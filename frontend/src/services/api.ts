@@ -139,3 +139,20 @@ export const executeTask = async (request: TaskRequest): Promise<TaskResponse> =
   }
   return response.json();
 };
+
+// --- Strategies management ---
+
+export const reloadStrategies = async (): Promise<{ ok: boolean; loaded: number; available: string[] } | null> => {
+  try {
+    const response = await fetch('/api/strategies/reload', { method: 'POST' });
+    if (!response.ok) {
+      // Fallback to GET if POST is blocked
+      const r2 = await fetch('/api/strategies/reload');
+      if (!r2.ok) throw new Error(await r2.text());
+      return r2.json();
+    }
+    return response.json();
+  } catch {
+    return null;
+  }
+};

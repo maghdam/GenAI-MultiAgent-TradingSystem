@@ -50,7 +50,12 @@ from backend.agent_state import recent_signals, all_task_status, reset_all_state
 from backend.agent_controller import controller, AgentConfig
 from backend.programmer_agent import ProgrammerAgent
 from backend.backtesting_agent import run_backtest, BacktestParams
-from backend.strategy import get_strategy, available_strategies, load_generated_strategies
+from backend.strategy import (
+    get_strategy,
+    available_strategies,
+    load_generated_strategies,
+    get_last_strategy_load_errors,
+)
 from backend.llm_analyzer import warm_ollama
 from backend import web_search
 
@@ -157,10 +162,30 @@ async def agent_reset_state():
 
 
 @app.post("/api/strategies/reload")
+@app.get("/api/strategies/reload")
 async def strategies_reload():
     try:
         cnt = load_generated_strategies()
-        return {"ok": True, "loaded": cnt, "available": available_strategies()}
+        return {"ok": True, "loaded": cnt, "available": available_strategies(), "errors": get_last_strategy_load_errors()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/strategies")
+async def strategies_list():
+    return {"available": available_strategies(), "errors": get_last_strategy_load_errors()}
+
+
+@app.get("/api/strategies/files")
+async def strategies_files():
+    """List .py files visible to the container under strategies_generated.
+
+    Useful to debug host/container volume visibility issues.
+    """
+    try:
+        root = Path("backend/strategies_generated")
+        files = [str(p.name) for p in root.glob("*.py")] if root.exists() else []
+        return {"files": files, "cwd": str(Path.cwd())}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
