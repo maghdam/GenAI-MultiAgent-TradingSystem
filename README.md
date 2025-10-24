@@ -469,26 +469,25 @@ This project is for **education and research**. It is **not financial advice**. 
 
 ## Architecture (with Strategy Studio)
 
-```mermaid
-flowchart TD
+graph TD
   subgraph Main_Dashboard
-    A[Header: Strategy Select]
+    A[Header - Strategy Select]
     B[Run AI Analysis]
     C[Agent Settings]
-    D[Side Panels: Signals/Positions]
+    D[Side Panels]
   end
 
   subgraph Backend_FastAPI
-    E[/api/analyze]
-    F[/api/agent/status]
-    G[/api/agent/config]
-    H[/api/agent/execute_task]
-    R[/api/strategies/reload]
+    E[api/analyze]
+    F[api/agent/status]
+    G[api/agent/config]
+    H[api/agent/execute_task]
+    R[api/strategies/reload]
   end
 
   subgraph Strategy_Studio
     S[StrategyChat]
-    T[Result: Code/Backtest]
+    T[Result: Code or Backtest]
   end
 
   subgraph Studio_Agents
@@ -499,9 +498,10 @@ flowchart TD
   A --> B --> E
   C --> G
   S --> H
-  H -- task_type=strategy --> PA
-  H -- task_type=backtest --> BA
+  H -->|task_type=strategy| PA
+  H -->|task_type=backtest| BA
   R --> H
+
 
 
 ```
