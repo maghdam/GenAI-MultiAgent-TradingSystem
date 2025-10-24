@@ -16,6 +16,7 @@ from backend.llm_analyzer import TradeDecision, analyze_chart_with_llm
 
 _STRATEGY_REGISTRY: Dict[str, Type["Strategy"]] = {}
 _GENERATED_LOADED: bool = False
+_LAST_LOAD_ERRORS: list[dict[str, str]] = []
 
 
 def register_strategy(name: str):
@@ -121,6 +122,7 @@ def load_generated_strategies(root: str | Path = "backend/strategies_generated")
     """
     global _GENERATED_LOADED
     count = 0
+    errors: list[dict[str, str]] = []
     try:
         p = Path(root)
         if not p.exists():
@@ -135,6 +137,22 @@ def load_generated_strategies(root: str | Path = "backend/strategies_generated")
                 try:
                     txt = path.read_text(encoding="utf-8")
                     norm = textwrap.dedent(txt).lstrip("\n").replace("\r\n", "\n")
+                    # If dedent doesn't fix global indentation (e.g., first line has 0 indent
+                    # but the rest are indented), try a more aggressive normalization that
+                    # left-strips all lines and then re-joins.
+                    needs_aggressive = False
+                    try:
+                        compile(norm, str(path.name), 'exec')
+                    except SyntaxError:
+                        needs_aggressive = True
+                    if needs_aggressive:
+                        norm2 = "\n".join([ln.lstrip() for ln in norm.splitlines()]) + "\n"
+                        try:
+                            compile(norm2, str(path.name), 'exec')
+                            norm = norm2
+                        except SyntaxError:
+                            # leave as-is; the loader import will report error below
+                            pass
                     if norm != txt:
                         path.write_text(norm, encoding="utf-8")
                 except Exception:
@@ -145,11 +163,28 @@ def load_generated_strategies(root: str | Path = "backend/strategies_generated")
                     spec.loader.exec_module(mod)  # type: ignore[arg-type]
                     _register_generated_module(key, mod)
                     count += 1
-            except Exception:
+            except Exception as e:
+                # Keep going but record the failure for diagnostics
+                errors.append({"file": str(path), "error": str(e)})
+                try:
+                    print(f"[strategy-load] Failed to load {path}: {e}")
+                except Exception:
+                    pass
                 continue
     finally:
         _GENERATED_LOADED = True
+        # expose last errors for diagnostics
+        try:
+            global _LAST_LOAD_ERRORS
+            _LAST_LOAD_ERRORS = errors
+        except Exception:
+            pass
     return count
+
+
+def get_last_strategy_load_errors() -> list[dict[str, str]]:
+    """Return errors captured during the last load_generated_strategies() call."""
+    return list(_LAST_LOAD_ERRORS)
 
 
 def _build_candlestick(df: pd.DataFrame):
