@@ -469,39 +469,46 @@ This project is for **education and research**. It is **not financial advice**. 
 
 ## Architecture (with Strategy Studio)
 
+```mermaid
 graph TD
-  subgraph Main_Dashboard
-    A[Header - Strategy Select]
-    B[Run AI Analysis]
-    C[Agent Settings]
-    D[Side Panels]
+  %% System overview (Dashboard + Studio + Backend)
+  subgraph "Main Dashboard"
+    HD[Header - Strategy Select]
+    AN[Run AI Analysis]
+    AS[Agent Settings]
   end
 
-  subgraph Backend_FastAPI
-    E[api/analyze]
-    F[api/agent/status]
-    G[api/agent/config]
-    H[api/agent/execute_task]
-    R[api/strategies/reload]
-  end
-
-  subgraph Strategy_Studio
+  subgraph "Strategy Studio"
     S[StrategyChat]
-    T[Result: Code or Backtest]
+    R[Result Panel]
   end
 
-  subgraph Studio_Agents
+  subgraph "Backend Services"
+    H[FastAPI]
     PA[ProgrammerAgent]
     BA[BacktestingAgent]
+    CTD[cTrader OpenAPI]
+    OLL[Ollama LLM]
+    FS[(strategies_generated)]
   end
 
-  A --> B --> E
-  C --> G
-  S --> H
-  H -->|task_type=strategy| PA
-  H -->|task_type=backtest| BA
-  R --> H
+  %% Dashboard → Backend
+  HD -->|GET /api/agent/status| H
+  AN -->|POST /api/analyze| H
+  AS -->|POST /api/agent/config| H
 
+  %% Studio → Backend
+  S -->|POST /api/agent/execute_task| H
+  H -->|task_type = strategy| PA
+  H -->|task_type = backtest| BA
+  PA -->|generated code (stdout)| R
+  BA -->|metrics (JSON)| R
+  R -->|Save Strategy| FS
+  H -->|reload strategies| H
+
+  %% Backend integrations
+  H -->|market data / orders| CTD
+  H -->|LLM prompts| OLL
 
 
 ```
