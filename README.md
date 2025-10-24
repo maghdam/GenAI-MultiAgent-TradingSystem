@@ -469,21 +469,20 @@ This project is for **education and research**. It is **not financial advice**. 
 
 ## Architecture (with Strategy Studio)
 
-```mermaid
 graph TD
   %% System overview (Dashboard + Studio + Backend)
-  subgraph "Main Dashboard"
+  subgraph Main Dashboard
     HD[Header - Strategy Select]
     AN[Run AI Analysis]
     AS[Agent Settings]
   end
 
-  subgraph "Strategy Studio"
+  subgraph Strategy Studio
     S[StrategyChat]
     R[Result Panel]
   end
 
-  subgraph "Backend Services"
+  subgraph Backend Services
     H[FastAPI]
     PA[ProgrammerAgent]
     BA[BacktestingAgent]
@@ -493,22 +492,24 @@ graph TD
   end
 
   %% Dashboard → Backend
-  HD -->|GET /api/agent/status| H
-  AN -->|POST /api/analyze| H
-  AS -->|POST /api/agent/config| H
+  HD -->|"GET /api/agent/status"| H
+  AN -->|"POST /api/analyze"| H
+  AS -->|"POST /api/agent/config"| H
 
   %% Studio → Backend
-  S -->|POST /api/agent/execute_task| H
-  H -->|task_type = strategy| PA
-  H -->|task_type = backtest| BA
-  PA -->|generated code (stdout)| R
-  BA -->|metrics (JSON)| R
-  R -->|Save Strategy| FS
-  H -->|reload strategies| H
+  S -->|"POST /api/agent/execute_task"| H
+  H -->|"task_type = strategy"| PA
+  H -->|"task_type = backtest"| BA
+  PA -->|"generated code → stdout"| R
+  BA -->|"metrics: JSON"| R
+  R -->|"Save Strategy"| FS
+  %% ⚠️ self-loops can be buggy on GitHub, comment if it breaks
+  H -->|"reload strategies"| H
 
   %% Backend integrations
-  H -->|market data / orders| CTD
-  H -->|LLM prompts| OLL
+  H -->|"market data / orders"| CTD
+  H -->|"LLM prompts"| OLL
+
 
 ---
 
