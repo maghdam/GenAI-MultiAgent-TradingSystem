@@ -402,6 +402,35 @@ Per-request overrides (frontend â†’ `/api/analyze`):
 
 -----
 
+
+## Strategy Studio
+
+Strategy Studio is a separate page focused on strategy creation and backtesting.
+
+- Access: open http://localhost:8080/strategy-studio (also via the sidebar link; opens in a new tab).
+- Create strategies: type a prompt like "Create an SMA crossover strategy". The result shows generated, copyable code.
+- Backtest: select Symbol, Timeframe, Bars and click Run Backtest. Returns compact metrics (Total Return, Win Rate, Max Drawdown, Sharpe, etc.). If vectorbt is installed in the backend container, richer metrics are returned automatically.
+- Save: click "Save Strategy" to persist the code to `backend/strategies_generated/<name>.py`. This folder is bind-mounted from the container to the host.
+
+Backend endpoints used:
+- POST /api/agent/execute_task
+  - task_type: one of `calculate_indicator | create_strategy | backtest_strategy | save_strategy`
+  - params for backtests: `{ symbol, timeframe, num_bars }`
+  - params for save: `{ strategy_name, code }`
+
+Docker note (persisting saved strategies):
+- `llm-smc` mounts `./backend/strategies_generated:/app/backend/strategies_generated` so saved strategies are visible on the host.
+- Rebuild after updating compose: `docker compose down; docker compose build --no-cache; docker compose up`.
+
+## ðŸ“¸ Demo Screens
+
+![Dashboard Screenshot](docs/images/Dashboard2.png)
+![Dashboard Screenshot](docs/images/Dashboard3.png)
+
+
+
+
+----
 ## ðŸ”§ Stability & Reliability
 
 Specific dependency versions are pinned to ensure stability. Recent updates resolved dependency conflicts (notably around `Twisted`) to provide reliable startup in Docker.
@@ -435,22 +464,76 @@ This project is for **education and research**. It is **not financial advice**. 
 ```
 ```
 
-## Strategy Studio
 
-Strategy Studio is a separate page focused on strategy creation and backtesting.
+---
 
-- Access: open http://localhost:8080/strategy-studio (also via the sidebar link; opens in a new tab).
-- Create strategies: type a prompt like "Create an SMA crossover strategy". The result shows generated, copyable code.
-- Backtest: select Symbol, Timeframe, Bars and click Run Backtest. Returns compact metrics (Total Return, Win Rate, Max Drawdown, Sharpe, etc.). If vectorbt is installed in the backend container, richer metrics are returned automatically.
-- Save: click "Save Strategy" to persist the code to `backend/strategies_generated/<name>.py`. This folder is bind-mounted from the container to the host.
+## Architecture (with Strategy Studio)
 
-Backend endpoints used:
+```mermaid
+graph TD
+  subgraph "Main Dashboard"
+    A[Header: Strategy Select]
+    B[Run AI Analysis]
+    C[Agent Settings]
+    D[Side Panels: Signals/Positions]
+  end
+
+  subgraph "Backend (FastAPI)"
+    E[/api/analyze]
+    F[/api/agent/status]
+    G[/api/agent/config]
+    H[/api/agent/execute_task]
+    R[/api/strategies/reload]
+  end
+
+  subgraph "Strategy Studio"
+    S[StrategyChat]
+    T[Result: Code/Backtest]
+  end
+
+  subgraph "Studio Agents"
+    PA[ProgrammerAgent]
+    BA[BacktestingAgent]
+  end
+
+  A --> B --> E
+  C --> G
+  S --> H
+  H -->|task_type=strategy| PA
+  H -->|task_type=backtest| BA
+  R -->|reload| H
+```
+
+## Repository Layout (updated)
+
+- backend/
+  - app.py — FastAPI app and routes (includes strategies reload/list endpoints)
+  - strategy.py — base Strategy classes (SMC, RSI) + loader for generated strategies
+  - programmer_agent.py — generates indicator/strategy code (used by Strategy Studio)
+  - backtesting_agent.py — runs backtests (internal SMA crossover; optional vectorbt)
+  - strategies_generated/ — saved strategies from Strategy Studio (auto-loaded)
+  - llm_analyzer.py — LLM orchestration for analysis
+  - ctrader_client.py — cTrader OpenAPI integration
+  - journal/ — trade journaling API + DB
+  - data_fetcher.py, indicators.py, smc_features.py …
+  - agents/ — autonomous agent runner (optional)
+- frontend/
+  - src/
+    - App.tsx — routes ("/" dashboard, "/strategy-studio")
+    - components/ — Header, Chart, SidePanel, Journal, AIOutput, AgentSettings …
+      - StrategyChat.tsx — chat UI for Studio
+      - CodeDisplay.tsx — code viewer with Copy
+      - BacktestResult.tsx — backtest metrics table
+    - pages/
+      - StrategyStudio/index.tsx — Strategy Studio page
+    - services/api.ts — backend calls (executeTask + strategies reload)
+
+## Strategy Studio endpoints
+
 - POST /api/agent/execute_task
-  - task_type: one of `calculate_indicator | create_strategy | backtest_strategy | save_strategy`
-  - params for backtests: `{ symbol, timeframe, num_bars }`
-  - params for save: `{ strategy_name, code }`
-
-Docker note (persisting saved strategies):
-- `llm-smc` mounts `./backend/strategies_generated:/app/backend/strategies_generated` so saved strategies are visible on the host.
-- Rebuild after updating compose: `docker compose down; docker compose build --no-cache; docker compose up`.
+  - task_type: `calculate_indicator | create_strategy | backtest_strategy | save_strategy`
+  - params (backtests): `{ symbol, timeframe, num_bars }`\r
+  - params (save): `{ strategy_name, code }`
+- GET|POST /api/strategies/reload — re-scan `backend/strategies_generated` and register any `signals(df, ...)` strategies
+- GET /api/strategies — list available strategy names and last load errors
 
