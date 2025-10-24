@@ -537,3 +537,39 @@ graph TD
 - GET|POST /api/strategies/reload — re-scan `backend/strategies_generated` and register any `signals(df, ...)` strategies
 - GET /api/strategies — list available strategy names and last load errors
 
+
+## Creating Custom Strategies
+
+You can add your own strategy without editing core code. Save a `.py` file under `backend/strategies_generated` that defines a top-level `signals(df, ...)` function. The system auto-loads it and exposes it in both strategy dropdowns (header + Agent Settings).
+
+1) File location
+- Put files in `backend/strategies_generated/`. Example: `backend/strategies_generated/my_sma.py`.
+
+2) Minimal template (no indentation at the left edge)
+
+```python
+import pandas as pd
+
+def signals(df: pd.DataFrame, fast: int = 50, slow: int = 200) -> pd.Series:
+    """Return +1 (long), 0 (flat), or -1 (short) per bar.
+    The dashboard uses the last value to infer the current side.
+    """
+    f = df['close'].rolling(fast, min_periods=fast).mean()
+    s = df['close'].rolling(slow, min_periods=slow).mean()
+    return (f > s).astype(int).diff().fillna(0)
+```
+
+3) Make it appear in the UI
+- Use Strategy Studio ? Save Strategy (auto-reloads), or
+- Click "Reload Strategies" in the header, or call `GET /api/strategies/reload`.
+- Verify with `GET /api/strategies`.
+
+4) Use it
+- It appears in the top-left strategy selector and Agent Settings strategy list.
+- Select it and run analysis or enable the agent; the backend wraps your module into a Strategy at runtime.
+
+Notes
+- Keep top-level code unindented (no spaces before `import` / `def`).
+- You can add keyword params to `signals(...)` (e.g., `fast`, `slow`); pass them later by extending the agent config or strategy UI if needed.
+- For richer backtests, install `vectorbt` in the backend image; the backtest endpoint will return extended stats automatically.
+
