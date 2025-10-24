@@ -470,15 +470,15 @@ This project is for **education and research**. It is **not financial advice**. 
 ## Architecture (with Strategy Studio)
 
 ```mermaid
-graph TD
-  subgraph "Main Dashboard"
+flowchart TD
+  subgraph Main_Dashboard
     A[Header: Strategy Select]
     B[Run AI Analysis]
     C[Agent Settings]
     D[Side Panels: Signals/Positions]
   end
 
-  subgraph "Backend (FastAPI)"
+  subgraph Backend_FastAPI
     E[/api/analyze]
     F[/api/agent/status]
     G[/api/agent/config]
@@ -486,12 +486,12 @@ graph TD
     R[/api/strategies/reload]
   end
 
-  subgraph "Strategy Studio"
+  subgraph Strategy_Studio
     S[StrategyChat]
     T[Result: Code/Backtest]
   end
 
-  subgraph "Studio Agents"
+  subgraph Studio_Agents
     PA[ProgrammerAgent]
     BA[BacktestingAgent]
   end
@@ -499,34 +499,36 @@ graph TD
   A --> B --> E
   C --> G
   S --> H
-  H -->|task_type=strategy| PA
-  H -->|task_type=backtest| BA
-  R -->|reload| H
+  H -- task_type=strategy --> PA
+  H -- task_type=backtest --> BA
+  R --> H
+
+
 ```
 
 ## Repository Layout (updated)
 
 - backend/
-  - app.py � FastAPI app and routes (includes strategies reload/list endpoints)
-  - strategy.py � base Strategy classes (SMC, RSI) + loader for generated strategies
-  - programmer_agent.py � generates indicator/strategy code (used by Strategy Studio)
-  - backtesting_agent.py � runs backtests (internal SMA crossover; optional vectorbt)
-  - strategies_generated/ � saved strategies from Strategy Studio (auto-loaded)
-  - llm_analyzer.py � LLM orchestration for analysis
-  - ctrader_client.py � cTrader OpenAPI integration
-  - journal/ � trade journaling API + DB
-  - data_fetcher.py, indicators.py, smc_features.py �
-  - agents/ � autonomous agent runner (optional)
+  - app.py - FastAPI app and routes (includes strategies reload/list endpoints)
+  - strategy.py - base Strategy classes (SMC, RSI) + loader for generated strategies
+  - programmer_agent.py - generates indicator/strategy code (used by Strategy Studio)
+  - backtesting_agent.py - runs backtests (internal SMA crossover; optional vectorbt)
+  - strategies_generated/ - saved strategies from Strategy Studio (auto-loaded)
+  - llm_analyzer.py - LLM orchestration for analysis
+  - ctrader_client.py - cTrader OpenAPI integration
+  - journal/ - trade journaling API + DB
+  - data_fetcher.py, indicators.py, smc_features.py ...
+  - agents/ - autonomous agent runner (optional)
 - frontend/
   - src/
-    - App.tsx � routes ("/" dashboard, "/strategy-studio")
-    - components/ � Header, Chart, SidePanel, Journal, AIOutput, AgentSettings �
-      - StrategyChat.tsx � chat UI for Studio
-      - CodeDisplay.tsx � code viewer with Copy
-      - BacktestResult.tsx � backtest metrics table
+    - App.tsx - routes ("/" dashboard, "/strategy-studio")
+    - components/ - Header, Chart, SidePanel, Journal, AIOutput, AgentSettings ...
+      - StrategyChat.tsx - chat UI for Studio
+      - CodeDisplay.tsx - code viewer with Copy
+      - BacktestResult.tsx - backtest metrics table
     - pages/
-      - StrategyStudio/index.tsx � Strategy Studio page
-    - services/api.ts � backend calls (executeTask + strategies reload)
+      - StrategyStudio/index.tsx - Strategy Studio page
+    - services/api.ts - backend calls (executeTask + strategies reload)
 
 ## Strategy Studio endpoints
 
@@ -534,8 +536,8 @@ graph TD
   - task_type: `calculate_indicator | create_strategy | backtest_strategy | save_strategy`
   - params (backtests): `{ symbol, timeframe, num_bars }`\r
   - params (save): `{ strategy_name, code }`
-- GET|POST /api/strategies/reload � re-scan `backend/strategies_generated` and register any `signals(df, ...)` strategies
-- GET /api/strategies � list available strategy names and last load errors
+- GET|POST /api/strategies/reload - re-scan `backend/strategies_generated` and register any `signals(df, ...)` strategies
+- GET /api/strategies - list available strategy names and last load errors
 
 
 ## Creating Custom Strategies
