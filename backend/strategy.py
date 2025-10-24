@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Type
 import importlib.util
 from pathlib import Path
 import types
+import textwrap
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -130,6 +131,14 @@ def load_generated_strategies(root: str | Path = "backend/strategies_generated")
             if key in _STRATEGY_REGISTRY:
                 continue
             try:
+                # Normalize previously saved code that may have leading indentation
+                try:
+                    txt = path.read_text(encoding="utf-8")
+                    norm = textwrap.dedent(txt).lstrip("\n").replace("\r\n", "\n")
+                    if norm != txt:
+                        path.write_text(norm, encoding="utf-8")
+                except Exception:
+                    pass
                 spec = importlib.util.spec_from_file_location(f"strategies_generated.{name}", str(path))
                 if spec and spec.loader:
                     mod = importlib.util.module_from_spec(spec)
