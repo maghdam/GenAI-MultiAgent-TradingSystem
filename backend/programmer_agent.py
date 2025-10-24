@@ -14,8 +14,7 @@ class ProgrammerAgent:
     async def generate_code(self, goal: str, task_type: TaskKind) -> str:
         goal = (goal or "").strip()
         if task_type == "indicator":
-            return textwrap.dedent(
-                f"""
+            src = f"""
                 # Example: Simple RSI (14) using pandas
                 import pandas as pd
 
@@ -27,12 +26,11 @@ class ProgrammerAgent:
                     return 100 - (100 / (1 + rs))
 
                 # Usage: df['rsi14'] = rsi(df['close'], 14)
-                """.strip()
-            )
+            """
+            return textwrap.dedent(src).strip()
 
         if task_type == "strategy":
-            return textwrap.dedent(
-                f"""
+            src = f"""
                 # Example: SMA crossover strategy skeleton
                 import pandas as pd
 
@@ -45,17 +43,15 @@ class ProgrammerAgent:
                     sig = (f > s).astype(int).diff().fillna(0)
                     # 1 = long entry, -1 = exit/short entry depending on rules
                     return sig
-                """.strip()
-            )
+            """
+            return textwrap.dedent(src).strip()
 
         # For backtest requests, return a helper snippet to show intent
-        return textwrap.dedent(
-            f"""
+        src = f"""
             # Backtest outline (pseudocode):
             # - Fetch OHLCV data
             # - Generate signals
             # - Iterate bars and track PnL with simple costs
             # - Compute metrics (total return, win rate, max drawdown)
-            """.strip()
-        )
-
+        """
+        return textwrap.dedent(src).strip()
