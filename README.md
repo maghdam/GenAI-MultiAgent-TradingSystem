@@ -510,9 +510,6 @@ graph TD
   H -->|market data / orders| CTD
   H -->|LLM prompts| OLL
 
-
-```
-
 ## Repository Layout (updated)
 
 - backend/
