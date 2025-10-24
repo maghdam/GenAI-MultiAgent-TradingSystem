@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { getAgentConfig, setAgentConfig, type AgentConfig } from '../services/api';
+import { getAgentConfig, setAgentConfig, getAgentStatus, type AgentConfig } from '../services/api';
 
 interface AgentSettingsProps {
   isOpen: boolean;
@@ -21,18 +21,20 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
   const [config, setConfig] = useState<AgentConfig>(initialConfig);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [availableStrategies, setAvailableStrategies] = useState<string[]>(['smc','rsi']);
 
   useEffect(() => {
-    if (isOpen) {
-      setLoading(true);
-      getAgentConfig()
-        .then(data => {
-          setConfig(data);
-          setError(null);
-        })
-        .catch(err => setError(err.message))
-        .finally(() => setLoading(false));
-    }
+    if (!isOpen) return;
+    setLoading(true);
+    Promise.all([getAgentConfig(), getAgentStatus()])
+      .then(([cfg, status]) => {
+        setConfig(cfg);
+        const opts = Array.from(new Set([...(status?.available_strategies || []), 'smc', 'rsi', cfg.strategy].filter(Boolean))) as string[];
+        setAvailableStrategies(opts);
+        setError(null);
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
   }, [isOpen]);
 
   const handleSave = async (event: FormEvent) => {
@@ -123,8 +125,9 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             </select>
             <label>Strategy</label>
             <select value={config.strategy} onChange={e => setConfig({ ...config, strategy: e.target.value })}>
-              <option value="smc">SMC</option>
-              <option value="rsi">RSI Divergence</option>
+              {availableStrategies.map(name => (
+                <option key={name} value={name}>{name.toUpperCase()}</option>
+              ))}
             </select>
           </div>
 
