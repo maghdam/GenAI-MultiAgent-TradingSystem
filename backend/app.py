@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import asyncio
+import textwrap
 import httpx
 import os
 import threading
@@ -96,9 +97,10 @@ def health():
 async def on_startup():
     # Load any user-saved strategies
     try:
-        load_generated_strategies()
-    except Exception:
-        pass
+        cnt = load_generated_strategies()
+        print(f"[startup] Loaded {cnt} generated strategies.")
+    except Exception as e:
+        print(f"[startup] Failed to load generated strategies: {e}")
     # Pre-load the LLM model to avoid cold-start timeouts on first use
     warm_ollama()
     await asyncio.sleep(5) # Give cTrader client time to connect
@@ -152,6 +154,15 @@ async def agent_reset_state():
     """
     reset_all_state()
     return {"ok": True}
+
+
+@app.post("/api/strategies/reload")
+async def strategies_reload():
+    try:
+        cnt = load_generated_strategies()
+        return {"ok": True, "loaded": cnt, "available": available_strategies()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/agent/status")
@@ -215,7 +226,13 @@ async def execute_task_endpoint(req: Request):
             dest_dir = Path("backend/strategies_generated")
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / f"{safe}.py"
-            dest_path.write_text(str(code), encoding="utf-8")
+            code_norm = textwrap.dedent(str(code)).lstrip("\n").replace("\r\n", "\n")
+            dest_path.write_text(code_norm, encoding="utf-8")
+            # Auto-reload after save so it appears in dropdown without restart
+            try:
+                load_generated_strategies()
+            except Exception:
+                pass
             return {"status": "success", "message": f"Strategy saved as {dest_path}"}
 
         if mapped == "backtest":
