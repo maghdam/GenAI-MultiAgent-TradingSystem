@@ -35,28 +35,29 @@ def _crossover_backtest(df: pd.DataFrame, fast: int = 50, slow: int = 200) -> Di
     exit_signal = (f < s) & (f.shift(1) >= s.shift(1))  # death cross
 
     # Position state: 1 when in long, else 0
-    position = pd.Series(0, index=close.index)
-    position[long_signal] = 1
-    position[exit_signal] = 0
-    position = position.replace(to_replace=0, method="ffill").fillna(0)
+    position = pd.Series(index=close.index, dtype=float)
+    position[long_signal] = 1.0
+    position[exit_signal] = 0.0
+    position = position.ffill().fillna(0.0)
 
     rets = close.pct_change().fillna(0)
     strat_rets = rets * position
     equity = (1.0 + strat_rets).cumprod()
 
-    # Trades (count entries), per-trade returns
-    entries = long_signal[long_signal].index
-    exits = exit_signal[exit_signal].index
-    # Align entries and exits (ignore unmatched tail)
-    n = min(len(entries), len(exits))
-    entries = entries[:n]
-    exits = exits[:n]
-    trade_rets = []
-    for e, x in zip(entries, exits):
-        if e >= x:
-            continue
-        trade_ret = float(close.loc[x] / close.loc[e] - 1.0)
-        trade_rets.append(trade_ret)
+    # Trades (pair each entry with the next exit; if no later exit, close at last bar)
+    entries_idx = list(long_signal[long_signal].index)
+    exits_idx = list(exit_signal[exit_signal].index)
+    trade_rets: list[float] = []
+    if entries_idx:
+        import bisect
+        exits_idx_sorted = list(sorted(exits_idx))
+        for e in entries_idx:
+            i = bisect.bisect_right(exits_idx_sorted, e)
+            x = exits_idx_sorted[i] if i < len(exits_idx_sorted) else close.index[-1]
+            if e >= x:
+                continue
+            trade_ret = float(close.loc[x] / close.loc[e] - 1.0)
+            trade_rets.append(trade_ret)
 
     num_trades = len(trade_rets)
     wins = sum(1 for r in trade_rets if r > 0)
