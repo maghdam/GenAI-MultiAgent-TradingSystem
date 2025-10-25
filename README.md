@@ -20,6 +20,7 @@ Includes a Strategy Studio for creating, backtesting, and saving strategies that
 - [Agents](#agents)
 - [API (Selected Endpoints)](#api-selected-endpoints)
 - [Strategy Studio](#strategy-studio)
+- [Natural‑Language Control (LLM‑first)](#natural-language-control-llm-first)
 - [UI Walkthrough](#ui-walkthrough)
 - [Performance & Model Tuning](#performance--model-tuning)
 - [Troubleshooting](#troubleshooting)
@@ -59,6 +60,10 @@ Includes a Strategy Studio for creating, backtesting, and saving strategies that
   - All executed trades (UI, Agent, or Chatbot) logged to local SQLite (`data/journal.db`).
 - Fast, modern frontend
   - React 18 + TypeScript + Vite SPA served by NGINX. Lightweight-Charts with overlays (SMA/EMA/VWAP/BB), SL/TP lines, and health chips.
+Natural‑language control (LLM‑first)
+Configure strategies, run backtests, and switch agent settings via chat — no code or sliders required.
+The system parses your intent, validates parameters, and executes safely with confirmations.
+
 
 ---
 
@@ -353,6 +358,34 @@ Notes
 - For richer backtests, install `vectorbt` in the backend image.
 
 For implementation notes, see `STRATEGY_INTEGRATION_PLAN.md`.
+
+---
+
+## Natural‑Language Control (LLM‑first)
+
+This system treats plain human languages like English as the control surface. You can configure strategies, run backtests, and change agent settings via chat — no coding or UI sliders required.
+
+What you can say:
+-“Analyze XAUUSD on M5 with an SMA crossover fast 20 slow 50.”
+-“Backtest RSI length 14 on EURUSD H1 for 5000 bars with 2 bps fee and 1 bps slippage.”
+-“Switch the agent to use my ‘ma’ strategy with fast 20 slow 50 and enable it.”
+-“Save this strategy as ‘ma_fast20_slow50’ and reload strategies.”
+-“Reload strategies and set the agent back to SMC.”
+
+How it works:
+-Intent parsing: the system extracts action (analyze, backtest, save, set strategy), instrument, timeframe, strategy, and parameters (e.g., fast/slow, RSI length, fees, slippage).
+-Validation: parameters are coerced/clamped to safe ranges (e.g., fast ≥ 2, slow ≥ fast+1, fees/slippage ≥ 0).
+-Tool execution: the request is routed to the right tool (Analyze, Backtest, Save Strategy, Reload Strategies, Agent Config).
+-Confirmations: for agent changes or trading, the system presents the intended update and asks for confirmation before applying.
+
+Tips for phrasing:
+- Be explicit when you want more control: “fast 20 slow 50”, “length 14”, “for 5000 bars”, “2 bps fee”.
+- Reference saved strategies by name: “use strategy ‘ma’” or “save as ‘ma_mytest’”.
+- Ask for a reload when you add a new file manually: “reload strategies”.
+
+Transparency:
+- After parsing, the UI shows the interpreted parameters (where applicable) so you can confirm what will be executed.
+- The backend returns a human‑readable summary and the applied parameters.
 
 ---
 
