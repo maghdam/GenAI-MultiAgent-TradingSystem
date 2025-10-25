@@ -435,7 +435,7 @@ Specific dependency versions are pinned to ensure stability. Recent updates reso
 
 ## License
 
-This project is licensed under the MIT License — see `LICENSE`.
+This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
 ---
 
