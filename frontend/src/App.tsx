@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import './styles/global.css';
 
 import type { AIOutputHandle } from './components/AIOutput';
 import type { AnalysisResult } from './types/analysis';
-import { getAgentStatus, setAgentConfig, addToWatchlist, type AgentStatus } from './services/api';
+import { getAgentStatus, setAgentConfig, addToWatchlist, reloadStrategies, type AgentStatus } from './services/api';
 import type { AgentSignal } from './types';
 import Header from './components/Header';
 import Chart from './components/Chart';
@@ -13,8 +14,9 @@ import AIOutput from './components/AIOutput';
 import AgentSettings from './components/AgentSettings';
 import SymbolSelector from './components/SymbolSelector';
 import ChatWidget from './components/ChatWidget';
+import StrategyStudioPage from './pages/StrategyStudio/index';
 
-function App() {
+function Dashboard() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [timeframe, setTimeframe] = useState('M5');
   const [strategy, setStrategy] = useState('smc');
@@ -67,7 +69,7 @@ function App() {
         trading_mode: agentStatus.trading_mode,
         autotrade: agentStatus.autotrade ?? false,
         lot_size_lots: agentStatus.lot_size_lots ?? 0.1,
-        strategy: agentStatus.strategy ?? 'smc',
+        strategy: strategy || agentStatus.strategy || 'smc',
       };
       await setAgentConfig(newConfig);
       const status = await getAgentStatus();
@@ -84,6 +86,16 @@ function App() {
       setAgentStatus(status);
     } catch (error) {
       console.error('Failed to add current pair to watchlist', error);
+    }
+  };
+
+  const handleReloadStrategies = async () => {
+    try {
+      await reloadStrategies();
+      const status = await getAgentStatus();
+      setAgentStatus(status);
+    } catch (error) {
+      console.error('Failed to reload strategies', error);
     }
   };
 
@@ -120,6 +132,7 @@ function App() {
         agentStatus={agentStatus}
         onToggleAgent={handleToggleAgent}
         onWatchCurrent={handleWatchCurrent}
+        onReloadStrategies={handleReloadStrategies}
       />
       <div className="toolbar">
         <SymbolSelector onSymbolChange={setSymbol} value={symbol} />
@@ -168,4 +181,11 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/strategy-studio" element={<StrategyStudioPage />} />
+    </Routes>
+  );
+}

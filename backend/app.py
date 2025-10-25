@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import asyncio
+import textwrap
 import httpx
 import os
 import threading
@@ -47,7 +48,14 @@ from backend.smc_features import (
 )
 from backend.agent_state import recent_signals, all_task_status, reset_all_state
 from backend.agent_controller import controller, AgentConfig
-from backend.strategy import get_strategy, available_strategies
+from backend.programmer_agent import ProgrammerAgent
+from backend.backtesting_agent import run_backtest, BacktestParams
+from backend.strategy import (
+    get_strategy,
+    available_strategies,
+    load_generated_strategies,
+    get_last_strategy_load_errors,
+)
 from backend.llm_analyzer import warm_ollama
 from backend import web_search
 
@@ -92,6 +100,12 @@ def health():
 
 @app.on_event("startup")
 async def on_startup():
+    # Load any user-saved strategies
+    try:
+        cnt = load_generated_strategies()
+        print(f"[startup] Loaded {cnt} generated strategies.")
+    except Exception as e:
+        print(f"[startup] Failed to load generated strategies: {e}")
     # Pre-load the LLM model to avoid cold-start timeouts on first use
     warm_ollama()
     await asyncio.sleep(5) # Give cTrader client time to connect
@@ -147,12 +161,42 @@ async def agent_reset_state():
     return {"ok": True}
 
 
+@app.post("/api/strategies/reload")
+@app.get("/api/strategies/reload")
+async def strategies_reload():
+    try:
+        cnt = load_generated_strategies()
+        return {"ok": True, "loaded": cnt, "available": available_strategies(), "errors": get_last_strategy_load_errors()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/strategies")
+async def strategies_list():
+    return {"available": available_strategies(), "errors": get_last_strategy_load_errors()}
+
+
+@app.get("/api/strategies/files")
+async def strategies_files():
+    """List .py files visible to the container under strategies_generated.
+
+    Useful to debug host/container volume visibility issues.
+    """
+    try:
+        root = Path("backend/strategies_generated")
+        files = [str(p.name) for p in root.glob("*.py")] if root.exists() else []
+        return {"files": files, "cwd": str(Path.cwd())}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/agent/status")
 async def agent_status():
     snap = await controller.snapshot()
     cfg = snap.get("config") or {}
     running_pairs = snap.get("running_pairs") or []
-    tasks = all_task_status()
+    # Ensure tasks is always a list for the frontend
+    tasks = all_task_status() or []
 
     enabled = bool(cfg.get("enabled"))
     watchlist = cfg.get("watchlist") or []
@@ -170,6 +214,65 @@ async def agent_status():
         "tasks": tasks,
         "available_strategies": available_strategies(),
     }
+
+@app.post("/api/agent/execute_task")
+async def execute_task_endpoint(req: Request):
+    """Compatibility endpoint for Strategy Studio tasks.
+
+    Accepts task_type values like:
+    - 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy'
+
+    Maps them to controller types and normalizes the response to:
+    { status: 'success'|'error', message?: str, result?: any }
+    """
+    body = await req.json()
+    t = (body.get("task_type") or "").strip().lower()
+    goal = body.get("goal")
+    params = body.get("params") or {}
+
+    mapped = (
+        "indicator" if t in ("calculate_indicator",)
+        else "backtest" if t in ("backtest_strategy",)
+        else "strategy"
+    )
+
+    # Execute mapped task without relying on autonomous agents
+    try:
+        # Save Strategy: if explicit request and code provided, persist to file
+        if t == "save_strategy":
+            name = ((params or {}).get("strategy_name") or "").strip() if isinstance(params, dict) else ""
+            code = ((params or {}).get("code") or "") if isinstance(params, dict) else ""
+            if not name:
+                return {"status": "error", "message": "strategy_name is required"}
+            if not code:
+                return {"status": "error", "message": "code is required"}
+            # sanitize filename
+            safe = "".join(ch if ch.isalnum() or ch in ("_","-") else "_" for ch in name)
+            dest_dir = Path("backend/strategies_generated")
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / f"{safe}.py"
+            code_norm = textwrap.dedent(str(code)).lstrip("\n").replace("\r\n", "\n")
+            dest_path.write_text(code_norm, encoding="utf-8")
+            # Auto-reload after save so it appears in dropdown without restart
+            try:
+                load_generated_strategies()
+            except Exception:
+                pass
+            return {"status": "success", "message": f"Strategy saved as {dest_path}"}
+
+        if mapped == "backtest":
+            sym = (params.get("symbol") if isinstance(params, dict) else None) or DEFAULT_SYMBOL
+            tf = (params.get("timeframe") if isinstance(params, dict) else None) or "M5"
+            n = int((params.get("num_bars") if isinstance(params, dict) else 1500) or 1500)
+            result = run_backtest(BacktestParams(symbol=sym, timeframe=tf, num_bars=n))
+            return {"status": "success", "message": "Backtest complete.", "result": result}
+
+        # strategy or indicator -> generate code snippet for the user
+        pa = ProgrammerAgent()
+        code = await pa.generate_code(goal or "", mapped)
+        return {"status": "success", "message": "Code generated.", "result": {"stdout": code}}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Symbols & candles

@@ -132,7 +132,14 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
 
   const handleAnalysisComplete = useCallback(
     (analysis: AnalysisResult | null) => {
-      setState(prev => ({ ...prev, analysis, loading: false, cancelled: false }));
+      // Clone arrays to avoid accidental mutation across renders
+      const cloned: AnalysisResult | null = analysis
+        ? {
+            ...analysis,
+            reasons: Array.isArray(analysis.reasons) ? [...analysis.reasons] : [],
+          }
+        : null;
+      setState(prev => ({ ...prev, analysis: cloned, loading: false, cancelled: false }));
       onAnalysisComplete?.(analysis);
       if (analysis) {
         const next = analysisCounter + 1;
@@ -224,23 +231,16 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
 
     setState(prev => {
       const prior = prev.analysis ?? null;
+      const priorReasons = Array.isArray(prior?.reasons) ? [...(prior!.reasons as string[])] : [];
+      const selReasons = Array.isArray(selectedSignal.reasons) ? [...selectedSignal.reasons] : [];
       const extracted: AnalysisResult = {
         signal: selectedSignal.signal ?? prior?.signal ?? null,
         confidence: selectedSignal.confidence ?? prior?.confidence ?? null,
         rationale: selectedSignal.rationale ?? prior?.rationale ?? null,
-        reasons:
-          selectedSignal.reasons && selectedSignal.reasons.length > 0
-            ? selectedSignal.reasons
-            : prior?.reasons,
+        reasons: selReasons.length > 0 ? selReasons : priorReasons,
         entry: prior?.entry ?? null,
-        sl:
-          selectedSignal.sl ??
-          prior?.sl ??
-          null,
-        tp:
-          selectedSignal.tp ??
-          prior?.tp ??
-          null,
+        sl: selectedSignal.sl ?? prior?.sl ?? null,
+        tp: selectedSignal.tp ?? prior?.tp ?? null,
         model: prior?.model ?? null,
         generated_at: prior?.generated_at ?? null,
       };
@@ -334,11 +334,11 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
       summary.push(`Targets ${targets.join(', ')}.`);
     }
 
-    const reasons = analysis.reasons && analysis.reasons.length > 0 ? analysis.reasons : [];
+    // Important: do not mutate analysis.reasons during render; compose a new list and dedupe
+    const reasonsBase = Array.isArray(analysis.reasons) ? analysis.reasons : [];
     const rationale = analysis.rationale ? analysis.rationale.trim() : '';
-    if (rationale) {
-      reasons.push(rationale);
-    }
+    const composed = rationale ? [...reasonsBase, rationale] : [...reasonsBase];
+    const reasons = Array.from(new Set(composed.filter(Boolean)));
 
     return (
       <div id="llmNarrative" className="llm-narrative">

@@ -29,6 +29,7 @@ interface HeaderProps {
   onWatchCurrent?: () => void;
   onToggleAgent?: () => void;
   onOpenAgentSettings?: () => void;
+  onReloadStrategies?: () => void;
 }
 
 const DEFAULT_FEED_STATUS: StatusChip = { status: 'wait', label: 'cTrader: checking…' };
@@ -57,6 +58,7 @@ export default function Header({
   onWatchCurrent,
   onToggleAgent,
   onOpenAgentSettings,
+  onReloadStrategies,
 }: HeaderProps) {
   const handleLotSizeChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextValue = parseFloat(event.target.value);
@@ -89,11 +91,21 @@ export default function Header({
     ? `Agent: ${agentStatus.enabled ? (agentStatus.running ? 'ON (running)' : 'ON (idle)') : 'OFF'} • Watchlist: ${agentStatus.watchlist.length}`
     : 'Agent: checking…';
 
+  const strategyOptions = Array.from(
+    new Set([
+      ...(agentStatus?.available_strategies || []),
+      'smc',
+      'rsi',
+      strategy,
+    ])
+  );
+
   return (
     <header className="stack">
       <select title="Strategy" value={strategy} onChange={event => onStrategyChange(event.target.value)}>
-        <option value="smc">SMC</option>
-        <option value="rsi">RSI Divergence</option>
+        {strategyOptions.map((name) => (
+          <option key={name} value={name}>{name.toUpperCase()}</option>
+        ))}
       </select>
 
       <label className="chip">
@@ -190,6 +202,9 @@ export default function Header({
       </button>
       <button className="btn" type="button" onClick={onOpenAgentSettings}>
         ⚙️ Agent Settings
+      </button>
+      <button className="btn" type="button" onClick={onReloadStrategies}>
+        Reload Strategies
       </button>
       <span className="muted">{agentStatusText}</span>
     </header>

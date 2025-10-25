@@ -9,10 +9,11 @@
                     "lint":  "eslint .",
                     "preview":  "vite preview"
                 },
-    "dependencies":  {
+  "dependencies":  {
                          "lightweight-charts":  "^5.0.9",
                          "react":  "^19.1.1",
-                         "react-dom":  "^19.1.1"
+                         "react-dom":  "^19.1.1",
+                         "react-router-dom": "^6.26.2"
                      },
     "devDependencies":  {
                             "@eslint/js":  "^9.36.0",
