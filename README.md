@@ -36,7 +36,7 @@ Includes a Strategy Studio for creating, backtesting, and saving strategies that
 - Two modes
   - Manual: Pick a symbol/timeframe and run AI analysis for a structured trade idea.
   - Autonomous Agent: Background agents monitor markets, emit signals, and can autotrade with your risk settings.
-- LLM-based analysis and Natural‑language control (LLM‑first)
+- LLM-based analysis 
   - Sends latest OHLC rows + computed SMC features to your Ollama model.
   - Strict, machine-readable output:
     ```json
@@ -48,8 +48,6 @@ Includes a Strategy Studio for creating, backtesting, and saving strategies that
       "reasons": ["plain English explanation"]
     }
     ```
-  - Configure strategies, run backtests, and switch agent settings via chat — no code or sliders required.
-  - The system parses your intent, validates parameters, and executes safely with confirmations.
 
 - Live trading integration (cTrader OpenAPI)
   - Realtime candles, open positions & pending orders
@@ -57,8 +55,10 @@ Includes a Strategy Studio for creating, backtesting, and saving strategies that
   - Paper and Live modes
 - Multi-agent workflow (production-style roles)
   - Watcher/Observer, Scout/Pattern Detector, Guardian/Risk, Executor/Trader, Scribe/Journal, Commander/Supervisor
-- Strategy Studio (integrated)
+- Strategy Studio (integrated) and Natural‑language control (LLM‑first)
   - Create strategies, generate code, run quick backtests, save to `backend/strategies_generated` and hot-reload.
+  - Configure strategies, run backtests, and switch agent settings via chat — no code or sliders required.
+  - The system parses your intent, validates parameters, and executes safely with confirmations.
 - Automatic trade journaling
   - All executed trades (UI, Agent, or Chatbot) logged to local SQLite (`data/journal.db`).
 - Fast, modern frontend
