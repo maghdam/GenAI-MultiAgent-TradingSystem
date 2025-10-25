@@ -64,9 +64,14 @@ Includes a Strategy Studio for creating, backtesting, and saving strategies that
 
 ## Demo Screens
 
+### Main Dashboard
+
 ![Dashboard Screenshot](docs/images/Dashboard0.png)
 ![Dashboard Screenshot](docs/images/Dashboard1.png)
 ![Backend Screenshot](docs/images/FastAPI.png)
+
+### Strategy Studio
+
 ![Dashboard Screenshot](docs/images/Dashboard2.png)
 ![Dashboard Screenshot](docs/images/Dashboard3.png)
 
