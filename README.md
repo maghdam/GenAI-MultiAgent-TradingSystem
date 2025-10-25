@@ -95,23 +95,25 @@ graph TD
   end
 
   %% Dashboard <-> Backend
-  HD -->|GET /api/agent/status| H
-  AN -->|POST /api/analyze| H
-  AS -->|POST /api/agent/config| H
+  HD -->|"GET /api/agent/status"| H
+  AN -->|"POST /api/analyze"| H
+  AS -->|"POST /api/agent/config"| H
 
   %% Studio <-> Backend
-  S -->|POST /api/agent/execute_task| H
-  H -->|task_type=strategy| PA
-  H -->|task_type=backtest| BA
-  PA -->|generated code (stdout)| R
-  BA -->|metrics (JSON)| R
-  R -->|Save Strategy| FS
-  H -->|reload strategies| H
+  S -->|"POST /api/agent/execute_task"| H
+  H -->|"task_type = strategy"| PA
+  H -->|"task_type = backtest"| BA
+  PA -->|"generated code → stdout"| R
+  BA -->|"metrics: JSON"| R
+  R -->|"Save Strategy"| FS
+  %% ⚠️ self-loop can be flaky on GitHub; delete if it breaks
+  H -->|"reload strategies"| H
 
   %% Backend integrations
-  H -->|market data / orders| CTD
-  H -->|LLM prompts| OLL
+  H -->|"market data / orders"| CTD
+  H -->|"LLM prompts"| OLL
 ```
+
 
 For a deeper dive into the system components and agent loop, see `ARCHITECTURE.md`.
 
