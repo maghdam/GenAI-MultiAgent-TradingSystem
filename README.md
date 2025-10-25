@@ -1,6 +1,8 @@
 # GenAI-MultiAgent-TradingSystem
 
-A local-first trading platform that uses live cTrader market data and LLM analysis to produce structured trade decisions, and can optionally execute them automatically via a multi-agent workflow.
+A local-first AI trading platform that integrates live cTrader market data with LLM-powered analysis to generate structured trade decisions. A multi-agent workflow enables optional autonomous execution.
+
+Includes a Strategy Studio for creating, backtesting, and saving strategies that auto-load into the app—supporting both manual experimentation and agent-driven deployment.
 
 > Runs 100% locally with Docker + Ollama. No OpenAI keys required.
 
