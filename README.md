@@ -72,6 +72,34 @@ A local-first trading platform that uses live cTrader market data and LLM analys
 
 ## Architecture
 
+### High-level Overview
+
+```text
+┌─────────────── UI (React + Vite + NGINX) ────────────────┐
+│  Dashboard: Manual/Agent control; Lightweight-Charts     │
+│  Strategy Studio: create/backtest/save strategies        │
+└───────────────▲───────────────────────────────────────────┘
+                │ HTTP (FastAPI) via /api proxy
+                ▼
+┌──────────── Backend (llm-smc) ────────────┐
+│ - cTrader client (candles, positions)     │
+│ - SMC feature extractor + LLM analyzer    │
+│ - Multi-agent runner + controller         │
+│ - Strategy registry (auto-load saved)     │
+│ - Order execution                         │
+└───────────────▲───────────────┬───────────┘
+                │               │
+                │               ▼
+                │        ┌──────────────┐
+                │        │   Ollama     │ (e.g., llama3.2)
+                │        └──────────────┘
+                │
+                ▼
+       cTrader OpenAPI (live feed & orders)
+```
+
+### Detailed Flow
+
 ```mermaid
 graph TD
   subgraph Main Dashboard
