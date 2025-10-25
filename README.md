@@ -365,19 +365,22 @@ For implementation notes, see `STRATEGY_INTEGRATION_PLAN.md`.
 This system treats plain human languages like English as the control surface. You can configure strategies, run backtests, and change agent settings via chat — no coding or UI sliders required.
 
 What you can say:
--“Analyze XAUUSD on M5 with an SMA crossover fast 20 slow 50.”
--“Backtest RSI length 14 on EURUSD H1 for 5000 bars with 2 bps fee and 1 bps slippage.”
--“Switch the agent to use my ‘ma’ strategy with fast 20 slow 50 and enable it.”
--“Save this strategy as ‘ma_fast20_slow50’ and reload strategies.”
--“Reload strategies and set the agent back to SMC.”
+
+- “Analyze XAUUSD on M5 with an SMA crossover fast 20 slow 50.”
+- “Backtest RSI length 14 on EURUSD H1 for 5000 bars with 2 bps fee and 1 bps slippage.”
+- “Switch the agent to use my ‘ma’ strategy with fast 20 slow 50 and enable it.”
+- “Save this strategy as ‘ma_fast20_slow50’ and reload strategies.”
+- “Reload strategies and set the agent back to SMC.”
 
 How it works:
--Intent parsing: the system extracts action (analyze, backtest, save, set strategy), instrument, timeframe, strategy, and parameters (e.g., fast/slow, RSI length, fees, slippage).
--Validation: parameters are coerced/clamped to safe ranges (e.g., fast ≥ 2, slow ≥ fast+1, fees/slippage ≥ 0).
--Tool execution: the request is routed to the right tool (Analyze, Backtest, Save Strategy, Reload Strategies, Agent Config).
--Confirmations: for agent changes or trading, the system presents the intended update and asks for confirmation before applying.
+
+- Intent parsing: the system extracts action (analyze, backtest, save, set strategy), instrument, timeframe, strategy, and parameters (e.g., fast/slow, RSI length, fees, slippage).
+- Validation: parameters are coerced/clamped to safe ranges (e.g., fast ≥ 2, slow ≥ fast+1, fees/slippage ≥ 0).
+- Tool execution: the request is routed to the right tool (Analyze, Backtest, Save Strategy, Reload Strategies, Agent Config).
+- Confirmations: for agent changes or trading, the system presents the intended update and asks for confirmation before applying.
 
 Tips for phrasing:
+
 - Be explicit when you want more control: “fast 20 slow 50”, “length 14”, “for 5000 bars”, “2 bps fee”.
 - Reference saved strategies by name: “use strategy ‘ma’” or “save as ‘ma_mytest’”.
 - Ask for a reload when you add a new file manually: “reload strategies”.
