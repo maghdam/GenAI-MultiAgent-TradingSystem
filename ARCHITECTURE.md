@@ -57,3 +57,73 @@ Loop per watchlist pair:
 - Run strategy to get signal, confidence, and optional SL/TP.
 - Emit a signal and update task status (`/api/agent/signals` and `/api/agent/status`).
 - If `autotrade`+`live` and `confidence >= threshold`, submit orders and journal trades.
+
+## Agents Workflow (Trading)
+
+```mermaid
+graph TD
+  C[Commander / Supervisor]
+  W[Watcher / Market Observer]
+  S[Scout / Pattern Detector]
+  A[Analyzer / LLM]
+  G[Guardian / Risk Manager]
+  E[Executor / Trader]
+  R[Scribe / Journal]
+
+  C -->|wakes per pair| W
+  W -->|OHLC, session, HTF bias| S
+  S -->|SMC features| A
+  A -->|TradeDecision JSON| G
+  G -->|valid or reject| E
+  G -->|all signals| R
+  E -->|orders/updates| R
+```
+
+Roles and responsibilities:
+- Watcher: fetch OHLC/session/HTF bias (cTrader client)
+- Scout: compute SMC features/indicators (smc_features, indicators)
+- Analyzer: produce TradeDecision JSON via Ollama (llm_analyzer)
+- Guardian: confidence thresholds, SL/TP checks, gating rules
+- Executor: order placement/amend/close (cTrader OpenAPI)
+- Scribe: persist signals/trades (SQLite journal)
+- Commander: schedules and watchlist orchestration
+
+## Strategy Studio Agents
+
+```mermaid
+graph TD
+  subgraph Strategy Studio Agents
+    UI[StrategyChat UI]
+    H[FastAPI]
+    PA[ProgrammerAgent]
+    BA[BacktestingAgent]
+    CE[CodeExecutor (optional)]
+    FS[(backend/strategies_generated)]
+    SR[Strategy Registry Loader]
+  end
+
+  %% UI -> Backend routing
+  UI -->|POST /api/agent/execute_task| H
+
+  %% Task routing
+  H -->|task_type=create_strategy or calculate_indicator| PA
+  H -->|task_type=backtest_strategy| BA
+  H -->|task_type=save_strategy (code,name)| FS
+
+  %% Outputs to UI
+  PA -->|stdout code| UI
+  BA -->|metrics JSON| UI
+
+  %% Registry reload path
+  H -->|GET/POST /api/strategies/reload| SR
+  SR -->|available_strategies| H
+
+  %% Optional execution sandbox (future)
+  PA -->|generated code| CE
+  CE -->|stdout/stderr| UI
+```
+
+Notes:
+- ProgrammerAgent: generates indicators/strategies from prompts; returns code and can save to disk.
+- BacktestingAgent: runs compact backtests (optionally vectorbt) and returns metrics JSON.
+- Strategy Registry Loader: scans `backend/strategies_generated`, registers `signals(df, ...)` for use in UI and agents.
