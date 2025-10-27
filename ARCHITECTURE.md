@@ -98,7 +98,7 @@ graph TD
     PA[ProgrammerAgent]
     BA[BacktestingAgent]
     CE[CodeExecutor (optional)]
-    FS[backend/strategies_generated]
+    FS["backend/strategies_generated"]
     SR[Strategy Registry Loader]
   end
 
