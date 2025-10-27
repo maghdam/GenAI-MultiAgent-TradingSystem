@@ -117,6 +117,7 @@ graph TD
     HD[Header - Strategy Select]
     AN[Run AI Analysis]
     AS[Agent Settings]
+    CB[Chatbot]
   end
 
   subgraph Strategy Studio
@@ -137,6 +138,7 @@ graph TD
   HD -->|"GET /api/agent/status"| H
   AN -->|"POST /api/analyze"| H
   AS -->|"POST /api/agent/config"| H
+  CB -->|"POST /api/chat/stream"| H
 
   %% Studio <-> Backend
   S -->|"POST /api/agent/execute_task"| H
