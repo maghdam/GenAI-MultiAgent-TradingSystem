@@ -97,31 +97,32 @@ graph TD
     H[FastAPI]
     PA[ProgrammerAgent]
     BA[BacktestingAgent]
-    CE[CodeExecutor (optional)]
-    FS["backend/strategies_generated"]
+    CE[Code Executor - optional]
+    FS[backend/strategies_generated]
     SR[Strategy Registry Loader]
   end
 
   %% UI -> Backend routing
-  UI -->|POST /api/agent/execute_task| H
+  UI -->|"POST /api/agent/execute_task"| H
 
   %% Task routing
-  H -->|task_type=create_strategy or calculate_indicator| PA
-  H -->|task_type=backtest_strategy| BA
-  H -->|task_type=save_strategy (code,name)| FS
+  H -->|"task_type = create_strategy / calculate_indicator"| PA
+  H -->|"task_type = backtest_strategy"| BA
+  H -->|"task_type = save_strategy : code, name"| FS
 
   %% Outputs to UI
-  PA -->|stdout code| UI
-  BA -->|metrics JSON| UI
+  PA -->|"stdout: code"| UI
+  BA -->|"metrics: JSON"| UI
 
   %% Registry reload path
-  H -->|GET/POST /api/strategies/reload| SR
-  SR -->|available_strategies| H
+  H -->|"GET or POST /api/strategies/reload"| SR
+  SR -->|"available_strategies"| H
 
   %% Optional execution sandbox (future)
-  PA -->|generated code| CE
-  CE -->|stdout/stderr| UI
+  PA -->|"generated code"| CE
+  CE -->|"stdout and stderr"| UI
 ```
+
 
 Notes:
 - ProgrammerAgent: generates indicators/strategies from prompts; returns code and can save to disk.
