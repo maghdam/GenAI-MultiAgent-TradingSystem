@@ -538,8 +538,8 @@ async def pending_orders():
             "type": "LIMIT" if o.orderType == 2 else "STOP",
             "side": "buy" if o.tradeData.tradeSide == 1 else "sell",
             "price": getattr(o, "limitPrice", getattr(o, "stopPrice", 0)) / 100_000,
-            # Convert units back to lots
-            "volume": o.tradeData.volume / 100_000,
+            # Convert API volume (cent-lots) back to lots
+            "volume": o.tradeData.volume / 100,
         }
         for o in pending
     ]
