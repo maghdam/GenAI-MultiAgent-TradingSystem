@@ -280,7 +280,7 @@ async def execute_task_endpoint(req: Request):
 @app.get("/api/symbols")
 async def get_symbols():
     """Return the list of symbols and a safe default for the UI."""
-    symbols = get_available_symbols()  # e.g., ["XAUUSD", "US500", ...]
+    symbols = sorted(get_available_symbols() or [])  # e.g., ["XAUUSD", "US500", ...]
     default = DEFAULT_SYMBOL if DEFAULT_SYMBOL in symbols else (symbols[0] if symbols else None)
     return {"symbols": symbols, "default": default}
 

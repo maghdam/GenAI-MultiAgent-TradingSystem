@@ -62,6 +62,10 @@ CONNECTED = False
 _PRICE_FACTOR = 100_000
 _VOLUME_PRECISION = 100            # cTrader volumes are expressed in cent-lots (0.01 lots)
 
+# Track the last order's symbol so we can reconcile broker-side volume
+# requirements if an immediate TRADING_BAD_VOLUME error arrives.
+_LAST_ORDER_CTX: dict[str, int] = {"symbol_id": -1}
+
 def _px(x):
     """Convert float price → cTrader int format (e.g., 1.0935 → 109350)."""
     return int(round(float(x) * _PRICE_FACTOR)) if x is not None else None
@@ -221,6 +225,31 @@ def _log_event(event) -> None:
         print(f"[CTRADER EXECUTION] {summary}")
     elif name == "ProtoOAErrorRes":
         print(f"[CTRADER ERROR] {summary}")
+    elif name == "ProtoOAOrderErrorEvent":
+        # Opportunistically adjust volume constraints if broker rejects for BAD_VOLUME
+        print(f"[CTRADER ORDER_ERROR] {summary}")
+        try:
+            err = (payload or {}).get("errorCode") or ""
+            desc = (payload or {}).get("description") or ""
+            if str(err).upper() == "TRADING_BAD_VOLUME" and desc:
+                import re
+                m = re.search(r"minimum allowed volume\s*=\s*([0-9]+(?:\.[0-9]+)?)", str(desc), re.IGNORECASE)
+                if m:
+                    min_api = int(round(float(m.group(1))))
+                    sid = int(_LAST_ORDER_CTX.get("symbol_id", -1))
+                    if sid in symbol_map:
+                        prev = symbol_min_volume_map.get(sid)
+                        symbol_min_volume_map[sid] = max(min_api, prev or 0)
+                        print(f"[VOLUME] Updated min for {symbol_map[sid]} to {min_api} (API units)")
+                m2 = re.search(r"step\s*=?\s*([0-9]+(?:\.[0-9]+)?)", str(desc), re.IGNORECASE)
+                if m2:
+                    step_api = int(round(float(m2.group(1))))
+                    sid = int(_LAST_ORDER_CTX.get("symbol_id", -1))
+                    if sid in symbol_map and step_api > 0:
+                        symbol_step_volume_map[sid] = step_api
+                        print(f"[VOLUME] Updated step for {symbol_map[sid]} to {step_api} (API units)")
+        except Exception as e:
+            print(f"[WARN] Unable to parse order error for volume hints: {e}")
     elif name == "ProtoOAAccountLogoutRes":
         print(f"[CTRADER LOGOUT] {summary}")
     elif name == "ProtoOAGetTrendbarsRes" and isinstance(payload, dict):
@@ -376,6 +405,13 @@ def place_order(
         tradeSide=ProtoOATradeSide.Value(side.upper()),
         volume=int(volume),  # 1 lot = 10,000,000 units (already scaled by caller)
     )
+
+    # Capture context for potential TRADING_BAD_VOLUME correction
+    try:
+        global _LAST_ORDER_CTX
+        _LAST_ORDER_CTX = {"symbol_id": int(symbol_id), "ts": int(time.time())}
+    except Exception:
+        pass
 
     # Absolute price fields for LIMIT/STOP
     if order_type.upper() == "LIMIT":
