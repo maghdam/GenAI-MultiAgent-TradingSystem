@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Type
+import inspect
 import importlib.util
 from pathlib import Path
 import types
 import textwrap
 
 import pandas as pd
-import plotly.graph_objects as go
-
-from backend.llm_analyzer import TradeDecision, analyze_chart_with_llm
+from backend.llm_analyzer import TradeDecision
 
 _STRATEGY_REGISTRY: Dict[str, Type["Strategy"]] = {}
 _GENERATED_LOADED: bool = False
@@ -81,8 +80,14 @@ def _register_generated_module(name: str, module: types.ModuleType) -> None:
     the dashboard's strategy selector without requiring users to subclass
     Strategy manually.
     """
+    # Extended contract (backward compatible):
+    # - Prefer `trade_decision(df, symbol=None, timeframe=None)` (can be async)
+    #   which returns either a TradeDecision, a dict like TradeDecision.dict(),
+    #   or a tuple (signal, sl, tp, confidence, reasons?).
+    # - Fallback to classic `signals(df)` returning a numeric Series.
+    td_fn = getattr(module, "trade_decision", None) or getattr(module, "analyze", None)
     signals_fn = getattr(module, "signals", None)
-    if not callable(signals_fn):
+    if not callable(td_fn) and not callable(signals_fn):
         return
 
     class GeneratedStrategy(Strategy):
@@ -92,11 +97,47 @@ def _register_generated_module(name: str, module: types.ModuleType) -> None:
         async def analyze(self, *, df: pd.DataFrame, symbol: str, timeframe: str, indicators: List[str] | None = None, fig=None, **kwargs: Any) -> TradeDecision:
             if df is None or df.empty:
                 raise ValueError("Generated strategy requires historical bars.")
+            # Path 1: full trade decision function available
+            if callable(td_fn):
+                try:
+                    if inspect.iscoroutinefunction(td_fn):
+                        res = await td_fn(df, symbol=symbol, timeframe=timeframe, **kwargs)
+                    else:
+                        res = td_fn(df, symbol=symbol, timeframe=timeframe, **kwargs)
+                except Exception as e:
+                    raise ValueError(f"generated strategy error: {e}") from e
+
+                # Normalize into TradeDecision
+                if isinstance(res, TradeDecision):
+                    return res
+                if isinstance(res, dict):
+                    return TradeDecision(
+                        signal=str(res.get("signal", "no_trade")),
+                        sl=res.get("sl"),
+                        tp=res.get("tp"),
+                        confidence=res.get("confidence"),
+                        reasons=res.get("reasons") or [],
+                        rationale=res.get("rationale") or "",
+                    )
+                if isinstance(res, (list, tuple)):
+                    # Accept (signal, sl, tp, confidence, reasons)
+                    sig = str(res[0]) if len(res) > 0 else "no_trade"
+                    sl = res[1] if len(res) > 1 else None
+                    tp = res[2] if len(res) > 2 else None
+                    conf = res[3] if len(res) > 3 else None
+                    reasons = res[4] if len(res) > 4 else []
+                    return TradeDecision(signal=sig, sl=sl, tp=tp, confidence=conf, reasons=list(reasons) if reasons else [])
+                raise ValueError("generated trade_decision must return TradeDecision, dict, or tuple")
+
+            # Path 2: legacy numeric signals series
             try:
-                sig_series = signals_fn(df)
+                # Allow strategies to accept optional kwargs as well
+                try:
+                    sig_series = signals_fn(df, **kwargs)
+                except TypeError:
+                    sig_series = signals_fn(df)
             except Exception as e:
                 raise ValueError(f"generated strategy error: {e}") from e
-            # Expect a numeric series; derive last signal
             last = None
             try:
                 last = float(sig_series.iloc[-1])
@@ -179,120 +220,4 @@ def get_last_strategy_load_errors() -> list[dict[str, str]]:
     return list(_LAST_LOAD_ERRORS)
 
 
-def _build_candlestick(df: pd.DataFrame):
-    fig = go.Figure()
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df["open"],
-            high=df["high"],
-            low=df["low"],
-            close=df["close"],
-            name="Candles",
-        )
-    )
-    return fig
-
-
-@register_strategy("smc")
-class SMCStrategy(Strategy):
-    """Smart Money Concepts strategy using the LLM analyzer pipeline."""
-
-    strategy_name = "smc"
-    requires_figure = True
-
-    def build_figure(self, df: pd.DataFrame):
-        return _build_candlestick(df)
-
-    async def analyze(
-        self,
-        *,
-        df: pd.DataFrame,
-        symbol: str,
-        timeframe: str,
-        indicators: List[str] | None = None,
-        fig=None,
-        **kwargs: Any,
-    ) -> TradeDecision:
-        model = kwargs.get("model")
-        options = kwargs.get("options")
-        ollama_url = kwargs.get("ollama_url")
-        fig_to_use = fig or self.build_figure(df)
-        return await analyze_chart_with_llm(
-            fig=fig_to_use,
-            df=df,
-            symbol=symbol,
-            timeframe=timeframe,
-            indicators=indicators or [],
-            model=model,
-            options=options,
-            ollama_url=ollama_url,
-        )
-
-
-@register_strategy("rsi")
-class RSIStrategy(Strategy):
-    """Simple RSI divergence strategy (rule-based)."""
-
-    strategy_name = "rsi"
-    requires_figure = False
-
-    def __init__(self, **params: Any):
-        super().__init__(**params)
-        self.length = int(self.params.get("length", 14))
-        self.overbought = float(self.params.get("overbought", 70.0))
-        self.oversold = float(self.params.get("oversold", 30.0))
-
-    @staticmethod
-    def _compute_rsi(series: pd.Series, length: int) -> pd.Series:
-        delta = series.diff()
-        gain = delta.clip(lower=0)
-        loss = -delta.clip(upper=0)
-        avg_gain = gain.ewm(alpha=1 / length, min_periods=length).mean()
-        avg_loss = loss.ewm(alpha=1 / length, min_periods=length).mean()
-        rs = avg_gain / avg_loss.replace(0, pd.NA)
-        rsi = 100 - (100 / (1 + rs))
-        return rsi.fillna(method="bfill")
-
-    async def analyze(
-        self,
-        *,
-        df: pd.DataFrame,
-        symbol: str,
-        timeframe: str,
-        indicators: List[str] | None = None,
-        fig=None,
-        **kwargs: Any,
-    ) -> TradeDecision:
-        if df.empty:
-            raise ValueError("RSI strategy requires historical bars.")
-
-        closes = df["close"].astype(float)
-        rsi_series = self._compute_rsi(closes, self.length)
-        if rsi_series.empty or pd.isna(rsi_series.iloc[-1]):
-            raise ValueError("Not enough data to compute RSI.")
-
-        latest_rsi = float(rsi_series.iloc[-1])
-        signal = "no_trade"
-        reasons: List[str] = [f"RSI={latest_rsi:.2f}"]
-
-        if latest_rsi >= self.overbought:
-            signal = "short"
-            reasons.append(f"RSI above overbought ({self.overbought})")
-        elif latest_rsi <= self.oversold:
-            signal = "long"
-            reasons.append(f"RSI below oversold ({self.oversold})")
-        else:
-            reasons.append("RSI within neutral range")
-
-        confidence = max(0.0, min(1.0, abs(latest_rsi - 50.0) / 50.0))
-        if signal == "no_trade":
-            confidence = 0.0
-
-        return TradeDecision(
-            signal=signal,
-            sl=None,
-            tp=None,
-            confidence=confidence,
-            reasons=reasons,
-        )
+    # No built-in base strategies here; everything comes from generated modules.
