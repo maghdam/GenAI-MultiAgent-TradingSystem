@@ -22,7 +22,7 @@ import json
 from dataclasses import asdict
 from threading import Lock
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -548,14 +548,20 @@ async def pending_orders():
 # ──────────────────────────────────────────────────────────────────────────
 # Agent config endpoints
 # ──────────────────────────────────────────────────────────────────────────
+class WatchlistItemIn(BaseModel):
+    symbol: str = Field(..., min_length=1)
+    timeframe: str = Field(..., min_length=1)
+    lot_size: Optional[float] = Field(None, gt=0)
+
+
 class AgentConfigIn(BaseModel):
     enabled: bool
-    watchlist: List[Tuple[str, str]]
+    watchlist: List[WatchlistItemIn]
     interval_sec: int = 60
     min_confidence: float = 0.65
     trading_mode: str = "paper"
     autotrade: bool = False
-    lot_size_lots: float = 0.10
+    lot_size_lots: float = 0.01
     strategy: str = "smc"
 
 
@@ -564,7 +570,10 @@ async def get_agent_cfg():
     cfg = controller.config
     return {
         "enabled": cfg.enabled,
-        "watchlist": cfg.watchlist,
+        "watchlist": [
+            {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size}
+            for item in cfg.watchlist
+        ],
         "interval_sec": cfg.interval_sec,
         "min_confidence": cfg.min_confidence,
         "trading_mode": cfg.trading_mode,
@@ -576,9 +585,17 @@ async def get_agent_cfg():
 
 @app.post("/api/agent/config")
 async def set_agent_cfg(cfg: AgentConfigIn):
+    watch_entries = [
+        {
+            "symbol": item.symbol,
+            "timeframe": item.timeframe,
+            "lot_size": item.lot_size if item.lot_size is not None else cfg.lot_size_lots,
+        }
+        for item in cfg.watchlist
+    ]
     new_cfg = AgentConfig(
         enabled=cfg.enabled,
-        watchlist=[(s, tf) for s, tf in cfg.watchlist],
+        watchlist=watch_entries,
         interval_sec=cfg.interval_sec,
         min_confidence=cfg.min_confidence,
         trading_mode=cfg.trading_mode,
@@ -591,25 +608,34 @@ async def set_agent_cfg(cfg: AgentConfigIn):
 
 
 @app.post("/api/agent/watchlist/add")
-async def agent_add_pair(symbol: str, timeframe: str):
+async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] = None):
     cfg = controller.config
     # Normalize current watchlist to list of tuples, uppercase, filter empties
-    current: list[tuple[str, str]] = []
-    for item in (cfg.watchlist or []):
-        try:
-            s, tf = item
-        except Exception:
-            continue
-        s = (s or "").strip().upper()
-        tf = (tf or "").strip().upper()
-        if s and tf:
-            current.append((s, tf))
+    current: list[dict[str, object]] = [
+        {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size}
+        for item in (cfg.watchlist or [])
+    ]
 
-    # Add the requested pair (normalized)
     sym_u = (symbol or "").strip().upper()
     tf_u = (timeframe or "").strip().upper()
-    if sym_u and tf_u and (sym_u, tf_u) not in current:
-        current.append((sym_u, tf_u))
+    if not sym_u or not tf_u:
+        raise HTTPException(status_code=400, detail="symbol and timeframe are required")
+
+    try:
+        lot = float(lot_size) if lot_size is not None else float(cfg.lot_size_lots)
+    except (TypeError, ValueError):
+        lot = float(cfg.lot_size_lots)
+    if lot <= 0:
+        lot = float(cfg.lot_size_lots)
+
+    updated = False
+    for entry in current:
+        if entry["symbol"] == sym_u and entry["timeframe"] == tf_u:
+            entry["lot_size"] = lot
+            updated = True
+            break
+    if not updated:
+        current.append({"symbol": sym_u, "timeframe": tf_u, "lot_size": lot})
 
     await controller.apply_config(
         AgentConfig(
@@ -632,17 +658,11 @@ async def agent_remove_pair(symbol: str, timeframe: str):
     sym_u = (symbol or "").strip().upper()
     tf_u = (timeframe or "").strip().upper()
 
-    # Normalize and filter out the requested pair
-    next_list: list[tuple[str, str]] = []
+    next_list: list[dict[str, object]] = []
     for item in (cfg.watchlist or []):
-        try:
-            s, tf = item
-        except Exception:
+        if item.symbol == sym_u and item.timeframe == tf_u:
             continue
-        s_u = (s or "").strip().upper()
-        tf_u2 = (tf or "").strip().upper()
-        if s_u and tf_u2 and not (s_u == sym_u and tf_u2 == tf_u):
-            next_list.append((s_u, tf_u2))
+        next_list.append({"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size})
 
     await controller.apply_config(
         AgentConfig(
@@ -878,7 +898,30 @@ Summary:
 
         status_text = "✅ Enabled" if enabled else "❌ Disabled"
         pairs_text = ', '.join([f'{s}/{tf}' for s, tf in running_pairs]) if running_pairs else "none"
-        watchlist_text = ', '.join([f'{s}/{tf}' for s, tf in cfg.get('watchlist', [])]) if cfg.get('watchlist') else "not set"
+        watchlist_items: list[str] = []
+        for entry in cfg.get("watchlist") or []:
+            if isinstance(entry, dict):
+                sym = entry.get("symbol")
+                tf = entry.get("timeframe")
+                lot = entry.get("lot_size")
+            elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                sym, tf = entry[0], entry[1]
+                lot = entry[2] if len(entry) >= 3 else None
+            else:
+                continue
+            sym_u = (sym or "").strip().upper()
+            tf_u = (tf or "").strip().upper()
+            if not sym_u or not tf_u:
+                continue
+            try:
+                lot_val = float(lot) if lot is not None else None
+            except (TypeError, ValueError):
+                lot_val = None
+            if lot_val is not None:
+                watchlist_items.append(f"{sym_u}/{tf_u} ({lot_val:.2f})")
+            else:
+                watchlist_items.append(f"{sym_u}/{tf_u}")
+        watchlist_text = ', '.join(watchlist_items) if watchlist_items else "not set"
 
 
         return f"""Agent Status:

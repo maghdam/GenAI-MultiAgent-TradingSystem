@@ -60,7 +60,7 @@ FALLBACK_SYMBOLS = [s.strip().upper() for s in _fallback_symbols_cfg.split(",") 
 CONNECTED = False
 
 _PRICE_FACTOR = 100_000
-_VOLUME_PRECISION = 100            # cTrader volumes are expressed in cent-lots (0.01 lots)
+_VOLUME_PRECISION = 10_000         # cTrader volumes are expressed in 0.0001 lots
 
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
@@ -72,10 +72,10 @@ def _px(x):
 
 
 def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
-    """Convert a lot amount to cTrader API volume (cent-lots).
+    """Convert a lot amount to the cTrader API volume units.
 
     Notes:
-    - cTrader OpenAPI expects volume as an integer in 0.01 lot increments.
+    - cTrader OpenAPI expects volume as an integer in 0.0001 lot increments.
     - This is independent of symbol contract size; do NOT multiply by contract size here.
     """
     if lots is None:
@@ -84,9 +84,9 @@ def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
 
 
 def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
-    """Convert lots from UI to cTrader API volume (cent-lots) and validate against symbol limits.
+    """Convert lots from UI to cTrader API volume units and validate against symbol limits.
 
-    - API volume = lots * 100 (integer)
+    - API volume = lots * 10_000 (integer)
     - min/step/max thresholds from symbol metadata are already specified in API volume units.
     """
     try:
@@ -138,15 +138,17 @@ def _install_fallback_symbols(reason: str | None = None):
     print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
     symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear()
+    default_min = int(round(0.01 * _VOLUME_PRECISION))
+    default_max = int(round(100 * _VOLUME_PRECISION))
     for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
         symbol_map[idx] = name
         symbol_name_to_id[name] = idx
         symbol_digits_map[idx] = 5
-        lot_size = 100_000 if name in ["EURUSD", "GBPUSD"] else 100 # A guess for others
-        symbol_lot_size_map[idx] = lot_size
-        symbol_min_volume_map[idx] = lot_size * _VOLUME_PRECISION // 100
-        symbol_step_volume_map[idx] = lot_size * _VOLUME_PRECISION // 100
-        symbol_max_volume_map[idx] = 500 * lot_size * _VOLUME_PRECISION
+        # Assume 0.01 lot minimum/step when metadata is unavailable
+        symbol_lot_size_map[idx] = 100_000 if name in ["EURUSD", "GBPUSD"] else 100
+        symbol_min_volume_map[idx] = default_min
+        symbol_step_volume_map[idx] = default_min
+        symbol_max_volume_map[idx] = default_max
     if symbol_map:
         print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
 
@@ -499,7 +501,7 @@ def close_position(*, client, account_id, position_id, volume_lots=None):
         ctidTraderAccountId=account_id,
         positionId=position_id,
     )
-    # Volume is specified in cent-lots (0.01 lots) for the API.
+    # Volume is specified in 0.0001 lots for the API.
     vol_units = _lots_to_units(volume_lots, -1) if volume_lots is not None else None
     if vol_units is not None:
         req.volume = vol_units

@@ -18,9 +18,15 @@ export interface SymbolsResponse {
   default: string | null;
 }
 
+export interface WatchlistEntry {
+  symbol: string;
+  timeframe: string;
+  lot_size: number;
+}
+
 export interface AgentConfig {
   enabled: boolean;
-  watchlist: [string, string][];
+  watchlist: WatchlistEntry[];
   interval_sec: number;
   min_confidence: number;
   trading_mode: string;
@@ -32,7 +38,7 @@ export interface AgentConfig {
 export interface AgentStatus extends AgentConfig {
   running: boolean;
   running_pairs: [string, string][];
-  tasks: Record<string, { status: string; last_run: string; last_error: string | null }>;
+  tasks: Array<Record<string, any>>;
   available_strategies: string[];
 }
 
@@ -101,8 +107,15 @@ export const getAgentSignals = async (limit = 50): Promise<AgentSignal[]> => {
   return response.json();
 };
 
-export const addToWatchlist = async (symbol: string, timeframe: string): Promise<{ ok: boolean }> => {
+export const addToWatchlist = async (
+  symbol: string,
+  timeframe: string,
+  lotSize?: number
+): Promise<{ ok: boolean }> => {
   const params = new URLSearchParams({ symbol, timeframe });
+  if (typeof lotSize === 'number' && Number.isFinite(lotSize)) {
+    params.set('lot_size', lotSize.toString());
+  }
   const response = await fetch(`/api/agent/watchlist/add?${params.toString()}`, {
     method: 'POST',
   });

@@ -17,10 +17,16 @@ interface AgentTask {
   auto_trade?: boolean;
 }
 
+interface AgentWatchlistEntry {
+  symbol: string;
+  timeframe: string;
+  lot_size?: number;
+}
+
 interface AgentStatus {
   enabled: boolean;
   running: boolean;
-  watchlist: [string, string][];
+  watchlist: AgentWatchlistEntry[];
   interval_sec?: number;
   min_confidence?: number;
   lot_size_lots?: number;
@@ -138,8 +144,25 @@ export default function SidePanel({ onSignalSelected, onAgentStatus }: SidePanel
   const loadAgentStatus = async () => {
     try {
       const status = await fetchJSON<AgentStatus>('/api/agent/status');
-      setAgentStatus(status);
-      onAgentStatus?.(status);
+      const fallbackLot = Number.isFinite(status.lot_size_lots) ? Number(status.lot_size_lots) : 0.01;
+      const normalizedWatchlist = (status.watchlist || []).map(item => {
+        const lot =
+          typeof item?.lot_size === 'number' && Number.isFinite(item.lot_size)
+            ? Number(item.lot_size)
+            : fallbackLot;
+        return {
+          symbol: (item?.symbol || '').toString(),
+          timeframe: (item?.timeframe || '').toString(),
+          lot_size: lot,
+        };
+      });
+      const normalizedStatus: AgentStatus = {
+        ...status,
+        watchlist: normalizedWatchlist,
+        tasks: Array.isArray(status.tasks) ? status.tasks : [],
+      };
+      setAgentStatus(normalizedStatus);
+      onAgentStatus?.(normalizedStatus);
       clearError('status');
     } catch (error) {
       recordError('status', error instanceof Error ? error.message : 'Failed to load agent status.');
@@ -199,7 +222,20 @@ export default function SidePanel({ onSignalSelected, onAgentStatus }: SidePanel
     const statusLabel = agentStatus.enabled ? 'ON' : 'OFF';
     const running = agentStatus.running ? 'running' : 'idle';
     const watchlist = (agentStatus.watchlist || [])
-      .map(pair => pair.join(':').toUpperCase())
+      .map(item => {
+        const sym = (item.symbol || '').toUpperCase();
+        const tf = (item.timeframe || '').toUpperCase();
+        const lot =
+          typeof item.lot_size === 'number' && Number.isFinite(item.lot_size)
+            ? item.lot_size.toFixed(2)
+            : null;
+        const base = sym && tf ? `${sym}/${tf}` : (sym || tf || '').trim();
+        if (!base) {
+          return null;
+        }
+        return lot ? `${base} (${lot})` : base;
+      })
+      .filter(Boolean)
       .join(', ')
       || '—';
     return `Agent: ${statusLabel} (${running}) • Watchlist: ${watchlist}`;

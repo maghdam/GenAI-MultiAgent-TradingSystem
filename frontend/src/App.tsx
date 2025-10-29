@@ -20,7 +20,7 @@ function Dashboard() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [timeframe, setTimeframe] = useState('M5');
   const [strategy, setStrategy] = useState('smc');
-  const [lotSize, setLotSize] = useState(0.1);
+  const [lotSize, setLotSize] = useState(0.01);
   const [fastMode, setFastMode] = useState(true);
   const [maxBars, setMaxBars] = useState(250);
   const [maxTokens, setMaxTokens] = useState(256);
@@ -68,7 +68,7 @@ function Dashboard() {
         min_confidence: agentStatus.min_confidence,
         trading_mode: agentStatus.trading_mode,
         autotrade: agentStatus.autotrade ?? false,
-        lot_size_lots: agentStatus.lot_size_lots ?? 0.1,
+        lot_size_lots: agentStatus.lot_size_lots ?? 0.01,
         strategy: strategy || agentStatus.strategy || 'smc',
       };
       await setAgentConfig(newConfig);
@@ -81,7 +81,7 @@ function Dashboard() {
 
   const handleWatchCurrent = async () => {
     try {
-      await addToWatchlist(symbol, timeframe);
+      await addToWatchlist(symbol, timeframe, lotSize);
       const status = await getAgentStatus();
       setAgentStatus(status);
     } catch (error) {

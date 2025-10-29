@@ -13,7 +13,7 @@ const initialConfig: AgentConfig = {
   min_confidence: 0.7,
   trading_mode: 'paper',
   autotrade: false,
-  lot_size_lots: 0.1,
+  lot_size_lots: 0.01,
   strategy: 'smc',
 };
 
@@ -28,7 +28,13 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     setLoading(true);
     Promise.all([getAgentConfig(), getAgentStatus()])
       .then(([cfg, status]) => {
-        setConfig(cfg);
+        const fallbackLot = Number.isFinite(cfg.lot_size_lots) ? cfg.lot_size_lots : 0.01;
+        const sanitizedWatchlist = (cfg.watchlist || []).map(item => ({
+          symbol: item.symbol || '',
+          timeframe: item.timeframe || '',
+          lot_size: Number.isFinite(item.lot_size) ? item.lot_size : fallbackLot,
+        }));
+        setConfig({ ...cfg, watchlist: sanitizedWatchlist });
         const opts = Array.from(new Set([...(status?.available_strategies || []), 'smc', 'rsi', cfg.strategy].filter(Boolean))) as string[];
         setAvailableStrategies(opts);
         setError(null);
@@ -48,18 +54,29 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     }
   };
 
-  const handleWatchlistChange = (index: number, value: string, field: 'symbol' | 'tf') => {
-    const newWatchlist = [...config.watchlist];
-    if (field === 'symbol') {
-      newWatchlist[index][0] = value;
-    } else {
-      newWatchlist[index][1] = value;
-    }
-    setConfig({ ...config, watchlist: newWatchlist });
+  const handleWatchlistChange = (index: number, field: 'symbol' | 'timeframe' | 'lot_size', value: string) => {
+    const updated = config.watchlist.map((item, i) => {
+      if (i !== index) {
+        return item;
+      }
+      if (field === 'symbol') {
+        return { ...item, symbol: value };
+      }
+      if (field === 'timeframe') {
+        return { ...item, timeframe: value };
+      }
+      const parsed = parseFloat(value);
+      return { ...item, lot_size: Number.isFinite(parsed) ? parsed : item.lot_size };
+    });
+    setConfig({ ...config, watchlist: updated });
   };
 
   const addWatchlistItem = () => {
-    setConfig({ ...config, watchlist: [...config.watchlist, ['', '']] });
+    const fallbackLot = Number.isFinite(config.lot_size_lots) ? config.lot_size_lots : 0.01;
+    setConfig({
+      ...config,
+      watchlist: [...config.watchlist, { symbol: '', timeframe: '', lot_size: fallbackLot }],
+    });
   };
 
   const removeWatchlistItem = (index: number) => {
@@ -132,20 +149,29 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           </div>
 
           <h4>Watchlist</h4>
-          {config.watchlist.map(([symbol, tf], index) => (
+          {config.watchlist.map((entry, index) => (
             <div key={index} className="stack" style={{ marginBottom: '8px' }}>
               <input
                 type="text"
                 placeholder="Symbol"
-                value={symbol}
-                onChange={e => handleWatchlistChange(index, e.target.value, 'symbol')}
+                value={entry.symbol}
+                onChange={e => handleWatchlistChange(index, 'symbol', e.target.value)}
               />
               <input
                 type="text"
                 placeholder="Timeframe"
-                value={tf}
-                onChange={e => handleWatchlistChange(index, e.target.value, 'tf')}
+                value={entry.timeframe}
+                onChange={e => handleWatchlistChange(index, 'timeframe', e.target.value)}
                 style={{ width: '100px' }}
+              />
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="Lot size"
+                value={entry.lot_size}
+                onChange={e => handleWatchlistChange(index, 'lot_size', e.target.value)}
+                style={{ width: '110px' }}
               />
               <button type="button" className="btn" onClick={() => removeWatchlistItem(index)}>
                 ✖
