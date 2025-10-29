@@ -126,6 +126,7 @@ class AgentController:
         self._stops[pair] = stop
         sym, tf = pair
         lot_size = self._pair_lot_size(sym, tf)
+        print(f"[AGENT] starting {sym}/{tf} lot_size={lot_size}")
         clear_last_bar_ts(sym, tf)
         update_task_status(sym, tf, state="starting")
         task = asyncio.create_task(
@@ -174,6 +175,7 @@ class AgentController:
                 lot_size_lots=normalized_cfg.lot_size_lots,
                 strategy=normalized_cfg.strategy,
             )
+            print("[AGENT] applied config:", self.config)
             self._pair_defaults = {item.key(): item.lot_size for item in self.config.watchlist}
             self._save_config(self.config)
 
