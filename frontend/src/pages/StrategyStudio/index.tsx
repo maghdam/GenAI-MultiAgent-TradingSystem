@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { executeTask, type TaskRequest, type TaskResponse } from '../../services/api';
+import { executeTask, listStrategies, backtestSavedStrategy, type TaskRequest, type TaskResponse } from '../../services/api';
 import StrategyChat, { type ChatMessage } from '../../components/StrategyChat';
 import { CodeDisplay } from '../../components/CodeDisplay';
 import { BacktestResult } from '../../components/BacktestResult';
@@ -13,6 +13,18 @@ export default function StrategyStudioPage() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [timeframe, setTimeframe] = useState('M5');
   const [numBars, setNumBars] = useState(1500);
+  const [savedStrategy, setSavedStrategy] = useState<string>('');
+  const [availableSaved, setAvailableSaved] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    listStrategies()
+      .then(({ available }) => {
+        if (mounted) setAvailableSaved(Array.isArray(available) ? available : []);
+      })
+      .catch(() => {})
+    return () => { mounted = false };
+  }, []);
 
   const parseMessage = (message: string): TaskRequest => {
     const lower = message.toLowerCase();
@@ -80,6 +92,22 @@ export default function StrategyStudioPage() {
     }
   };
 
+  const runSavedStrategyBacktest = async () => {
+    if (isLoading || !savedStrategy) return;
+    setIsLoading(true);
+    setMessages(prev => [...prev, { role: 'user', content: `Backtest strategy=${savedStrategy} on ${symbol} ${timeframe} (${numBars} bars)` }]);
+    setLastResult(null);
+    try {
+      const res = await backtestSavedStrategy(savedStrategy, symbol, timeframe, numBars);
+      setLastResult(res);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Strategy backtest complete.' }]);
+    } catch (e: any) {
+      setMessages(prev => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Backtest failed.' }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const saveStrategy = async () => {
     const code = lastResult?.stdout;
     if (!code || isLoading) return;
@@ -122,6 +150,11 @@ export default function StrategyStudioPage() {
               onChange={e => setNumBars(Math.max(200, Math.min(5000, parseInt(e.target.value || '1500', 10))))}
               style={{ width: 110 }} title="Bars" />
             <button className="btn" type="button" onClick={runBacktest} disabled={isLoading}>Run Backtest</button>
+            <select value={savedStrategy} onChange={e => setSavedStrategy(e.target.value)} title="Saved Strategy">
+              <option value="">Select strategy…</option>
+              {availableSaved.map(name => (<option key={name} value={name}>{name}</option>))}
+            </select>
+            <button className="btn" type="button" onClick={runSavedStrategyBacktest} disabled={isLoading || !savedStrategy}>Run Strategy Backtest</button>
             <button className="btn" type="button" onClick={saveStrategy} disabled={isLoading || !lastResult?.stdout}>Save Strategy</button>
             <button className="btn" type="button" onClick={() => setView('auto')} disabled={view==='auto'}>Formatted</button>
             <button className="btn" type="button" onClick={() => setView('raw')} disabled={view==='raw'}>Raw JSON</button>

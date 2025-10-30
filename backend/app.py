@@ -215,6 +215,109 @@ async def agent_status():
         "available_strategies": available_strategies(),
     }
 
+
+@app.get("/api/strategies/backtest")
+async def strategies_backtest(strategy: str, symbol: str, timeframe: str = "M5", num_bars: int = 1500):
+    """Backtest a saved strategy that exposes a vectorized `signals(df)` function.
+
+    Notes:
+    - Loads `backend/strategies_generated/<strategy>.py` and calls `signals(df)`.
+    - Supports long/short via sign of the series: >0 long, <0 short, 0 flat.
+    - LLM-based strategies with only `trade_decision` are not suitable for fast backtests.
+    """
+    from pathlib import Path
+    import math
+    import pandas as pd
+
+    root = Path("backend/strategies_generated")
+    path = root / f"{strategy.lower()}.py"
+    if not path.exists():
+        raise HTTPException(404, f"Saved strategy '{strategy}' not found.")
+
+    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
+    if df is None or df.empty:
+        raise HTTPException(404, "No data fetched for backtest")
+
+    # Load module and obtain `signals(df)`
+    try:
+        src = path.read_text(encoding="utf-8")
+        mod_globals = {}
+        exec(src, mod_globals)
+        signals_fn = mod_globals.get("signals")
+    except Exception as e:
+        raise HTTPException(400, f"Unable to load strategy module: {e}")
+    if not callable(signals_fn):
+        raise HTTPException(400, "This strategy does not define a callable signals(df) for backtesting.")
+
+    try:
+        sig = signals_fn(df)
+    except Exception as e:
+        raise HTTPException(400, f"signals(df) execution failed: {e}")
+
+    if 'pandas' not in str(type(sig)):
+        raise HTTPException(400, "signals(df) must return a pandas Series aligned to df index.")
+    # Align and sanitize
+    try:
+        sig = sig.reindex(df.index).fillna(0)
+    except Exception:
+        raise HTTPException(400, "signals(df) output not aligned to input index.")
+
+    close = df["close"].astype(float)
+    rets = close.pct_change().fillna(0)
+    # Position: 1 for long, -1 for short, 0 flat
+    pos = sig.apply(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0))
+    pos = pos.ffill().fillna(0.0)
+    strat_rets = rets * pos
+    equity = (1.0 + strat_rets).cumprod()
+
+    # Trades metrics from entry/exit transitions
+    entries = (pos != 0) & (pos.shift(1).fillna(0) == 0)
+    exits = (pos == 0) & (pos.shift(1).fillna(0) != 0)
+    entries_idx = list(entries[entries].index)
+    exits_idx = list(exits[exits].index)
+    trade_rets: list[float] = []
+    if entries_idx:
+        import bisect
+        exits_idx_sorted = list(sorted(exits_idx))
+        for e in entries_idx:
+            i = bisect.bisect_right(exits_idx_sorted, e)
+            x = exits_idx_sorted[i] if i < len(exits_idx_sorted) else close.index[-1]
+            if e >= x:
+                continue
+            # Sign-aware return
+            direction = float(pos.loc[e])
+            grow = (close.loc[x] / close.loc[e])
+            trade_ret = (grow - 1.0) if direction > 0 else ((1.0 / grow) - 1.0)
+            trade_rets.append(float(trade_ret))
+
+    num_trades = len(trade_rets)
+    wins = sum(1 for r in trade_rets if r > 0)
+    win_rate = (wins / num_trades * 100.0) if num_trades > 0 else 0.0
+    total_return = float(equity.iloc[-1] - 1.0) * 100.0
+    avg_trade = (sum(trade_rets) / num_trades * 100.0) if num_trades > 0 else 0.0
+
+    # Rough annualization assuming 5m bars; a UI control could refine this
+    ann_factor = math.sqrt(252 * (24 * 60 / 5))
+    sharpe = 0.0
+    if strat_rets.std(ddof=0) > 0:
+        sharpe = float(strat_rets.mean() / strat_rets.std(ddof=0)) * ann_factor
+
+    peak = equity.cummax()
+    dd = (equity / peak) - 1.0
+    mdd = float(dd.min()) if len(dd) else 0.0
+
+    return {
+        "strategy": strategy,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "Total Return [%]": round(total_return, 4),
+        "Number of Trades": float(num_trades),
+        "Win Rate [%]": round(win_rate, 2),
+        "Avg Trade [%]": round(avg_trade, 4),
+        "Max Drawdown [%]": round(mdd * 100.0, 2),
+        "Sharpe": round(sharpe, 3),
+    }
+
 @app.post("/api/agent/execute_task")
 async def execute_task_endpoint(req: Request):
     """Compatibility endpoint for Strategy Studio tasks.

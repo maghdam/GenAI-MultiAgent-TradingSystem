@@ -190,3 +190,31 @@ export const reloadStrategies = async (): Promise<{ ok: boolean; loaded: number;
     return null;
   }
 };
+
+export const listStrategies = async (): Promise<{ available: string[]; errors: any[] }> => {
+  const response = await fetch('/api/strategies');
+  if (!response.ok) {
+    throw new Error(`Failed to list strategies: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const backtestSavedStrategy = async (
+  strategy: string,
+  symbol: string,
+  timeframe: string,
+  numBars: number
+): Promise<any> => {
+  const params = new URLSearchParams({
+    strategy,
+    symbol,
+    timeframe,
+    num_bars: String(numBars),
+  });
+  const response = await fetch(`/api/strategies/backtest?${params.toString()}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Backtest failed: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
