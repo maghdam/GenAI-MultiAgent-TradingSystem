@@ -8,6 +8,7 @@ from typing import Tuple, Optional, Dict, Any, List
 import requests
 import pandas as pd
 from backend.smc_features import build_feature_snapshot
+from backend import data_fetcher as _dfetch
 
 
 # =========================
@@ -23,6 +24,10 @@ OLLAMA_URL        = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 KEEP_ALIVE        = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
 # overall time budget for the whole function (to avoid FastAPI/proxy hard limits)
 OVERALL_BUDGET_S  = float(os.getenv("LLM_OVERALL_BUDGET", "110"))
+GUARDRAIL_MODE    = os.getenv("LLM_GUARDRAIL_MODE", "loose").strip().lower()  # off|loose|strict
+GUARDRAIL_CUTOFF  = float(os.getenv("LLM_GUARDRAIL_CUTOFF", "0.70"))
+ENFORCE_VOTES     = os.getenv("LLM_ENFORCE_VOTES", "prefer").strip().lower()  # off|prefer|force
+VOTE_THRESHOLD    = int(os.getenv("LLM_VOTE_THRESHOLD", "2"))
 
 # Serialize heavy calls so we don’t race the CPU/VMM
 _ANALYZE_LOCK = asyncio.Semaphore(1)
@@ -273,11 +278,11 @@ async def analyze_data_with_llm(
         if not ok:
             raise ValueError(f"Ollama not healthy: {note}")
 
-        # Prepare SMC + OHLC snapshots
-        def build_inputs(candles: int) -> Tuple[str, pd.DataFrame, List[str]]:
+        # Prepare SMC + OHLC snapshots + votes and HTF bias
+        def build_inputs(candles: int) -> Tuple[str, pd.DataFrame, List[str], Dict[str, int], int, int]:
             last_rows = df.tail(candles)[["open", "high", "low", "close"]]
             smc_summary = build_feature_snapshot(df)
-            reason_lines = []
+            reason_lines: List[str] = []
             for k, v in smc_summary.items():
                 if v is None:
                     continue
@@ -286,8 +291,59 @@ async def analyze_data_with_llm(
                 reason_lines.append(f"{k}: {v}")
             if not reason_lines:
                 reason_lines.append("No strong SMC features detected.")
+
+            # Votes from snapshot
+            def _votes_from_snapshot(snapshot: Dict[str, Any]) -> Tuple[Dict[str, int], int]:
+                votes: Dict[str, int] = {}
+                z = (snapshot.get("zone") or "").lower()
+                votes["zone"] = 1 if z == "discount" else (-1 if z == "premium" else 0)
+                b = (snapshot.get("bos_choch") or "").lower()
+                votes["structure"] = 1 if "bullish" in b else (-1 if "bearish" in b else 0)
+                f = (snapshot.get("fvg") or "").lower()
+                votes["fvg"] = 1 if "bullish" in f else (-1 if "bearish" in f else 0)
+                ob = (snapshot.get("ob") or "").lower()
+                votes["ob"] = 1 if ob == "near_ob_lo" else (-1 if ob == "near_ob_hi" else 0)
+                try:
+                    ts = int(snapshot.get("trend_strength") or 0)
+                except Exception:
+                    ts = 0
+                votes["trend"] = 1 if ts > 1 else (-1 if ts < -1 else 0)
+                return votes, sum(votes.values())
+
+            def _htf_of(tf: str) -> str:
+                tf = (tf or "M5").upper()
+                return {
+                    "M1": "H1", "M5": "H1", "M15": "H1",
+                    "M30": "H4", "H1": "H4", "H4": "D1", "D1": "D1",
+                }.get(tf, "H1")
+
+            def _compute_htf_bias(sym: str, tf: str) -> int:
+                try:
+                    htf = _htf_of(tf)
+                    df_htf, _ = _dfetch.fetch_data(sym, htf, num_bars=300)
+                    close = df_htf["close"].astype(float)
+                    f = close.rolling(50, min_periods=50).mean()
+                    s = close.rolling(200, min_periods=200).mean()
+                    if pd.isna(f.iloc[-1]) or pd.isna(s.iloc[-1]):
+                        return 0
+                    return 1 if f.iloc[-1] > s.iloc[-1] else (-1 if f.iloc[-1] < s.iloc[-1] else 0)
+                except Exception:
+                    return 0
+
+            votes, total_votes = _votes_from_snapshot(smc_summary)
+            htf_bias = _compute_htf_bias(symbol, timeframe) if (symbol and timeframe) else 0
+            total_with_htf = total_votes + (htf_bias or 0)
+
+            # Add votes summary + rule into reasons to guide the model
+            votes_parts = [
+                f"zone={votes['zone']:+d}", f"structure={votes['structure']:+d}",
+                f"fvg={votes['fvg']:+d}", f"ob={votes['ob']:+d}", f"trend={votes['trend']:+d}", f"htf={htf_bias:+d}"
+            ]
+            reason_lines.append(f"votes: total={total_with_htf:+d} ({', '.join(votes_parts)})")
+            reason_lines.append("rule: total>=+2 → long; total<=-2 → short; otherwise no_trade")
+
             smc_text = "\n".join([f"- {line}" for line in reason_lines])
-            return smc_text, last_rows, reason_lines
+            return smc_text, last_rows, reason_lines, votes, htf_bias, total_with_htf
 
         attempts_summary = []
         latest_reasons: List[str] = []
@@ -299,7 +355,7 @@ async def analyze_data_with_llm(
         try:
             if budget_left() <= 5:
                 raise TimeoutError("Budget exhausted before A1.")
-            smc_text, last_rows, latest_reasons = build_inputs(24)
+            smc_text, last_rows, latest_reasons, votes, htf_bias, total_with_htf = build_inputs(24)
             prompt = _build_prompts(symbol, timeframe, smc_text, last_rows, json_only)
             content = _ollama_generate(
                 prompt=prompt,
@@ -309,6 +365,38 @@ async def analyze_data_with_llm(
                 options_overrides={"num_predict": min(80, MAX_TOK_DEFAULT)},
             )
             td = _parse_trade_decision(content, json_only)
+            # Guardrail: block directions that strongly contradict votes unless confidence high and mode=off
+            try:
+                sig = (td.signal or "").lower()
+                conf = float(td.confidence or 0.0)
+            except Exception:
+                sig = str(td.signal).lower() if td.signal is not None else ""
+                conf = 0.0
+            conflict_long = sig == "long" and total_with_htf <= -VOTE_THRESHOLD
+            conflict_short = sig == "short" and total_with_htf >= VOTE_THRESHOLD
+            if GUARDRAIL_MODE in ("loose", "strict"):
+                if conflict_long or conflict_short:
+                    if GUARDRAIL_MODE == "strict" or conf < GUARDRAIL_CUTOFF:
+                        td.signal = "no_trade"
+                        td.reasons = (td.reasons or []) + [
+                            f"guardrail: overrode {sig} due to votes={total_with_htf:+d} (cutoff={GUARDRAIL_CUTOFF:.2f}, mode={GUARDRAIL_MODE})"
+                        ]
+            # Enforcement: map votes to direction when requested
+            if ENFORCE_VOTES in ("prefer", "force"):
+                if total_with_htf >= VOTE_THRESHOLD:
+                    if ENFORCE_VOTES == "force" or sig not in ("long",):
+                        if sig != "long":
+                            td.signal = "long"
+                            td.reasons = (td.reasons or []) + [f"enforce: set long from votes={total_with_htf:+d} thr={VOTE_THRESHOLD} (mode={ENFORCE_VOTES})"]
+                elif total_with_htf <= -VOTE_THRESHOLD:
+                    if ENFORCE_VOTES == "force" or sig not in ("short",):
+                        if sig != "short":
+                            td.signal = "short"
+                            td.reasons = (td.reasons or []) + [f"enforce: set short from votes={total_with_htf:+d} thr={VOTE_THRESHOLD} (mode={ENFORCE_VOTES})"]
+                else:
+                    if ENFORCE_VOTES == "force" and sig != "no_trade":
+                        td.signal = "no_trade"
+                        td.reasons = (td.reasons or []) + [f"enforce: set no_trade due to mixed votes={total_with_htf:+d} (mode={ENFORCE_VOTES})"]
             td.reasons = (td.reasons or []) + latest_reasons
             return td
         except Exception as e:
@@ -318,7 +406,7 @@ async def analyze_data_with_llm(
         try:
             if budget_left() <= 5:
                 raise TimeoutError("Budget exhausted before A2.")
-            smc_text, last_rows, latest_reasons = build_inputs(24)
+            smc_text, last_rows, latest_reasons, votes, htf_bias, total_with_htf = build_inputs(24)
             prompt = _build_prompts(symbol, timeframe, smc_text, last_rows, json_only)
             content = _ollama_generate(
                 prompt=prompt,
@@ -328,6 +416,37 @@ async def analyze_data_with_llm(
                 options_overrides={"num_predict": min(80, MAX_TOK_DEFAULT)},
             )
             td = _parse_trade_decision(content, json_only)
+            try:
+                sig = (td.signal or "").lower()
+                conf = float(td.confidence or 0.0)
+            except Exception:
+                sig = str(td.signal).lower() if td.signal is not None else ""
+                conf = 0.0
+            conflict_long = sig == "long" and total_with_htf <= -VOTE_THRESHOLD
+            conflict_short = sig == "short" and total_with_htf >= VOTE_THRESHOLD
+            if GUARDRAIL_MODE in ("loose", "strict"):
+                if conflict_long or conflict_short:
+                    if GUARDRAIL_MODE == "strict" or conf < GUARDRAIL_CUTOFF:
+                        td.signal = "no_trade"
+                        td.reasons = (td.reasons or []) + [
+                            f"guardrail: overrode {sig} due to votes={total_with_htf:+d} (cutoff={GUARDRAIL_CUTOFF:.2f}, mode={GUARDRAIL_MODE})"
+                        ]
+            # Enforcement: map votes to direction when requested
+            if ENFORCE_VOTES in ("prefer", "force"):
+                if total_with_htf >= VOTE_THRESHOLD:
+                    if ENFORCE_VOTES == "force" or sig not in ("long",):
+                        if sig != "long":
+                            td.signal = "long"
+                            td.reasons = (td.reasons or []) + [f"enforce: set long from votes={total_with_htf:+d} thr={VOTE_THRESHOLD} (mode={ENFORCE_VOTES})"]
+                elif total_with_htf <= -VOTE_THRESHOLD:
+                    if ENFORCE_VOTES == "force" or sig not in ("short",):
+                        if sig != "short":
+                            td.signal = "short"
+                            td.reasons = (td.reasons or []) + [f"enforce: set short from votes={total_with_htf:+d} thr={VOTE_THRESHOLD} (mode={ENFORCE_VOTES})"]
+                else:
+                    if ENFORCE_VOTES == "force" and sig != "no_trade":
+                        td.signal = "no_trade"
+                        td.reasons = (td.reasons or []) + [f"enforce: set no_trade due to mixed votes={total_with_htf:+d} (mode={ENFORCE_VOTES})"]
             td.reasons = (td.reasons or []) + latest_reasons
             return td
         except Exception as e:

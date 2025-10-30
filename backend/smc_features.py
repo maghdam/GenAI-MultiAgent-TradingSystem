@@ -58,7 +58,12 @@ def current_fvg(df: pd.DataFrame):
 
 
 def ob_near_price(df: pd.DataFrame, distance_pct=0.015):
-    """Return 'near_OB' if price is near recent OB zone, else None."""
+    """Return a directional OB proximity label.
+
+    - 'near_OB_hi' → price is near recent swing high (bearish lean)
+    - 'near_OB_lo' → price is near recent swing low (bullish lean)
+    - None         → not near either bound
+    """
     if len(df) < 20:
         return None
 
@@ -68,7 +73,14 @@ def ob_near_price(df: pd.DataFrame, distance_pct=0.015):
     near_hi = abs(close - hi) / close < distance_pct
     near_lo = abs(close - lo) / close < distance_pct
 
-    return 'near_OB' if near_hi or near_lo else None
+    if near_hi and near_lo:
+        # If equidistant, pick the closer bound
+        return 'near_OB_hi' if abs(close - hi) <= abs(close - lo) else 'near_OB_lo'
+    if near_hi:
+        return 'near_OB_hi'
+    if near_lo:
+        return 'near_OB_lo'
+    return None
 
 
 def trend_strength(df: pd.DataFrame, window=20):
