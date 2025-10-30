@@ -191,12 +191,15 @@ export const reloadStrategies = async (): Promise<{ ok: boolean; loaded: number;
   }
 };
 
-export const listStrategies = async (): Promise<{ available: string[]; errors: any[] }> => {
-  const response = await fetch('/api/strategies');
+export const listStrategyFiles = async (): Promise<string[]> => {
+  const response = await fetch('/api/strategies/files');
   if (!response.ok) {
-    throw new Error(`Failed to list strategies: ${response.status} ${response.statusText}`);
+    throw new Error(`Failed to list strategy files: ${response.status} ${response.statusText}`);
   }
-  return response.json();
+  const data = await response.json();
+  const files: string[] = Array.isArray(data?.files) ? data.files : [];
+  // Return stems without .py
+  return files.map((f) => (typeof f === 'string' && f.toLowerCase().endsWith('.py') ? f.slice(0, -3) : f));
 };
 
 export const backtestSavedStrategy = async (

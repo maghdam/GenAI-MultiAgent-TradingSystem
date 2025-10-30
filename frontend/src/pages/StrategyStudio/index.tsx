@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { executeTask, listStrategies, backtestSavedStrategy, type TaskRequest, type TaskResponse } from '../../services/api';
+import { executeTask, listStrategyFiles, type TaskRequest, type TaskResponse } from '../../services/api';
 import StrategyChat, { type ChatMessage } from '../../components/StrategyChat';
 import { CodeDisplay } from '../../components/CodeDisplay';
 import { BacktestResult } from '../../components/BacktestResult';
@@ -18,10 +18,8 @@ export default function StrategyStudioPage() {
 
   React.useEffect(() => {
     let mounted = true;
-    listStrategies()
-      .then(({ available }) => {
-        if (mounted) setAvailableSaved(Array.isArray(available) ? available : []);
-      })
+    listStrategyFiles()
+      .then((files) => { if (mounted) setAvailableSaved(Array.isArray(files) ? files : []); })
       .catch(() => {})
     return () => { mounted = false };
   }, []);
@@ -92,21 +90,7 @@ export default function StrategyStudioPage() {
     }
   };
 
-  const runSavedStrategyBacktest = async () => {
-    if (isLoading || !savedStrategy) return;
-    setIsLoading(true);
-    setMessages(prev => [...prev, { role: 'user', content: `Backtest strategy=${savedStrategy} on ${symbol} ${timeframe} (${numBars} bars)` }]);
-    setLastResult(null);
-    try {
-      const res = await backtestSavedStrategy(savedStrategy, symbol, timeframe, numBars);
-      setLastResult(res);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Strategy backtest complete.' }]);
-    } catch (e: any) {
-      setMessages(prev => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Backtest failed.' }]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Removed secondary backtest handler; keeping dropdown for future use
 
   const saveStrategy = async () => {
     const code = lastResult?.stdout;
@@ -123,6 +107,11 @@ export default function StrategyStudioPage() {
       const res: TaskResponse = await executeTask(req);
       if (res.status === 'success') {
         setMessages(prev => [...prev, { role: 'assistant', content: res.message || `Saved as ${name}` }]);
+        try {
+          const files = await listStrategyFiles();
+          setAvailableSaved(Array.isArray(files) ? files : []);
+          if (files && files.includes(name)) setSavedStrategy(name);
+        } catch {}
       } else {
         setMessages(prev => [...prev, { role: 'assistant', type: 'error', content: res.message || 'Save failed.' }]);
       }
@@ -154,7 +143,6 @@ export default function StrategyStudioPage() {
               <option value="">Select strategy…</option>
               {availableSaved.map(name => (<option key={name} value={name}>{name}</option>))}
             </select>
-            <button className="btn" type="button" onClick={runSavedStrategyBacktest} disabled={isLoading || !savedStrategy}>Run Strategy Backtest</button>
             <button className="btn" type="button" onClick={saveStrategy} disabled={isLoading || !lastResult?.stdout}>Save Strategy</button>
             <button className="btn" type="button" onClick={() => setView('auto')} disabled={view==='auto'}>Formatted</button>
             <button className="btn" type="button" onClick={() => setView('raw')} disabled={view==='raw'}>Raw JSON</button>
