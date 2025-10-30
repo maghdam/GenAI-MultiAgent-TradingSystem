@@ -47,10 +47,12 @@ client = Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
 symbol_map            : dict[int, str] = {}   # {id: name}
 symbol_name_to_id     : dict[str, int] = {}   # {name.upper(): id}
 symbol_digits_map     : dict[int, int] = {}   # {id: digits}
-symbol_min_volume_map : dict[int, int] = {}   # {id: minimum volume in units}
-symbol_step_volume_map: dict[int, int] = {}   # {id: step volume in units}
+symbol_min_volume_map : dict[int, int] = {}   # {id: minimum volume in API units}
+symbol_step_volume_map: dict[int, int] = {}   # {id: step volume in API units}
 symbol_max_volume_map: dict[int, int] = {}   # {id: maximum volume in units}
 symbol_lot_size_map: dict[int, int] = {}   # {id: lot size in units}
+symbol_min_verified: dict[int, bool] = {}     # {id: True if learned from broker error}
+symbol_step_verified: dict[int, bool] = {}    # {id: True if learned from broker error}
 
 # Optional fallback if cTrader rejects symbol list (e.g., invalid credentials or maintenance)
 _fallback_symbols_cfg = os.getenv("CTRADER_FALLBACK_SYMBOLS", "XAUUSD,EURUSD,GBPUSD,US500").strip()
@@ -60,7 +62,7 @@ FALLBACK_SYMBOLS = [s.strip().upper() for s in _fallback_symbols_cfg.split(",") 
 CONNECTED = False
 
 _PRICE_FACTOR = 100_000
-_VOLUME_PRECISION = 10_000         # cTrader volumes are expressed in 0.0001 lots
+_VOLUME_PRECISION = 10_000         # API volume units = 0.0001 lots (1 lot = 10,000 units)
 
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
@@ -75,7 +77,8 @@ def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
     """Convert a lot amount to the cTrader API volume units.
 
     Notes:
-    - cTrader OpenAPI expects volume as an integer in 0.0001 lot increments.
+    - cTrader OpenAPI expects volume as an integer in 0.0001-lot increments.
+      In other words, 1.00 lot == 10,000 API volume units.
     - This is independent of symbol contract size; do NOT multiply by contract size here.
     """
     if lots is None:
@@ -87,7 +90,8 @@ def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
     """Convert lots from UI to cTrader API volume units and validate against symbol limits.
 
     - API volume = lots * 10_000 (integer)
-    - min/step/max thresholds from symbol metadata are already specified in API volume units.
+    - Symbol metadata (min/step/max) is returned in 0.01-lot units ("cent-lots").
+      Convert to API volume units by multiplying by 100.
     """
     try:
         lots_val = float(lots)
@@ -120,9 +124,57 @@ def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
             )
 
     print(
-        f"[VOLUME] symbol_id={symbol_id} lots={lots_val} api_volume={api_volume} (cent-lots) min={min_api} step={step_api} max={max_api}"
+        f"[VOLUME] symbol_id={symbol_id} lots={lots_val} api_volume={api_volume} (api-units) min={min_api} step={step_api} max={max_api}"
     )
     return api_volume
+
+
+def coerce_volume_lots_to_units(symbol_id: int, lots: float | int | None) -> tuple[int, float]:
+    """Coerce a requested lot amount up to broker-allowed min/step and return API units.
+
+    Returns (api_volume, lots_final). Rounds up to nearest allowed step and clamps
+    to [min,max] if limits are known. Does not raise on small/misaligned sizes.
+    """
+    try:
+        lots_val = float(lots)
+    except (TypeError, ValueError):
+        raise ValueError("Lot size must be numeric") from None
+
+    if lots_val <= 0:
+        raise ValueError("Lot size must be greater than zero")
+
+    api_volume = int(round(lots_val * _VOLUME_PRECISION))
+
+    min_api = symbol_min_volume_map.get(symbol_id)
+    step_api = symbol_step_volume_map.get(symbol_id)
+    max_api = symbol_max_volume_map.get(symbol_id)
+    hard_min = bool(symbol_min_verified.get(symbol_id))
+    hard_step = bool(symbol_step_verified.get(symbol_id))
+    base_floor_api = int(round(0.01 * _VOLUME_PRECISION))  # 0.01 lots
+
+    # Apply min: treat metadata mins as soft; enforce only verified mins.
+    if hard_min and (min_api is not None) and api_volume < min_api:
+        api_volume = int(min_api)
+    else:
+        if api_volume < base_floor_api:
+            api_volume = base_floor_api
+
+    # Snap to step by rounding up
+    if step_api and step_api > 0:
+        if hard_step or step_api <= base_floor_api:
+            rem = api_volume % step_api
+            if rem:
+                api_volume += step_api - rem
+
+    # Apply max (after step rounding)
+    if max_api is not None and api_volume > max_api:
+        api_volume = int(max_api)
+
+    lots_final = api_volume / _VOLUME_PRECISION
+    print(
+        f"[VOLUME] COERCE symbol_id={symbol_id} requested_lots={lots_val} -> lots={lots_final:.2f} api_volume={api_volume} min={min_api} step={step_api} max={max_api} hard_min={hard_min} hard_step={hard_step}"
+    )
+    return api_volume, lots_final
 
 # ── helpers ────────────────────────────────────────────────────────────────
 def pips_to_relative(pips: int, digits: int) -> int:
@@ -134,10 +186,10 @@ def on_error(failure):
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
 def _install_fallback_symbols(reason: str | None = None):
-    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map
+    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map, symbol_min_verified, symbol_step_verified
     print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
-    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear()
+    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear(); symbol_min_verified.clear(); symbol_step_verified.clear()
     default_min = int(round(0.01 * _VOLUME_PRECISION))
     default_max = int(round(100 * _VOLUME_PRECISION))
     for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
@@ -148,14 +200,16 @@ def _install_fallback_symbols(reason: str | None = None):
         symbol_lot_size_map[idx] = 100_000 if name in ["EURUSD", "GBPUSD"] else 100
         symbol_min_volume_map[idx] = default_min
         symbol_step_volume_map[idx] = default_min
+        symbol_min_verified[idx] = False
+        symbol_step_verified[idx] = False
         symbol_max_volume_map[idx] = default_max
     if symbol_map:
         print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
 
 def symbols_response_cb(res):
-    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map
+    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map, symbol_min_verified, symbol_step_verified
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
-    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear()
+    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear(); symbol_min_verified.clear(); symbol_step_verified.clear()
 
     symbols = Protobuf.extract(res)
     # Some responses are error envelopes instead of the expected list
@@ -173,15 +227,24 @@ def symbols_response_cb(res):
         min_vol_raw = getattr(s, "minVolume", None) or getattr(s, "min_volume", None)
         step_vol_raw = getattr(s, "stepVolume", None) or getattr(s, "step_volume", None)
         max_vol_raw = getattr(s, "maxVolume", None) or getattr(s, "max_volume", None)
-        # Volume thresholds are provided by API in cent-lots already
-        # Fall back conservatively if missing (assume 1.00 lot min)
-        min_api = int(min_vol_raw) if min_vol_raw is not None else 100   # 100 == 1.00 lot
-        step_api = int(step_vol_raw) if step_vol_raw is not None else min_api
-        max_api = int(max_vol_raw) if max_vol_raw is not None else 10000 # 100.00 lots default
+        # Symbol volume thresholds are provided by API in cent-lots (0.01 lots).
+        # Convert them to API volume units (0.0001 lots) by multiplying by 100.
+        # Fall back conservatively if missing (assume 1.00 lot min/max reasonable defaults).
+        min_api = (
+            int(min_vol_raw) * 100 if min_vol_raw is not None else int(round(1.00 * _VOLUME_PRECISION))
+        )
+        step_api = (
+            int(step_vol_raw) * 100 if step_vol_raw is not None else min_api
+        )
+        max_api = (
+            int(max_vol_raw) * 100 if max_vol_raw is not None else int(round(100.00 * _VOLUME_PRECISION))
+        )
         
         symbol_min_volume_map[s.symbolId] = min_api
         symbol_step_volume_map[s.symbolId] = step_api
         symbol_max_volume_map[s.symbolId] = max_api
+        symbol_min_verified[s.symbolId] = False
+        symbol_step_verified[s.symbolId] = False
         loaded += 1
 
     if loaded == 0:
@@ -237,18 +300,22 @@ def _log_event(event) -> None:
                 import re
                 m = re.search(r"minimum allowed volume\s*=\s*([0-9]+(?:\.[0-9]+)?)", str(desc), re.IGNORECASE)
                 if m:
-                    min_api = int(round(float(m.group(1))))
+                    # Error text uses cent-lots (0.01-lot) units; convert to API units (x100)
+                    min_api = int(round(float(m.group(1)) * 100))
                     sid = int(_LAST_ORDER_CTX.get("symbol_id", -1))
                     if sid in symbol_map:
                         prev = symbol_min_volume_map.get(sid)
                         symbol_min_volume_map[sid] = max(min_api, prev or 0)
+                        symbol_min_verified[sid] = True
                         print(f"[VOLUME] Updated min for {symbol_map[sid]} to {min_api} (API units)")
                 m2 = re.search(r"step\s*=?\s*([0-9]+(?:\.[0-9]+)?)", str(desc), re.IGNORECASE)
                 if m2:
-                    step_api = int(round(float(m2.group(1))))
+                    # Error text uses cent-lots; convert to API units (x100)
+                    step_api = int(round(float(m2.group(1)) * 100))
                     sid = int(_LAST_ORDER_CTX.get("symbol_id", -1))
                     if sid in symbol_map and step_api > 0:
                         symbol_step_volume_map[sid] = step_api
+                        symbol_step_verified[sid] = True
                         print(f"[VOLUME] Updated step for {symbol_map[sid]} to {step_api} (API units)")
         except Exception as e:
             print(f"[WARN] Unable to parse order error for volume hints: {e}")

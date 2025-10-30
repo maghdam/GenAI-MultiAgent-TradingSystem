@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { getAgentConfig, setAgentConfig, getAgentStatus, type AgentConfig } from '../services/api';
+import { getAgentConfig, setAgentConfig, getAgentStatus, getSymbolLimits, type AgentConfig, type SymbolLimitsMap } from '../services/api';
 
 interface AgentSettingsProps {
   isOpen: boolean;
@@ -22,12 +22,16 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [availableStrategies, setAvailableStrategies] = useState<string[]>(['smc','rsi']);
+  const [limits, setLimits] = useState<SymbolLimitsMap>({});
+
+  const fmtLots = (v?: number | null) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : '—');
+  const limsHas = (m: SymbolLimitsMap, sym: string) => m && Object.prototype.hasOwnProperty.call(m, sym);
 
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    Promise.all([getAgentConfig(), getAgentStatus()])
-      .then(([cfg, status]) => {
+    Promise.all([getAgentConfig(), getAgentStatus(), getSymbolLimits() as Promise<SymbolLimitsMap>])
+      .then(([cfg, status, lims]) => {
         const fallbackLot = Number.isFinite(cfg.lot_size_lots) ? cfg.lot_size_lots : 0.01;
         const sanitizedWatchlist = (cfg.watchlist || []).map(item => ({
           symbol: item.symbol || '',
@@ -37,6 +41,7 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         setConfig({ ...cfg, watchlist: sanitizedWatchlist });
         const opts = Array.from(new Set([...(status?.available_strategies || []), 'smc', 'rsi', cfg.strategy].filter(Boolean))) as string[];
         setAvailableStrategies(opts);
+        if (lims && typeof lims === 'object') setLimits(lims);
         setError(null);
       })
       .catch(err => setError(err.message))
@@ -124,14 +129,6 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               value={config.min_confidence}
               onChange={e => setConfig({ ...config, min_confidence: parseFloat(e.target.value) })}
             />
-            <label>Lot Size</label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={config.lot_size_lots}
-              onChange={e => setConfig({ ...config, lot_size_lots: parseFloat(e.target.value) })}
-            />
             <label>Trading Mode</label>
             <select
               value={config.trading_mode}
@@ -173,6 +170,15 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                 onChange={e => handleWatchlistChange(index, 'lot_size', e.target.value)}
                 style={{ width: '110px' }}
               />
+              {(() => {
+                const sym = (entry.symbol || '').toUpperCase();
+                const lim = limsHas(limits, sym) ? limits[sym] : undefined;
+                if (!lim) return <div className="muted" style={{ fontSize: '12px' }}>min/step unknown</div>;
+                const tagMin = (lim as any).min_source === 'verified' ? '' : ' (est.)';
+                const tagStep = (lim as any).step_source === 'verified' ? '' : ' (est.)';
+                const txt = `min ${fmtLots((lim as any).min_lots)}${tagMin} • step ${fmtLots((lim as any).step_lots)}${tagStep}` + (lim.max_lots ? ` • max ${fmtLots(lim.max_lots)}` : '');
+                return <div className="muted" style={{ fontSize: '12px' }}>{txt}</div>;
+              })()}
               <button type="button" className="btn" onClick={() => removeWatchlistItem(index)}>
                 ✖
               </button>

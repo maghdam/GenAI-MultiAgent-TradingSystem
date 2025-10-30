@@ -18,6 +18,18 @@ export interface SymbolsResponse {
   default: string | null;
 }
 
+export interface SymbolLimit {
+  symbol: string;
+  min_lots?: number | null;
+  step_lots?: number | null;
+  max_lots?: number | null;
+  min_api?: number | null;
+  step_api?: number | null;
+  max_api?: number | null;
+}
+
+export type SymbolLimitsMap = Record<string, SymbolLimit>;
+
 export interface WatchlistEntry {
   symbol: string;
   timeframe: string;
@@ -65,6 +77,15 @@ export const getSymbols = async (): Promise<SymbolsResponse> => {
     throw new Error(`Failed to fetch symbols: ${response.statusText}`);
   }
 
+  return response.json();
+};
+
+export const getSymbolLimits = async (symbol?: string): Promise<SymbolLimitsMap | SymbolLimit> => {
+  const url = symbol ? `/api/symbol_limits?symbol=${encodeURIComponent(symbol)}` : '/api/symbol_limits';
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch symbol limits: ${response.status} ${response.statusText}`);
+  }
   return response.json();
 };
 

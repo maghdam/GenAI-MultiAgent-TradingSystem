@@ -285,6 +285,54 @@ async def get_symbols():
     return {"symbols": symbols, "default": default}
 
 
+@app.get("/api/symbol_limits")
+async def get_symbol_limits(symbol: Optional[str] = None):
+    """Return per-symbol volume limits (min/step/max) in lots and API units.
+
+    Lots are standard lots; API units are 0.0001-lot increments where 1.00 lot = 10,000.
+    """
+    def _one(sym_u: str):
+        sid = ctd.symbol_name_to_id.get(sym_u)
+        if not sid:
+            return None
+        min_api = ctd.symbol_min_volume_map.get(sid)
+        step_api = ctd.symbol_step_volume_map.get(sid)
+        max_api = ctd.symbol_max_volume_map.get(sid)
+        hard_min = bool(ctd.symbol_min_verified.get(sid))
+        hard_step = bool(ctd.symbol_step_verified.get(sid))
+        base_floor_api = int(round(0.01 * ctd._VOLUME_PRECISION))
+        eff_min_api = (min_api if hard_min else min((min_api or base_floor_api), base_floor_api))
+        eff_step_api = (step_api if hard_step else (step_api if (step_api and step_api <= base_floor_api) else base_floor_api))
+        as_lots = lambda x: (x / ctd._VOLUME_PRECISION) if (x is not None) else None
+        return {
+            "symbol": sym_u,
+            "min_lots": as_lots(eff_min_api),
+            "step_lots": as_lots(eff_step_api),
+            "max_lots": as_lots(max_api),
+            "min_api": min_api,
+            "step_api": step_api,
+            "max_api": max_api,
+            "min_source": "verified" if hard_min else "metadata",
+            "step_source": "verified" if hard_step else "metadata",
+            "effective_min_api": eff_min_api,
+            "effective_step_api": eff_step_api,
+        }
+
+    if symbol:
+        sym_u = symbol.upper()
+        data = _one(sym_u)
+        if not data:
+            raise HTTPException(404, f"Symbol '{symbol}' not found.")
+        return data
+
+    out = {}
+    for sym_u in sorted(ctd.symbol_name_to_id.keys()):
+        data = _one(sym_u)
+        if data:
+            out[sym_u] = data
+    return out
+
+
 @app.get("/api/candles")
 async def get_candles(
     symbol: str = Query(..., min_length=1, description="Required, e.g. XAUUSD"),
@@ -432,6 +480,9 @@ class PlaceOrderRequest(BaseModel):
     direction: str = Field(..., alias="action", pattern="^(BUY|SELL)$")
     order_type: str = "MARKET"
     volume: float = 1.0
+    volume_mode: Optional[str] = Field(
+        default="lots", description="'lots' or 'api' (0.0001-lot units)"
+    )
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
@@ -451,9 +502,15 @@ def execute_trade(order: PlaceOrderRequest):
         symbol_id = ctd.symbol_name_to_id[symbol_key]
         print(f"[ORDER DEBUG] Sending order: {order=}, {symbol_id=}")
 
-        # cTrader volume units: 1 lot = 100,000 units
+        # Accept volume in lots (default) or raw API units, and coerce to broker limits
         try:
-            volume_raw = ctd.volume_lots_to_units(symbol_id, order.volume)
+            if (order.volume_mode or "lots").lower() == "api":
+                vol_api = int(order.volume)
+                # Snap API volume using the same step/min rules
+                lots_guess = vol_api / ctd._VOLUME_PRECISION
+                volume_raw, lots_final = ctd.coerce_volume_lots_to_units(symbol_id, lots_guess)
+            else:
+                volume_raw, lots_final = ctd.coerce_volume_lots_to_units(symbol_id, order.volume)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -514,7 +571,11 @@ def execute_trade(order: PlaceOrderRequest):
                 "details": {"status": "failed", "error": "Position not found after MARKET execution"},
             }
 
-        return {"status": "success", "submitted": True, "details": result}
+        return {
+            "status": "success",
+            "submitted": True,
+            "details": {**result, "submitted_volume_lots": lots_final},
+        }
 
     except HTTPException:
         raise
@@ -538,8 +599,8 @@ async def pending_orders():
             "type": "LIMIT" if o.orderType == 2 else "STOP",
             "side": "buy" if o.tradeData.tradeSide == 1 else "sell",
             "price": getattr(o, "limitPrice", getattr(o, "stopPrice", 0)) / 100_000,
-            # Convert API volume (cent-lots) back to lots
-            "volume": o.tradeData.volume / 100,
+            # Convert API volume units back to lots
+            "volume": o.tradeData.volume / ctd._VOLUME_PRECISION,
         }
         for o in pending
     ]
@@ -757,7 +818,7 @@ async def process_message(message: str, sid) -> str:
         trade_details = _pending_trades.pop(sid)
         try:
             symbol_id = ctd.symbol_name_to_id[trade_details['symbol'].upper()]
-            volume_units = ctd.volume_lots_to_units(symbol_id, trade_details['volume'])
+            volume_units, lots_final = ctd.coerce_volume_lots_to_units(symbol_id, trade_details['volume'])
 
             deferred = ctd.place_order(
                 client=ctd.client,
@@ -778,7 +839,7 @@ async def process_message(message: str, sid) -> str:
                 rationale="Trade placed via chatbot"
             )
 
-            return f"✅ Trade executed successfully! Details: {result}"
+            return f"✅ Trade executed successfully! Lots: {lots_final:.2f}. Details: {result}"
         except Exception as e:
             logging.error(f"Chat: Error executing trade: {e}")
             return f"❌ Failed to execute trade. Error: {e}"

@@ -252,7 +252,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                     _push_err(symbol, timeframe, "symbol id not found", "order_fail", strategy_name)
                 else:
                     try:
-                        vol_units = ctd.volume_lots_to_units(sid, lot_size_lots)
+                        vol_units, lots_final = ctd.coerce_volume_lots_to_units(sid, lot_size_lots)
                     except ValueError as e:
                         _push_err(symbol, timeframe, str(e), "order_fail", strategy_name)
                         return
@@ -261,7 +261,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                         timeframe,
                         state="opening_position",
                         desired_direction=desired_dir,
-                        volume_lots=lot_size_lots,
+                        volume_lots=lots_final,
                         strategy_name=strategy_name,
                     )
                     d = ctd.place_order(
