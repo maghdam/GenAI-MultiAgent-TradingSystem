@@ -47,6 +47,7 @@ client = Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
 symbol_map            : dict[int, str] = {}   # {id: name}
 symbol_name_to_id     : dict[str, int] = {}   # {name.upper(): id}
 symbol_digits_map     : dict[int, int] = {}   # {id: digits}
+symbol_money_digits_map: dict[int, int] = {}  # {id: moneyDigits}
 symbol_min_volume_map : dict[int, int] = {}   # {id: minimum volume in API units}
 symbol_step_volume_map: dict[int, int] = {}   # {id: step volume in API units}
 symbol_max_volume_map: dict[int, int] = {}   # {id: maximum volume in units}
@@ -69,8 +70,95 @@ _VOLUME_PRECISION = 10_000         # API volume units = 0.0001 lots (1 lot = 10,
 _LAST_ORDER_CTX: dict[str, int] = {"symbol_id": -1}
 
 def _px(x):
-    """Convert float price → cTrader int format (e.g., 1.0935 → 109350)."""
-    return int(round(float(x) * _PRICE_FACTOR)) if x is not None else None
+    """Pass-through float price (no integer scaling)."""
+    try:
+        return float(x) if x is not None else None
+    except Exception:
+        return None
+
+def _px_sym(symbol_id: int | None, x):
+    """Return a float price rounded to symbol decimals (no integer scaling)."""
+    if x is None:
+        return None
+    try:
+        sid = int(symbol_id) if symbol_id is not None else None
+        digits = int(symbol_digits_map.get(sid, 5)) if sid is not None else 5
+    except Exception:
+        digits = 5
+    try:
+        return round(float(x), digits)
+    except Exception:
+        return float(x)
+
+def _decode_px(symbol_id: int | None, raw):
+    """Decode price coming from API by dividing by the per-symbol factor if needed."""
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+    except Exception:
+        return raw
+    pf = _price_factor_for_symbol(symbol_id)
+    # Heuristic: if the magnitude is clearly larger than expected for the symbol, divide
+    if pf and v > 50 * pf:  # extremely large -> assume already scaled
+        return v / pf
+    if pf and v > 10000:    # XAUUSD/Index prices
+        return v / pf
+    # else assume already float
+    return v
+
+def _price_factor_for_symbol(symbol_id: int | None) -> int:
+    """Return price scaling factor: prefer moneyDigits if known; else digits; fallback 1e5."""
+    try:
+        if symbol_id is None:
+            return _PRICE_FACTOR
+        sid = int(symbol_id)
+        if sid in symbol_money_digits_map:
+            return 10 ** int(symbol_money_digits_map[sid])
+        d = int(symbol_digits_map.get(sid, 5))
+        return 10 ** d
+    except Exception:
+        return _PRICE_FACTOR
+
+def normalize_sltp_for_side(*, side: str, entry_price: float | None, sl: float | None, tp: float | None) -> tuple[float | None, float | None]:
+    """Return (sl, tp) corrected for order side using entry_price as a hint.
+
+    - For BUY: SL must be < entry, TP must be > entry.
+    - For SELL: SL must be > entry, TP must be < entry.
+    - If both are provided but obviously reversed relative to entry, swap them.
+    - If a single value violates the rule, drop it (return None) to avoid broker rejection.
+    """
+    try:
+        s = (side or "").upper()
+        e = float(entry_price) if entry_price is not None else None
+        sl_v = None if sl is None else float(sl)
+        tp_v = None if tp is None else float(tp)
+    except Exception:
+        return sl, tp
+
+    if e is None:
+        # Without entry hint, cannot validate; return as-is
+        return sl, tp
+
+    if sl_v is not None and tp_v is not None:
+        if s == "BUY" and (sl_v > e and tp_v < e):
+            sl_v, tp_v = tp_v, sl_v
+        elif s == "SELL" and (sl_v < e and tp_v > e):
+            sl_v, tp_v = tp_v, sl_v
+
+    # Drop invalid singles after potential swap
+    if s == "BUY":
+        if sl_v is not None and sl_v >= e:
+            sl_v = None
+        if tp_v is not None and tp_v <= e:
+            tp_v = None
+    elif s == "SELL":
+        if sl_v is not None and sl_v <= e:
+            sl_v = None
+        if tp_v is not None and tp_v >= e:
+            tp_v = None
+
+    return sl_v, tp_v
 
 
 def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
@@ -191,7 +279,7 @@ def _install_fallback_symbols(reason: str | None = None):
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
     symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear(); symbol_min_verified.clear(); symbol_step_verified.clear()
     default_min = int(round(0.01 * _VOLUME_PRECISION))
-    default_max = int(round(100 * _VOLUME_PRECISION))
+    default_max = int(round(100.00 * _VOLUME_PRECISION))
     for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
         symbol_map[idx] = name
         symbol_name_to_id[name] = idx
@@ -227,8 +315,7 @@ def symbols_response_cb(res):
         min_vol_raw = getattr(s, "minVolume", None) or getattr(s, "min_volume", None)
         step_vol_raw = getattr(s, "stepVolume", None) or getattr(s, "step_volume", None)
         max_vol_raw = getattr(s, "maxVolume", None) or getattr(s, "max_volume", None)
-        # Symbol volume thresholds are provided by API in cent-lots (0.01 lots).
-        # Convert them to API volume units (0.0001 lots) by multiplying by 100.
+        # Symbol volume thresholds are provided by API in cent-lots (0.01-lot) units; convert to API units (0.0001 lots) by multiplying by 100.
         # Fall back conservatively if missing (assume 1.00 lot min/max reasonable defaults).
         min_api = (
             int(min_vol_raw) * 100 if min_vol_raw is not None else int(round(1.00 * _VOLUME_PRECISION))
@@ -432,12 +519,30 @@ def get_open_positions():
             err = f"{getattr(obj,'errorCode','ERR')} {getattr(obj,'description','')}".strip(); ev.set(); return
         for p in obj.position:
             td = p.tradeData
+            sid = getattr(td, "symbolId", None)
+            md = getattr(p, "moneyDigits", None)
+            try:
+                if md is not None:
+                    md_int = int(md)
+                    # Track money digits per symbol
+                    if sid is not None:
+                        symbol_money_digits_map[int(sid)] = md_int
+                    pf = 10 ** md_int
+                else:
+                    pf = _price_factor_for_symbol(sid)
+            except Exception:
+                pf = _price_factor_for_symbol(sid)
             rows.append(dict(
-                symbol_name=symbol_map.get(td.symbolId, str(td.symbolId)),
+                symbol_name=symbol_map.get(sid, str(sid)),
+                symbol_id=sid,
+                digits=symbol_digits_map.get(sid),
+                money_digits=symbol_money_digits_map.get(int(sid)) if sid is not None else None,
                 position_id=p.positionId,
                 direction="buy" if td.tradeSide==ProtoOATradeSide.BUY else "sell",
-                entry_price=getattr(p,"price",0),
+                entry_price=_decode_px(sid, getattr(p, "price", 0)),
                 volume_lots=td.volume/_VOLUME_PRECISION,
+                stop_loss=_decode_px(sid, getattr(p, "stopLoss", None)) if getattr(p, "stopLoss", None) not in (None, 0) else None,
+                take_profit=_decode_px(sid, getattr(p, "takeProfit", None)) if getattr(p, "takeProfit", None) not in (None, 0) else None,
             ))
         ev.set()
     def _err(f): nonlocal err; err=str(f); ev.set()
@@ -486,18 +591,18 @@ def place_order(
     if order_type.upper() == "LIMIT":
         if price is None:
             raise ValueError("Limit order requires price.")
-        req.limitPrice = _px(price)
+        req.limitPrice = _px_sym(symbol_id, price)
     elif order_type.upper() == "STOP":
         if price is None:
             raise ValueError("Stop order requires price.")
-        req.stopPrice = _px(price)
+        req.stopPrice = _px_sym(symbol_id, price)
 
     sl_price = stop_loss
     tp_price = take_profit
 
     if order_type.upper() in ("LIMIT", "STOP"):
-        if stop_loss   is not None: req.stopLoss   = stop_loss
-        if take_profit is not None: req.takeProfit = take_profit
+        if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
+        if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
     else:
         # MARKET: defer SL/TP to post-fill amendment so we can use absolute prices
         stop_loss = None
@@ -512,6 +617,9 @@ def place_order(
     if order_type.upper() == "MARKET":
         def _delayed_sltp(res):
             info: dict[str, object] = {}
+            pos_id = None
+            sid_hint = symbol_id
+            entry_hint = None
             try:
                 event = Protobuf.extract(res)
                 info["ack"] = MessageToDict(event, preserving_proto_field_name=True)
@@ -524,43 +632,219 @@ def place_order(
                     info["execution_type"] = int(getattr(event, "executionType"))
                 if getattr(event, "orderStatus", None) is not None:
                     info["order_status"] = int(getattr(event, "orderStatus"))
+                # Try to capture the created/filled position directly from the event
+                pos = getattr(event, "position", None)
+                if pos is not None:
+                    try:
+                        pos_id = int(getattr(pos, "positionId", 0) or 0)
+                    except Exception:
+                        pos_id = None
+                    try:
+                        td = getattr(pos, "tradeData", None)
+                        sid_hint = int(getattr(td, "symbolId", sid_hint) or sid_hint)
+                    except Exception:
+                        sid_hint = symbol_id
+                    try:
+                        md = getattr(pos, "moneyDigits", None)
+                        if md is not None:
+                            symbol_digits_map[int(sid_hint)] = int(md)
+                    except Exception:
+                        pass
+                    try:
+                        entry_hint = float(getattr(pos, "price", 0.0) or 0.0)
+                    except Exception:
+                        entry_hint = None
             except Exception as e:
                 info["ack_parse_error"] = str(e)
                 print(f"[WARN] Unable to parse order acknowledgement: {e}")
 
-            time.sleep(8)
-            open_pos = get_open_positions()
-            for p in open_pos:
-                if (
-                    p["symbol_name"].upper() == symbol_map[symbol_id].upper()
-                    and p["direction"].upper() == side.upper()
-                ):
-                    info["status"] = "position_found"
-                    info["position_id"] = p["position_id"]
-                    if sl_price is None and tp_price is None:
-                        return info
-                    amend_res = modify_position_sltp(
-                        client=client,
-                        account_id=account_id,
-                        position_id=p["position_id"],
-                        stop_loss=sl_price,
-                        take_profit=tp_price,
-                    )
-                    info["amend_submitted"] = True
-                    info["amend_result"] = str(amend_res)
-                    return info
-            info.setdefault("status", "position_not_found")
+            # Run the amend in a background thread so we don't block the reactor
+            def _amend_worker():
+                try:
+                    # Prefer direct amend by positionId only if we have a filled price
+                    can_direct = bool(pos_id) and (entry_hint not in (None, 0, 0.0))
+                    if can_direct:
+                        entry_for_norm = entry_hint
+                        sl_norm, tp_norm = normalize_sltp_for_side(side=side, entry_price=entry_for_norm, sl=sl_price, tp=tp_price)
+                        if sl_norm is None and tp_norm is None:
+                            print("[INFO] No valid SL/TP provided for amend; skipping.")
+                            return
+                        amend_def = modify_position_sltp(
+                            client=client,
+                            account_id=account_id,
+                            position_id=pos_id,
+                            stop_loss=sl_norm,
+                            take_profit=tp_norm,
+                            symbol_id=sid_hint,
+                        )
+                        ack = wait_for_deferred(amend_def, timeout=25)
+                        # Verify broker state reflects SL/TP
+                        ok = False
+                        sl_ok = False
+                        tp_ok = False
+                        for _ in range(5):
+                            time.sleep(0.5)
+                            for p in (get_open_positions() or []):
+                                if int(p.get("position_id") or 0) == int(pos_id):
+                                    sl_ok = (sl_norm is None) or (abs(float(p.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                    tp_ok = (tp_norm is None) or (abs(float(p.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                    ok = sl_ok and tp_ok
+                                    break
+                            if ok:
+                                break
+                        print(f"[INFO] SL/TP amend sent for position {pos_id} ({symbol_map.get(sid_hint, sid_hint)}): SL={sl_norm} TP={tp_norm} entry={entry_hint} ack={ack} verified={ok} (sl_ok={sl_ok} tp_ok={tp_ok})")
+                        if ok:
+                            return
+                        # Partial repair: try to amend only missing side(s)
+                        sl_missing = (sl_norm is not None) and (not sl_ok)
+                        tp_missing = (tp_norm is not None) and (not tp_ok)
+                        if not (sl_missing or tp_missing):
+                            return
+                        amend_def2 = modify_position_sltp(
+                            client=client,
+                            account_id=account_id,
+                            position_id=pos_id,
+                            stop_loss=(sl_norm if sl_missing else None),
+                            take_profit=(tp_norm if tp_missing else None),
+                            symbol_id=sid_hint,
+                        )
+                        ack2 = wait_for_deferred(amend_def2, timeout=25)
+                        # Verify again
+                        ok2 = False
+                        sl_ok2 = sl_ok
+                        tp_ok2 = tp_ok
+                        for _ in range(5):
+                            time.sleep(0.5)
+                            for p in (get_open_positions() or []):
+                                if int(p.get("position_id") or 0) == int(pos_id):
+                                    if sl_missing:
+                                        sl_ok2 = (abs(float(p.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                    if tp_missing:
+                                        tp_ok2 = (abs(float(p.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                    ok2 = sl_ok2 and tp_ok2
+                                    break
+                            if ok2:
+                                break
+                        print(f"[INFO] SL/TP partial amend for position {pos_id}: ack2={ack2} verified={ok2} (sl_ok={sl_ok2} tp_ok={tp_ok2})")
+                        return
+                except Exception as e:
+                    print(f"[ERROR] Failed direct SL/TP amend by positionId: {e}")
+                    # Fall through to scanning
+
+                # Fallback: scan for the opened position and amend
+                attempts = max(1, int(AMEND_POLL_ATTEMPTS))
+                interval = max(0.5, float(AMEND_POLL_INTERVAL))
+                for i in range(attempts):
+                    time.sleep(interval)
+                    try:
+                        open_pos = get_open_positions()
+                    except Exception as e:
+                        print(f"[WARN] get_open_positions failed: {e}")
+                        open_pos = []
+                    for p in open_pos:
+                        is_target = False
+                        if pos_id:
+                            is_target = int(p.get("position_id") or 0) == pos_id
+                        else:
+                            is_target = (
+                                str(p.get("symbol_name", "")).upper() == str(symbol_map.get(symbol_id, symbol_id)).upper()
+                                and str(p.get("direction", "")).upper() == side.upper()
+                            )
+                        if is_target:
+                            entry_px = p.get("entry_price")
+                            sl_norm, tp_norm = normalize_sltp_for_side(side=side, entry_price=entry_px, sl=sl_price, tp=tp_price)
+                            if sl_norm is None and tp_norm is None:
+                                print("[INFO] No valid SL/TP provided for amend; skipping.")
+                                return
+                            try:
+                                amend_def = modify_position_sltp(
+                                    client=client,
+                                    account_id=account_id,
+                                    position_id=p.get("position_id"),
+                                    stop_loss=sl_norm,
+                                    take_profit=tp_norm,
+                                    symbol_id=p.get("symbol_id", symbol_id),
+                                )
+                                ack = wait_for_deferred(amend_def, timeout=25)
+                                # Verify broker state reflects SL/TP
+                                ok = False
+                                sl_ok = False
+                                tp_ok = False
+                                for _ in range(5):
+                                    time.sleep(0.5)
+                                    for p2 in (get_open_positions() or []):
+                                        if int(p2.get("position_id") or 0) == int(p.get("position_id") or 0):
+                                            sl_ok = (sl_norm is None) or (abs(float(p2.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                            tp_ok = (tp_norm is None) or (abs(float(p2.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                            ok = sl_ok and tp_ok
+                                            break
+                                    if ok:
+                                        break
+                                print(f"[INFO] SL/TP amend sent for position {p.get('position_id')} ({p.get('symbol_name')}): SL={sl_norm} TP={tp_norm} entry={entry_px} ack={ack} verified={ok} (sl_ok={sl_ok} tp_ok={tp_ok})")
+                                if ok:
+                                    return
+                                # Partial repair: try to amend only missing side(s)
+                                sl_missing = (sl_norm is not None) and (not sl_ok)
+                                tp_missing = (tp_norm is not None) and (not tp_ok)
+                                if sl_missing or tp_missing:
+                                    amend_def2 = modify_position_sltp(
+                                        client=client,
+                                        account_id=account_id,
+                                        position_id=p.get("position_id"),
+                                        stop_loss=(sl_norm if sl_missing else None),
+                                        take_profit=(tp_norm if tp_missing else None),
+                                        symbol_id=p.get("symbol_id", symbol_id),
+                                    )
+                                    ack2 = wait_for_deferred(amend_def2, timeout=25)
+                                    # Verify again
+                                    ok2 = False
+                                    sl_ok2 = sl_ok
+                                    tp_ok2 = tp_ok
+                                    for _ in range(5):
+                                        time.sleep(0.5)
+                                        for p3 in (get_open_positions() or []):
+                                            if int(p3.get("position_id") or 0) == int(p.get("position_id") or 0):
+                                                if sl_missing:
+                                                    sl_ok2 = (abs(float(p3.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                                if tp_missing:
+                                                    tp_ok2 = (abs(float(p3.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                                ok2 = sl_ok2 and tp_ok2
+                                                break
+                                        if ok2:
+                                            break
+                                    print(f"[INFO] SL/TP partial amend for position {p.get('position_id')}: ack2={ack2} verified={ok2} (sl_ok={sl_ok2} tp_ok={tp_ok2})")
+                            except Exception as e:
+                                print(f"[ERROR] Failed to submit SL/TP amendment: {e}")
+                            return
+                print("[WARN] Could not find opened position to amend SL/TP within timeout.")
+
+            try:
+                threading.Thread(target=_amend_worker, daemon=True).start()
+            except Exception as e:
+                print(f"[WARN] Failed to start amend worker: {e}")
             return info
         d.addCallback(_delayed_sltp)
 
     return d
 
+def _decode_px_1e5(raw):
+    if raw in (None, 0):
+        return None
+    try:
+        return float(raw) / _PRICE_FACTOR
+    except Exception:
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
 # ── amend helpers ──────────────────────────────────────────────────────────
-def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_profit=None):
+def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_profit=None, symbol_id=None):
     req = ProtoOAAmendPositionSLTPReq(ctidTraderAccountId = account_id, positionId = position_id)
-    if stop_loss   is not None: req.stopLoss   = stop_loss
-    if take_profit is not None: req.takeProfit = take_profit
-    return client.send(req)
+    if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
+    if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
+    # Increase timeout to avoid default 5s cancellation
+    return client.send(req, timeout=20)
 
 
 def close_position(*, client, account_id, position_id, volume_lots=None):
@@ -572,17 +856,17 @@ def close_position(*, client, account_id, position_id, volume_lots=None):
     vol_units = _lots_to_units(volume_lots, -1) if volume_lots is not None else None
     if vol_units is not None:
         req.volume = vol_units
-    return client.send(req)
+    return client.send(req, timeout=20)
 
-def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=None, take_profit=None):
+def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=None, take_profit=None, symbol_id=None):
     req = ProtoOAAmendOrderReq(
         ctidTraderAccountId = account_id,
         orderId             = order_id,
         version             = version,
     )
-    if stop_loss   is not None: req.stopLoss   = stop_loss
-    if take_profit is not None: req.takeProfit = take_profit
-    return client.send(req)
+    if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
+    if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
+    return client.send(req, timeout=20)
 
 # ── blocking helper used by FastAPI layer ─────────────────────────────────
 def wait_for_deferred(deferred, timeout=40):
@@ -615,3 +899,12 @@ def wait_for_deferred(deferred, timeout=40):
         return {"status": "failed", "error": err_txt}
 
     return outcome["value"]
+# Polling config for post-fill SL/TP amendment
+try:
+    AMEND_POLL_ATTEMPTS = int(os.getenv("SLTP_AMEND_POLL_ATTEMPTS", "25"))  # ~50s @ 2s
+except Exception:
+    AMEND_POLL_ATTEMPTS = 25
+try:
+    AMEND_POLL_INTERVAL = float(os.getenv("SLTP_AMEND_POLL_INTERVAL", "2.0"))
+except Exception:
+    AMEND_POLL_INTERVAL = 2.0

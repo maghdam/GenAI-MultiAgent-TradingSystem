@@ -181,115 +181,228 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
     if auto_trade and td.signal in ("long", "short") and (td.confidence or 0) >= min_conf:
         desired_side = "BUY" if td.signal == "long" else "SELL"
         desired_dir = "buy" if desired_side == "BUY" else "sell"
-        pos = _position_for_symbol(symbol)
         try:
-            if pos is not None:
-                pos_dir = (pos.get("direction") or "").lower()
-                if pos_dir != desired_dir:
-                    _status(
-                        symbol,
-                        timeframe,
-                        state="closing_position",
-                        position_id=pos.get("position_id"),
-                        existing_direction=pos_dir,
-                        desired_direction=desired_dir,
-                        strategy_name=strategy_name,
-                    )
+            sym_u = (symbol or "").upper()
+
+            # 1) Close opposite-direction positions first
+            rows = ctd.get_open_positions() or []
+            for p in rows:
+                if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() != desired_dir):
+                    _status(symbol, timeframe, state="closing_position", position_id=p.get("position_id"), existing_direction=p.get("direction"), desired_direction=desired_dir, strategy_name=strategy_name)
                     try:
                         close_def = ctd.close_position(
                             client=ctd.client,
                             account_id=ctd.ACCOUNT_ID,
-                            position_id=pos["position_id"],
+                            position_id=p["position_id"],
+                            volume_lots=p.get("volume_lots"),
                         )
-                        close_result = ctd.wait_for_deferred(close_def, timeout=25)
-                        push_signal({
-                            **sig,
-                            "rationale": (sig.get("rationale") or "") + " • closed opposite position",
-                            "close_result": str(close_result),
-                        })
-                        _status(
-                            symbol,
-                            timeframe,
-                            state="position_closed",
-                            position_id=pos.get("position_id"),
-                            close_result=str(close_result),
-                            strategy_name=strategy_name,
-                        )
-                        pos = None
+                        close_ack = ctd.wait_for_deferred(close_def, timeout=25)
+                        if isinstance(close_ack, dict) and close_ack.get("status") == "failed":
+                            _push_err(symbol, timeframe, f"close rejected: {close_ack.get('error')}", "order_close_fail", strategy_name)
+                            return
+                        push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • closed opposite position"})
                     except Exception as e:
                         _push_err(symbol, timeframe, f"close error: {e}", "order_close_fail", strategy_name)
-                        pos = None
                         return
-            if pos is not None and (pos.get("direction", "").lower() == desired_dir):
+
+            # 2) Wait until opposites are gone (broker latency)
+            for _ in range(12):  # ~12 seconds
+                remaining = [
+                    p for p in (ctd.get_open_positions() or [])
+                    if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() != desired_dir)
+                ]
+                if not remaining:
+                    break
+                await asyncio.sleep(1)
+            else:
+                # Fall-through of for-else means still remaining
+                _status(symbol, timeframe, state="closing_position", desired_direction=desired_dir, remaining_opposites=len(remaining), strategy_name=strategy_name)
+                push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • still closing opposite position; not opening new"})
+                return
+
+            # 3) If a same-direction position exists, amend SL/TP; else open a new position
+            rows2 = (ctd.get_open_positions() or [])
+            same = None
+            for p in rows2:
+                if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() == desired_dir):
+                    same = p
+                    break
+
+            if same is not None:
                 try:
-                    _status(
-                        symbol,
-                        timeframe,
-                        state="amending_position",
-                        position_id=pos.get("position_id"),
-                        strategy_name=strategy_name,
-                    )
-                    ctd.modify_position_sltp(
-                        client=ctd.client,
-                        account_id=ctd.ACCOUNT_ID,
-                        position_id=pos["position_id"],
-                        stop_loss=td.sl,
-                        take_profit=td.tp,
-                    )
-                    push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • amended SL/TP"})
-                    _status(
-                        symbol,
-                        timeframe,
-                        state="position_amended",
-                        position_id=pos.get("position_id"),
-                        strategy_name=strategy_name,
-                    )
+                    if td.sl is not None or td.tp is not None:
+                        # Normalize SL/TP relative to the actual entry and side
+                        sl_norm, tp_norm = ctd.normalize_sltp_for_side(
+                            side=desired_side,
+                            entry_price=same.get("entry_price"),
+                            sl=td.sl,
+                            tp=td.tp,
+                        )
+                        if sl_norm is None and tp_norm is None:
+                            return
+                        d_amend = ctd.modify_position_sltp(
+                            client=ctd.client,
+                            account_id=ctd.ACCOUNT_ID,
+                            position_id=same["position_id"],
+                            stop_loss=sl_norm,
+                            take_profit=tp_norm,
+                            symbol_id=same.get("symbol_id"),
+                        )
+                        ack = ctd.wait_for_deferred(d_amend, timeout=25)
+                        if isinstance(ack, dict) and ack.get("status") == "failed":
+                            _push_err(symbol, timeframe, f"amend rejected: {ack.get('error')}", "order_amend_fail", strategy_name)
+                            return
+                        # Verify broker reflects amend
+                        ok = False
+                        for _ in range(5):
+                            time.sleep(0.5)
+                            for p2 in (ctd.get_open_positions() or []):
+                                if int(p2.get("position_id") or 0) == int(same.get("position_id") or 0):
+                                    sl_ok = (sl_norm is None) or (abs(float(p2.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                    tp_ok = (tp_norm is None) or (abs(float(p2.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                    if sl_ok and tp_ok:
+                                        ok = True
+                                    break
+                            if ok:
+                                break
+                        if ok:
+                            push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • amended SL/TP"})
+                        else:
+                            # Partial repair: try only missing side(s)
+                            sl_missing = (sl_norm is not None) and (abs(float((same.get("stop_loss") or 0)) - float(sl_norm)) >= 1e-6)
+                            tp_missing = (tp_norm is not None) and (abs(float((same.get("take_profit") or 0)) - float(tp_norm)) >= 1e-6)
+                            if sl_missing or tp_missing:
+                                try:
+                                    d_fix = ctd.modify_position_sltp(
+                                        client=ctd.client,
+                                        account_id=ctd.ACCOUNT_ID,
+                                        position_id=same["position_id"],
+                                        stop_loss=(sl_norm if sl_missing else None),
+                                        take_profit=(tp_norm if tp_missing else None),
+                                        symbol_id=same.get("symbol_id"),
+                                    )
+                                    ack_fix = ctd.wait_for_deferred(d_fix, timeout=25)
+                                    # Verify again
+                                    ok2 = False
+                                    for _ in range(5):
+                                        time.sleep(0.5)
+                                        for p2 in (ctd.get_open_positions() or []):
+                                            if int(p2.get("position_id") or 0) == int(same.get("position_id") or 0):
+                                                sl_ok2 = (sl_norm is None) or (abs(float(p2.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                                tp_ok2 = (tp_norm is None) or (abs(float(p2.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                                ok2 = sl_ok2 and tp_ok2
+                                                break
+                                        if ok2:
+                                            break
+                                    if ok2:
+                                        push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • amended SL/TP"})
+                                    else:
+                                        # Accept partial success if at least one side is set
+                                        part_ok = False
+                                        for p2 in (ctd.get_open_positions() or []):
+                                            if int(p2.get("position_id") or 0) == int(same.get("position_id") or 0):
+                                                sl_ok3 = (sl_norm is None) or (abs(float(p2.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                                tp_ok3 = (tp_norm is None) or (abs(float(p2.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                                part_ok = sl_ok3 or tp_ok3
+                                                break
+                                        if part_ok:
+                                            push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • partially amended SL/TP"})
+                                        else:
+                                            _push_err(symbol, timeframe, "amend did not apply after verification", "order_amend_fail", strategy_name)
+                                except Exception:
+                                    _push_err(symbol, timeframe, "amend did not apply after verification", "order_amend_fail", strategy_name)
+                            else:
+                                _push_err(symbol, timeframe, "amend did not apply after verification", "order_amend_fail", strategy_name)
                 except Exception as e:
                     _push_err(symbol, timeframe, f"amend error: {e}", "order_amend_fail", strategy_name)
-            elif pos is None:
-                sid = ctd.symbol_name_to_id.get(symbol.upper())
+            else:
+                sid = ctd.symbol_name_to_id.get(sym_u)
                 if not sid:
                     _push_err(symbol, timeframe, "symbol id not found", "order_fail", strategy_name)
-                else:
-                    try:
-                        vol_units, lots_final = ctd.coerce_volume_lots_to_units(sid, lot_size_lots)
-                    except ValueError as e:
-                        _push_err(symbol, timeframe, str(e), "order_fail", strategy_name)
-                        return
-                    _status(
-                        symbol,
-                        timeframe,
-                        state="opening_position",
-                        desired_direction=desired_dir,
-                        volume_lots=lots_final,
-                        strategy_name=strategy_name,
-                    )
-                    d = ctd.place_order(
-                        client=ctd.client,
-                        account_id=ctd.ACCOUNT_ID,
-                        symbol_id=sid,
-                        order_type="MARKET",
-                        side=desired_side,
-                        volume=vol_units,
-                        price=None,
+                    return
+                try:
+                    vol_units, lots_final = ctd.coerce_volume_lots_to_units(sid, lot_size_lots)
+                except ValueError as e:
+                    _push_err(symbol, timeframe, str(e), "order_fail", strategy_name)
+                    return
+
+                _status(symbol, timeframe, state="opening_position", desired_direction=desired_dir, volume_lots=lots_final, strategy_name=strategy_name)
+                d = ctd.place_order(
+                    client=ctd.client,
+                    account_id=ctd.ACCOUNT_ID,
+                    symbol_id=sid,
+                    order_type="MARKET",
+                    side=desired_side,
+                    volume=vol_units,
+                    price=None,
+                    stop_loss=td.sl,
+                    take_profit=td.tp,
+                )
+                result = ctd.wait_for_deferred(d, timeout=25)
+
+                # Fallback: if SL/TP not applied, poll for the new position and amend
+                try:
+                    if td.sl is not None or td.tp is not None:
+                        for _ in range(int(getattr(ctd, "AMEND_POLL_ATTEMPTS", 25))):
+                            await asyncio.sleep(max(0.5, float(getattr(ctd, "AMEND_POLL_INTERVAL", 2.0))))
+                            for p in (ctd.get_open_positions() or []):
+                                if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() == desired_dir):
+                                    # Normalize relative to actual entry and side
+                                    sl_norm, tp_norm = ctd.normalize_sltp_for_side(
+                                        side=desired_side,
+                                        entry_price=p.get("entry_price"),
+                                        sl=td.sl,
+                                        tp=td.tp,
+                                    )
+                                    if sl_norm is None and tp_norm is None:
+                                        break
+                                    d2 = ctd.modify_position_sltp(
+                                        client=ctd.client,
+                                        account_id=ctd.ACCOUNT_ID,
+                                        position_id=p["position_id"],
+                                        stop_loss=sl_norm,
+                                        take_profit=tp_norm,
+                                        symbol_id=p.get("symbol_id"),
+                                    )
+                                    ack2 = ctd.wait_for_deferred(d2, timeout=25)
+                                    if isinstance(ack2, dict) and ack2.get("status") == "failed":
+                                        _push_err(symbol, timeframe, f"amend rejected: {ack2.get('error')}", "order_amend_fail", strategy_name)
+                                        break
+                                    # Verify
+                                    ok = False
+                                    for _ in range(5):
+                                        time.sleep(0.5)
+                                        for p3 in (ctd.get_open_positions() or []):
+                                            if int(p3.get("position_id") or 0) == int(p.get("position_id") or 0):
+                                                sl_ok = (sl_norm is None) or (abs(float(p3.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
+                                                tp_ok = (tp_norm is None) or (abs(float(p3.get("take_profit") or 0) - float(tp_norm)) < 1e-6)
+                                                if sl_ok and tp_ok:
+                                                    ok = True
+                                                break
+                                        if ok:
+                                            break
+                                    if not ok:
+                                        _push_err(symbol, timeframe, "amend did not apply after verification", "order_amend_fail", strategy_name)
+                                    break
+                            else:
+                                continue
+                            break
+                except Exception as e:
+                    _push_err(symbol, timeframe, f"amend fallback error: {e}", "order_amend_fail", strategy_name)
+
+                try:
+                    # Journal the trade after it's confirmed
+                    journal_db.add_trade_entry(
+                        symbol=symbol,
+                        direction=desired_side,
+                        volume=lot_size_lots,
+                        entry_price=result.get('price') if isinstance(result, dict) else None,
                         stop_loss=td.sl,
                         take_profit=td.tp,
+                        rationale=td.rationale or (td.reasons[0] if getattr(td, 'reasons', None) else None),
                     )
-                    result = ctd.wait_for_deferred(d, timeout=25)
-                    push_signal({**sig, "rationale": (sig.get("rationale") or "") + " • order submitted", "order_result": str(result)})
-                    try:
-                        # Journal the trade after it's confirmed
-                        journal_db.add_trade_entry(
-                            symbol=symbol,
-                            direction=desired_side,
-                            volume=lot_size_lots,
-                            entry_price=result.get('price'),
-                            stop_loss=td.sl,
-                            take_profit=td.tp,
-                            rationale=td.rationale or (td.reasons[0] if td.reasons else None)
-                        )
-                    except Exception as e:
-                        _push_err(symbol, timeframe, f"journaling error: {e}", "journal_fail", strategy_name)
+                except Exception as e:
+                    _push_err(symbol, timeframe, f"journaling error: {e}", "journal_fail", strategy_name)
 
         except Exception as e:
             _push_err(symbol, timeframe, f"order error: {e}", "order_fail", strategy_name)
@@ -351,5 +464,6 @@ async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float
             pass
 
     _status(symbol, timeframe, state="stopped", stopped_ts=time.time(), strategy=strategy)
+
 
 

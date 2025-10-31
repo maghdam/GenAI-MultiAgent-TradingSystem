@@ -592,6 +592,67 @@ class PlaceOrderRequest(BaseModel):
     rationale: Optional[str] = None
 
 
+# Helper to enforce single-position policy for manual/chat orders
+def _close_opposites_and_wait(symbol: str, desired_dir: str, *, timeout_sec: int = 12) -> dict | None:
+    """Close opposite-direction positions for `symbol` and wait until cleared.
+
+    Returns a same-direction open position dict if one exists after closing opposites,
+    otherwise None. Uses blocking sleeps as this is called from sync endpoints.
+    """
+    import time
+
+    sym_u = (symbol or "").upper()
+    desired_dir_l = (desired_dir or "").lower()
+
+    try:
+        rows = ctd.get_open_positions() or []
+    except Exception:
+        rows = []
+
+    # Close any opposite positions
+    for p in rows:
+        if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() != desired_dir_l):
+            try:
+                close_def = ctd.close_position(
+                    client=ctd.client,
+                    account_id=ctd.ACCOUNT_ID,
+                    position_id=p.get("position_id"),
+                    volume_lots=p.get("volume_lots"),
+                )
+                close_ack = ctd.wait_for_deferred(close_def, timeout=25)
+                if isinstance(close_ack, dict) and close_ack.get("status") == "failed":
+                    # Best-effort; continue attempting others
+                    pass
+            except Exception:
+                # Best-effort; continue attempting others
+                pass
+
+    # Wait briefly until opposites are gone (broker latency)
+    deadline = time.time() + max(1, int(timeout_sec))
+    while time.time() < deadline:
+        try:
+            remaining = [
+                p for p in (ctd.get_open_positions() or [])
+                if (str(p.get("symbol_name", "")).upper() == sym_u)
+                and ((p.get("direction") or "").lower() != desired_dir_l)
+            ]
+        except Exception:
+            remaining = []
+        if not remaining:
+            break
+        time.sleep(1)
+
+    # Return any same-direction position if present (to avoid opening duplicates)
+    try:
+        rows2 = ctd.get_open_positions() or []
+    except Exception:
+        rows2 = []
+    for p in rows2:
+        if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() == desired_dir_l):
+            return p
+    return None
+
+
 @app.post("/api/execute_trade")
 def execute_trade(order: PlaceOrderRequest):
     try:
@@ -616,6 +677,56 @@ def execute_trade(order: PlaceOrderRequest):
                 volume_raw, lots_final = ctd.coerce_volume_lots_to_units(symbol_id, order.volume)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # Enforce single-position policy for manual orders
+        same_dir_pos = _close_opposites_and_wait(order.symbol, order.direction)
+
+        # If there is already a same-direction position, optionally amend SL/TP and return
+        if same_dir_pos is not None:
+            amended = False
+            try:
+                if order.stop_loss is not None or order.take_profit is not None:
+                    sl_norm, tp_norm = ctd.normalize_sltp_for_side(
+                        side=order.direction,
+                        entry_price=same_dir_pos.get("entry_price"),
+                        sl=order.stop_loss,
+                        tp=order.take_profit,
+                    )
+                    if sl_norm is None and tp_norm is None:
+                        raise ValueError("Provided SL/TP invalid for side and entry price.")
+                    d_amend = ctd.modify_position_sltp(
+                        client=ctd.client,
+                        account_id=ctd.ACCOUNT_ID,
+                        position_id=same_dir_pos.get("position_id"),
+                        stop_loss=sl_norm,
+                        take_profit=tp_norm,
+                        symbol_id=symbol_id,
+                    )
+                    amend_ack = ctd.wait_for_deferred(d_amend, timeout=25)
+                    if isinstance(amend_ack, dict) and amend_ack.get("status") == "failed":
+                        print(f"[ERROR] SL/TP amend rejected: {amend_ack}")
+                    else:
+                        amended = True
+            except Exception:
+                pass
+            # Journal the intent even if we didn't open a new position
+            try:
+                journal_db.add_trade_entry(
+                    symbol=order.symbol,
+                    direction=order.direction,
+                    volume=order.volume,
+                    entry_price=None,
+                    stop_loss=order.stop_loss,
+                    take_profit=order.take_profit,
+                    rationale=(order.rationale or "") + (" • amended existing position" if amended else " • existing position kept"),
+                )
+            except Exception:
+                pass
+            return {
+                "status": "success",
+                "submitted": False,
+                "details": {"note": "Existing position in same direction; not opening a new one.", "amended_sl_tp": amended},
+            }
 
         deferred = ctd.place_order(
             client=ctd.client,
@@ -646,27 +757,43 @@ def execute_trade(order: PlaceOrderRequest):
             print("[INFO] Waiting to amend SL/TP after market execution...")
             import time
 
-            for attempt in range(5):
-                time.sleep(2)
+            attempts = int(getattr(ctd, "AMEND_POLL_ATTEMPTS", 25))
+            interval = float(getattr(ctd, "AMEND_POLL_INTERVAL", 2.0))
+            for attempt in range(attempts):
+                time.sleep(max(0.5, interval))
                 for p in ctd.get_open_positions():
                     if (
                         p["symbol_name"].upper() == order.symbol.upper()
                         and p["direction"].upper() == order.direction.upper()
                     ):
                         print("[INFO] Found market position, amending SL/TP.")
-                        amend_result = ctd.modify_position_sltp(
+                        sl_norm, tp_norm = ctd.normalize_sltp_for_side(
+                            side=order.direction,
+                            entry_price=p["entry_price"],
+                            sl=order.stop_loss,
+                            tp=order.take_profit,
+                        )
+                        if sl_norm is None and tp_norm is None:
+                            return {
+                                "status": "success",
+                                "submitted": True,
+                                "details": {"status": "failed", "error": "Provided SL/TP invalid for side and entry price."},
+                            }
+                        d2 = ctd.modify_position_sltp(
                             client=ctd.client,
                             account_id=ctd.ACCOUNT_ID,
                             position_id=p["position_id"],
-                            stop_loss=order.stop_loss,
-                            take_profit=order.take_profit,
+                            stop_loss=sl_norm,
+                            take_profit=tp_norm,
+                            symbol_id=symbol_id,
                         )
+                        amend_result = ctd.wait_for_deferred(d2, timeout=25)
                         return {
                             "status": "success",
                             "submitted": True,
                             "details": {"status": "ok", "amended_sl_tp": True, "amend_result": str(amend_result)},
                         }
-                print(f"[WARN] Position not found yet, retrying ({attempt+1}/5)...")
+                print(f"[WARN] Position not found yet, retrying ({attempt+1}/{attempts})...")
 
             return {
                 "status": "success",
@@ -922,6 +1049,11 @@ async def process_message(message: str, sid) -> str:
         try:
             symbol_id = ctd.symbol_name_to_id[trade_details['symbol'].upper()]
             volume_units, lots_final = ctd.coerce_volume_lots_to_units(symbol_id, trade_details['volume'])
+            # Enforce single-position policy before executing chat-initiated trades
+            desired_dir = str(trade_details['direction']).lower()
+            same_dir_pos = _close_opposites_and_wait(trade_details['symbol'], desired_dir)
+            if same_dir_pos is not None:
+                return f"Existing {desired_dir.upper()} position for {trade_details['symbol'].upper()} detected. Not opening a new one."
 
             deferred = ctd.place_order(
                 client=ctd.client,
