@@ -206,7 +206,9 @@ export const backtestSavedStrategy = async (
   strategy: string,
   symbol: string,
   timeframe: string,
-  numBars: number
+  numBars: number,
+  feeBps?: number,
+  slippageBps?: number,
 ): Promise<any> => {
   const params = new URLSearchParams({
     strategy,
@@ -214,6 +216,12 @@ export const backtestSavedStrategy = async (
     timeframe,
     num_bars: String(numBars),
   });
+  if (typeof feeBps === 'number' && Number.isFinite(feeBps)) {
+    params.set('fee_bps', String(feeBps));
+  }
+  if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) {
+    params.set('slippage_bps', String(slippageBps));
+  }
   const response = await fetch(`/api/strategies/backtest?${params.toString()}`);
   if (!response.ok) {
     const text = await response.text();

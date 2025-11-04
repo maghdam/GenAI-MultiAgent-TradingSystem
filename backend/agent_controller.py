@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Iterable, List, Tuple
 
 from backend.agents.runner import run_symbol
+from backend.data_fetcher import ALLOWED_TF
 from backend.agent_state import clear_task_status, update_task_status, clear_last_bar_ts
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "agent_config.json")
@@ -59,6 +60,10 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
         lot_val = max(lot_val, 0.01)
 
         if not sym_u or not tf_u:
+            continue
+
+        # Validate timeframe against allowed set to avoid typos like 'M%'
+        if tf_u not in ALLOWED_TF:
             continue
 
         key = (sym_u, tf_u)
