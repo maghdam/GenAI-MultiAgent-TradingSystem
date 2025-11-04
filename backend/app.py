@@ -815,12 +815,29 @@ def execute_trade(order: PlaceOrderRequest):
 
         result = ctd.wait_for_deferred(deferred, timeout=25)
 
-        # Journal the trade
+        # Journal the trade (prefer result price; fallback to scanning open positions)
+        entry_px = None
+        try:
+            if isinstance(result, dict):
+                entry_px = result.get('price')
+        except Exception:
+            entry_px = None
+        if entry_px in (None, 0, 0.0) and order.order_type.upper() == "MARKET":
+            import time as _t
+            for _ in range(6):  # ~3s
+                _t.sleep(0.5)
+                for p in ctd.get_open_positions() or []:
+                    if p.get("symbol_name", "").upper() == order.symbol.upper() and p.get("direction", "").upper() == order.direction.upper():
+                        entry_px = p.get("entry_price")
+                        break
+                if entry_px not in (None, 0, 0.0):
+                    break
+
         journal_db.add_trade_entry(
             symbol=order.symbol,
             direction=order.direction,
             volume=order.volume,
-            entry_price=result.get('price'), # Use actual executed price
+            entry_price=entry_px,
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             rationale=order.rationale
@@ -927,6 +944,7 @@ class AgentConfigIn(BaseModel):
     autotrade: bool = False
     lot_size_lots: float = 0.01
     strategy: str = "smc"
+    order_type: str = "MARKET"
 
 
 @app.get("/api/agent/config")
@@ -944,6 +962,7 @@ async def get_agent_cfg():
         "autotrade": cfg.autotrade,
         "lot_size_lots": cfg.lot_size_lots,
         "strategy": cfg.strategy,
+        "order_type": getattr(cfg, "order_type", "MARKET"),
     }
 
 
@@ -973,6 +992,7 @@ async def set_agent_cfg(cfg: AgentConfigIn):
         autotrade=cfg.autotrade,
         lot_size_lots=cfg.lot_size_lots,
         strategy=cfg.strategy,
+        order_type=(cfg.order_type or "MARKET").upper(),
     )
     await controller.apply_config(new_cfg)
     return {"ok": True}

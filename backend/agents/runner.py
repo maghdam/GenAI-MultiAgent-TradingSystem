@@ -92,7 +92,7 @@ def _position_for_symbol(symbol: str):
 
 # ---------- core scan ----------
 async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: bool,
-                     lot_size_lots: float, strategy_name: str):
+                     lot_size_lots: float, strategy_name: str, order_type: str = "MARKET"):
     _status(symbol, timeframe, state="priming", strategy_name=strategy_name)
 
     if not await _wait_ready(symbol, timeout=20):
@@ -327,16 +327,31 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                     return
 
                 _status(symbol, timeframe, state="opening_position", desired_direction=desired_dir, volume_lots=lots_final, strategy_name=strategy_name)
+                # Choose order type and price
+                ot = (order_type or "MARKET").upper()
+                px = None
+                try:
+                    last_high = float(df["high"].iloc[-1])
+                    last_low = float(df["low"].iloc[-1])
+                    last_close = float(df["close"].iloc[-1])
+                except Exception:
+                    last_high = last_low = last_close = None
+                if ot == "STOP":
+                    px = (last_high if desired_side == "BUY" else last_low)
+                elif ot == "LIMIT":
+                    # basic pullback: buy near low, sell near high
+                    px = (last_low if desired_side == "BUY" else last_high)
+
                 d = ctd.place_order(
                     client=ctd.client,
                     account_id=ctd.ACCOUNT_ID,
                     symbol_id=sid,
-                    order_type="MARKET",
+                    order_type=ot,
                     side=desired_side,
                     volume=vol_units,
-                    price=None,
-                    stop_loss=td.sl,
-                    take_profit=td.tp,
+                    price=px,
+                    stop_loss=(td.sl if ot in ("LIMIT", "STOP") else None),
+                    take_profit=(td.tp if ot in ("LIMIT", "STOP") else None),
                 )
                 result = ctd.wait_for_deferred(d, timeout=25)
 
@@ -391,12 +406,25 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                     _push_err(symbol, timeframe, f"amend fallback error: {e}", "order_amend_fail", strategy_name)
 
                 try:
-                    # Journal the trade after it's confirmed
+                    # Determine entry price: prefer result; fallback to scanning open positions
+                    entry_px = None
+                    if isinstance(result, dict):
+                        entry_px = result.get('price') or None
+                    if entry_px in (None, 0, 0.0):
+                        for _ in range(6):  # ~3s
+                            await asyncio.sleep(0.5)
+                            for p in (ctd.get_open_positions() or []):
+                                if (str(p.get("symbol_name", "")).upper() == sym_u) and ((p.get("direction") or "").lower() == desired_dir):
+                                    entry_px = p.get("entry_price")
+                                    break
+                            if entry_px not in (None, 0, 0.0):
+                                break
+                    # Journal the trade after it's confirmed (entry may still be None for pending orders)
                     journal_db.add_trade_entry(
                         symbol=symbol,
                         direction=desired_side,
                         volume=lot_size_lots,
-                        entry_price=result.get('price') if isinstance(result, dict) else None,
+                        entry_price=entry_px,
                         stop_loss=td.sl,
                         take_profit=td.tp,
                         rationale=td.rationale or (td.reasons[0] if getattr(td, 'reasons', None) else None),
@@ -419,7 +447,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
 
 # ---------- controller entry ----------
 async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float,
-                     auto_trade: bool, lot_size_lots: float, strategy: str, stop: asyncio.Event):
+                     auto_trade: bool, lot_size_lots: float, strategy: str, order_type: str, stop: asyncio.Event):
     timeframe = (timeframe or "M5").upper()
     tf_sec = _tf_seconds(timeframe)
     configured_interval = max(0, int(interval or 0))
@@ -442,7 +470,7 @@ async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float
 
     while not stop.is_set():
         try:
-            await _scan_once(symbol, timeframe, min_conf, auto_trade, lot_size_lots, strategy)
+            await _scan_once(symbol, timeframe, min_conf, auto_trade, lot_size_lots, strategy, order_type)
             _status(
                 symbol,
                 timeframe,

@@ -85,6 +85,7 @@ class AgentConfig:
     autotrade: bool = False
     lot_size_lots: float = 0.01
     strategy: str = "smc"
+    order_type: str = "MARKET"  # MARKET|LIMIT|STOP|AUTO
 
     def __post_init__(self) -> None:
         fallback = self.lot_size_lots if self.lot_size_lots > 0 else 0.01
@@ -143,6 +144,7 @@ class AgentController:
                 self._auto_trade(),
                 lot_size,
                 self.config.strategy,
+                self.config.order_type,
                 stop,
             )
         )
@@ -179,6 +181,7 @@ class AgentController:
                 autotrade=normalized_cfg.autotrade,
                 lot_size_lots=normalized_cfg.lot_size_lots,
                 strategy=normalized_cfg.strategy,
+                order_type=(getattr(normalized_cfg, 'order_type', 'MARKET') or 'MARKET').upper(),
             )
             print("[AGENT] applied config:", self.config)
             self._pair_defaults = {item.key(): item.lot_size for item in self.config.watchlist}
