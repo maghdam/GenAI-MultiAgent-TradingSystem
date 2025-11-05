@@ -93,6 +93,19 @@ def _position_for_symbol(symbol: str):
 # ---------- core scan ----------
 async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: bool,
                      lot_size_lots: float, strategy_name: str, order_type: str = "MARKET"):
+    # Global scan concurrency gate (sequential by default)
+    # Tuned via env: AGENT_MAX_CONCURRENT_SCANS (default 1)
+    global _SCAN_SEM
+    try:
+        _SCAN_SEM
+    except NameError:
+        try:
+            limit = int(os.getenv("AGENT_MAX_CONCURRENT_SCANS", "1") or "1")
+        except Exception:
+            limit = 1
+        if limit <= 0:
+            limit = 1
+        _SCAN_SEM = asyncio.Semaphore(limit)
     _status(symbol, timeframe, state="priming", strategy_name=strategy_name)
 
     if not await _wait_ready(symbol, timeout=20):
@@ -127,8 +140,26 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
         )
         return
 
+    # Optional per-pair stagger to spread load after bar close
     try:
-        strategy_obj = get_strategy(strategy_name)
+        max_off = int(float(os.getenv("AGENT_STAGGER_MAX_SEC", "0") or 0))
+    except Exception:
+        max_off = 0
+    if max_off > 0:
+        try:
+            import hashlib
+            key = f"{symbol}:{timeframe}"
+            dig = hashlib.sha1(key.encode("utf-8")).digest()
+            delay = int.from_bytes(dig[:2], "big") % (max_off + 1)
+        except Exception:
+            delay = abs(hash((symbol, timeframe))) % (max_off + 1)
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    try:
+        # Acquire scan semaphore for heavy analysis/order section
+        async with _SCAN_SEM:
+            strategy_obj = get_strategy(strategy_name)
     except Exception as e:
         _push_err(symbol, timeframe, f"strategy error: {e}", "strategy_load", strategy_name)
         return
@@ -142,20 +173,22 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
             return
 
     try:
-        _status(
-            symbol,
-            timeframe,
-            state="analyzing",
-            last_bar_ts=last_bar_close,
-            strategy_name=strategy_name,
-        )
-        td = await strategy_obj.analyze(
-            df=df,
-            symbol=symbol,
-            timeframe=timeframe,
-            indicators=[],
-            fig=fig,
-        )
+        # Wrap analysis within the same scan semaphore context
+        async with _SCAN_SEM:
+            _status(
+                symbol,
+                timeframe,
+                state="analyzing",
+                last_bar_ts=last_bar_close,
+                strategy_name=strategy_name,
+            )
+            td = await strategy_obj.analyze(
+                df=df,
+                symbol=symbol,
+                timeframe=timeframe,
+                indicators=[],
+                fig=fig,
+            )
     except Exception as e:
         _push_err(symbol, timeframe, f"strategy analyze error: {e}", "strategy_analyze", strategy_name)
         return
@@ -240,14 +273,15 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                         )
                         if sl_norm is None and tp_norm is None:
                             return
-                        d_amend = ctd.modify_position_sltp(
-                            client=ctd.client,
-                            account_id=ctd.ACCOUNT_ID,
-                            position_id=same["position_id"],
-                            stop_loss=sl_norm,
-                            take_profit=tp_norm,
-                            symbol_id=same.get("symbol_id"),
-                        )
+                        async with _SCAN_SEM:
+                            d_amend = ctd.modify_position_sltp(
+                                client=ctd.client,
+                                account_id=ctd.ACCOUNT_ID,
+                                position_id=same["position_id"],
+                                stop_loss=sl_norm,
+                                take_profit=tp_norm,
+                                symbol_id=same.get("symbol_id"),
+                            )
                         ack = ctd.wait_for_deferred(d_amend, timeout=25)
                         if isinstance(ack, dict) and ack.get("status") == "failed":
                             _push_err(symbol, timeframe, f"amend rejected: {ack.get('error')}", "order_amend_fail", strategy_name)
@@ -342,18 +376,19 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                     # basic pullback: buy near low, sell near high
                     px = (last_low if desired_side == "BUY" else last_high)
 
-                d = ctd.place_order(
-                    client=ctd.client,
-                    account_id=ctd.ACCOUNT_ID,
-                    symbol_id=sid,
-                    order_type=ot,
-                    side=desired_side,
-                    volume=vol_units,
-                    price=px,
-                    stop_loss=(td.sl if ot in ("LIMIT", "STOP") else None),
-                    take_profit=(td.tp if ot in ("LIMIT", "STOP") else None),
-                )
-                result = ctd.wait_for_deferred(d, timeout=25)
+                async with _SCAN_SEM:
+                    d = ctd.place_order(
+                        client=ctd.client,
+                        account_id=ctd.ACCOUNT_ID,
+                        symbol_id=sid,
+                        order_type=ot,
+                        side=desired_side,
+                        volume=vol_units,
+                        price=px,
+                        stop_loss=(td.sl if ot in ("LIMIT", "STOP") else None),
+                        take_profit=(td.tp if ot in ("LIMIT", "STOP") else None),
+                    )
+                    result = ctd.wait_for_deferred(d, timeout=25)
 
                 # Fallback: if SL/TP not applied, poll for the new position and amend
                 try:
@@ -495,3 +530,5 @@ async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float
 
 
 
+# ---------- status helpers ----------
+# (existing code)
