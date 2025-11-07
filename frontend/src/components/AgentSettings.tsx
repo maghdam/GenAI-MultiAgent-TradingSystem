@@ -15,6 +15,15 @@ const initialConfig: AgentConfig = {
   autotrade: false,
   lot_size_lots: 0.01,
   strategy: 'smc',
+  order_type: 'MARKET',
+  llm_gate_enabled: true,
+  llm_gate_threshold: 3,
+  risk_mode: 'atr',
+  atr_len: 14,
+  atr_mult: 1.0,
+  rr: 2.0,
+  swing_lookback: 10,
+  tick_pct: 0.0005,
 };
 
 export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
@@ -143,6 +152,30 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                 <option key={name} value={name}>{name.toUpperCase()}</option>
               ))}
             </select>
+            <label>Order Type</label>
+            <select
+              value={config.order_type || 'MARKET'}
+              onChange={e => setConfig({ ...config, order_type: e.target.value })}
+            >
+              <option value="MARKET">MARKET</option>
+              <option value="LIMIT">LIMIT</option>
+              <option value="STOP">STOP</option>
+            </select>
+            <label>Gate Weak Votes</label>
+            <input
+              type="checkbox"
+              checked={!!config.llm_gate_enabled}
+              onChange={e => setConfig({ ...config, llm_gate_enabled: e.target.checked })}
+            />
+            <label>Gate Threshold</label>
+            <input
+              type="number"
+              min="1"
+              max="5"
+              step="1"
+              value={config.llm_gate_threshold ?? 3}
+              onChange={e => setConfig({ ...config, llm_gate_threshold: parseInt(e.target.value || '3', 10) })}
+            />
           </div>
 
           <h4>Watchlist</h4>
@@ -189,6 +222,62 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           </button>
 
           <div className="stack" style={{ marginTop: '16px', justifyContent: 'flex-end' }}>
+            <div style={{ flex: 1 }} />
+            <div className="kv" style={{ alignItems: 'center' }}>
+              <label>Risk Mode</label>
+              <select
+                value={config.risk_mode || 'atr'}
+                onChange={e => setConfig({ ...config, risk_mode: e.target.value })}
+              >
+                <option value="atr">ATR</option>
+                <option value="swing">Swing</option>
+              </select>
+              <label>ATR Len</label>
+              <input
+                type="number"
+                min="5"
+                max="100"
+                step="1"
+                value={config.atr_len ?? 14}
+                onChange={e => setConfig({ ...config, atr_len: parseInt(e.target.value || '14', 10) })}
+              />
+              <label>ATR Mult</label>
+              <input
+                type="number"
+                min="0.5"
+                max="5.0"
+                step="0.1"
+                value={config.atr_mult ?? 1.0}
+                onChange={e => setConfig({ ...config, atr_mult: parseFloat(e.target.value || '1.0') })}
+              />
+              <label>RR</label>
+              <input
+                type="number"
+                min="1.0"
+                max="5.0"
+                step="0.1"
+                value={config.rr ?? 2.0}
+                onChange={e => setConfig({ ...config, rr: parseFloat(e.target.value || '2.0') })}
+              />
+              <label>Swing LB</label>
+              <input
+                type="number"
+                min="5"
+                max="50"
+                step="1"
+                value={config.swing_lookback ?? 10}
+                onChange={e => setConfig({ ...config, swing_lookback: parseInt(e.target.value || '10', 10) })}
+              />
+              <label>Tick %</label>
+              <input
+                type="number"
+                min="0.0001"
+                max="0.01"
+                step="0.0001"
+                value={config.tick_pct ?? 0.0005}
+                onChange={e => setConfig({ ...config, tick_pct: parseFloat(e.target.value || '0.0005') })}
+              />
+            </div>
             <button type="button" className="btn" onClick={onClose}>
               Cancel
             </button>

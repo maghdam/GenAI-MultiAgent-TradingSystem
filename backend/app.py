@@ -79,7 +79,8 @@ app.add_middleware(
 
 # ── Env (LLM + defaults) ────────────────────────────────────────────────
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llava:7b")
+# Keep in sync with backend.llm_analyzer defaults; can be overridden via env
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
 DEFAULT_SYMBOL = os.getenv("DEFAULT_SYMBOL", "XAUUSD")
 
 def _clamp_int(x, lo, hi, default):
@@ -945,6 +946,14 @@ class AgentConfigIn(BaseModel):
     lot_size_lots: float = 0.01
     strategy: str = "smc"
     order_type: str = "MARKET"
+    llm_gate_enabled: bool = True
+    llm_gate_threshold: int = 3
+    risk_mode: str = "atr"
+    atr_len: int = 14
+    atr_mult: float = 1.0
+    rr: float = 2.0
+    swing_lookback: int = 10
+    tick_pct: float = 0.0005
 
 
 @app.get("/api/agent/config")
@@ -963,6 +972,14 @@ async def get_agent_cfg():
         "lot_size_lots": cfg.lot_size_lots,
         "strategy": cfg.strategy,
         "order_type": getattr(cfg, "order_type", "MARKET"),
+        "llm_gate_enabled": getattr(cfg, "llm_gate_enabled", True),
+        "llm_gate_threshold": getattr(cfg, "llm_gate_threshold", 3),
+        "risk_mode": getattr(cfg, "risk_mode", "atr"),
+        "atr_len": getattr(cfg, "atr_len", 14),
+        "atr_mult": getattr(cfg, "atr_mult", 1.0),
+        "rr": getattr(cfg, "rr", 2.0),
+        "swing_lookback": getattr(cfg, "swing_lookback", 10),
+        "tick_pct": getattr(cfg, "tick_pct", 0.0005),
     }
 
 
@@ -993,8 +1010,28 @@ async def set_agent_cfg(cfg: AgentConfigIn):
         lot_size_lots=cfg.lot_size_lots,
         strategy=cfg.strategy,
         order_type=(cfg.order_type or "MARKET").upper(),
+        llm_gate_enabled=bool(cfg.llm_gate_enabled),
+        llm_gate_threshold=int(cfg.llm_gate_threshold or 3),
+        risk_mode=str(cfg.risk_mode or "atr"),
+        atr_len=int(cfg.atr_len or 14),
+        atr_mult=float(cfg.atr_mult or 1.0),
+        rr=float(cfg.rr or 2.0),
+        swing_lookback=int(cfg.swing_lookback or 10),
+        tick_pct=float(cfg.tick_pct or 0.0005),
     )
     await controller.apply_config(new_cfg)
+    # Reflect gate settings in process env so analyzer picks them up next call
+    try:
+        os.environ["LLM_GATE_WEAK_VOTES"] = "1" if new_cfg.llm_gate_enabled else "0"
+        os.environ["LLM_GATE_THRESHOLD"] = str(int(new_cfg.llm_gate_threshold or 3))
+        os.environ["SMC_RISK_MODE"] = str(new_cfg.risk_mode)
+        os.environ["SMC_ATR_LEN"] = str(int(new_cfg.atr_len))
+        os.environ["SMC_ATR_MULT"] = str(float(new_cfg.atr_mult))
+        os.environ["SMC_RR"] = str(float(new_cfg.rr))
+        os.environ["SMC_SWING_LOOKBACK"] = str(int(new_cfg.swing_lookback))
+        os.environ["SMC_TICK_PCT"] = str(float(new_cfg.tick_pct))
+    except Exception:
+        pass
     return {"ok": True}
 
 

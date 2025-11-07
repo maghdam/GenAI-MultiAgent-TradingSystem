@@ -7,6 +7,7 @@ Strategy Studio's generated files while preserving LLM-based reasoning.
 """
 
 from typing import Optional, Dict, Any
+import os
 import numpy as np
 import pandas as pd
 
@@ -32,7 +33,122 @@ async def trade_decision(
         options=options or {},
         ollama_url=None,
     )
-    return td.dict()
+    # Fill SL/TP if missing (risk management within strategy layer)
+    out = td.dict()
+    try:
+        sig = (out.get("signal") or "").lower()
+    except Exception:
+        sig = ""
+    if sig in ("long", "short"):
+        has_sl = out.get("sl") is not None
+        has_tp = out.get("tp") is not None
+        if not (has_sl and has_tp):
+            sl_f, tp_f = compute_sltp(df, side=("BUY" if sig == "long" else "SELL"), symbol=(symbol or "").upper())
+            if out.get("sl") is None:
+                out["sl"] = sl_f
+            if out.get("tp") is None:
+                out["tp"] = tp_f
+            rs = out.get("reasons") or []
+            rs.append("strategy: computed SL/TP")
+            out["reasons"] = rs
+    return out
+
+
+def _risk_param(symbol: str, key: str, default_val: str) -> str:
+    sym_u = (symbol or "").upper()
+    env_key_sym = f"{key}_{sym_u}"
+    v = os.getenv(env_key_sym)
+    if v is None:
+        v = os.getenv(key, default_val)
+    return str(v)
+
+
+def compute_sltp(
+    df: pd.DataFrame,
+    *,
+    side: str,
+    symbol: str,
+    mode: Optional[str] = None,
+    rr: Optional[float] = None,
+    atr_len: Optional[int] = None,
+    atr_mult: Optional[float] = None,
+    swing_lookback: Optional[int] = None,
+    tick_pct: Optional[float] = None,
+) -> tuple[float | None, float | None]:
+    """Compute SL/TP from SMC structure with ATR fallback.
+
+    - mode: 'swing' -> last swing hi/lo +/- tick buffer; else 'atr' fallback
+    - rr: risk/reward multiple for TP
+    - per-symbol overrides read from env SMC_* and SMC_*_{SYMBOL}
+    """
+    try:
+        side_u = (side or "").upper()
+        mode_eff = (mode or _risk_param(symbol, "SMC_RISK_MODE", "atr")).strip().lower()
+        rr_eff = float(rr if rr is not None else _risk_param(symbol, "SMC_RR", "2.0"))
+    except Exception:
+        side_u = (side or "").upper()
+        mode_eff = "atr"
+        rr_eff = 2.0
+
+    if df is None or df.empty or side_u not in ("BUY", "SELL"):
+        return None, None
+
+    # Use the latest close as a proxy for entry at strategy stage
+    try:
+        entry = float(df["close"].astype(float).iloc[-1])
+    except Exception:
+        return None, None
+
+    if mode_eff == "swing":
+        try:
+            lb = int(swing_lookback if swing_lookback is not None else _risk_param(symbol, "SMC_SWING_LOOKBACK", "10"))
+            pad = float(tick_pct if tick_pct is not None else _risk_param(symbol, "SMC_TICK_PCT", "0.0005"))
+        except Exception:
+            lb, pad = 10, 0.0005
+        try:
+            hi = float(df["high"].astype(float).iloc[-lb:].max())
+            lo = float(df["low"].astype(float).iloc[-lb:].min())
+        except Exception:
+            hi = lo = None
+        if hi is None or lo is None:
+            mode_eff = "atr"  # fallback
+        else:
+            if side_u == "BUY":
+                sl = lo * (1.0 - pad)
+                tp = entry + rr_eff * (entry - sl)
+            else:
+                sl = hi * (1.0 + pad)
+                tp = entry - rr_eff * (sl - entry)
+            return float(sl), float(tp)
+
+    # ATR fallback or selected
+    try:
+        n = int(atr_len if atr_len is not None else _risk_param(symbol, "SMC_ATR_LEN", "14"))
+        mult = float(atr_mult if atr_mult is not None else _risk_param(symbol, "SMC_ATR_MULT", "1.0"))
+    except Exception:
+        n, mult = 14, 1.0
+    try:
+        high = df["high"].astype(float)
+        low = df["low"].astype(float)
+        close = df["close"].astype(float)
+        prev_close = close.shift(1)
+        tr_hl = high - low
+        tr_hc = (high - prev_close).abs()
+        tr_lc = (low - prev_close).abs()
+        tr = np.maximum.reduce([tr_hl.values, tr_hc.values, tr_lc.values])
+        atr = float(pd.Series(tr, index=close.index).rolling(n, min_periods=n).mean().iloc[-1])
+    except Exception:
+        atr = 0.0
+    if not atr or atr <= 0:
+        return None, None
+
+    if side_u == "BUY":
+        sl = entry - mult * atr
+        tp = entry + rr_eff * (entry - sl)
+    else:
+        sl = entry + mult * atr
+        tp = entry - rr_eff * (sl - entry)
+    return float(sl), float(tp)
 
 
 def signals(

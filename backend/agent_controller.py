@@ -86,6 +86,15 @@ class AgentConfig:
     lot_size_lots: float = 0.01
     strategy: str = "smc"
     order_type: str = "MARKET"  # MARKET|LIMIT|STOP|AUTO
+    llm_gate_enabled: bool = True
+    llm_gate_threshold: int = 3
+    # Risk defaults (global; per-symbol env overrides are also supported)
+    risk_mode: str = "atr"      # atr|swing
+    atr_len: int = 14
+    atr_mult: float = 1.0
+    rr: float = 2.0
+    swing_lookback: int = 10
+    tick_pct: float = 0.0005
 
     def __post_init__(self) -> None:
         fallback = self.lot_size_lots if self.lot_size_lots > 0 else 0.01
@@ -182,6 +191,14 @@ class AgentController:
                 lot_size_lots=normalized_cfg.lot_size_lots,
                 strategy=normalized_cfg.strategy,
                 order_type=(getattr(normalized_cfg, 'order_type', 'MARKET') or 'MARKET').upper(),
+                llm_gate_enabled=bool(getattr(normalized_cfg, 'llm_gate_enabled', True)),
+                llm_gate_threshold=int(getattr(normalized_cfg, 'llm_gate_threshold', 3) or 3),
+                risk_mode=str(getattr(normalized_cfg, 'risk_mode', 'atr') or 'atr'),
+                atr_len=int(getattr(normalized_cfg, 'atr_len', 14) or 14),
+                atr_mult=float(getattr(normalized_cfg, 'atr_mult', 1.0) or 1.0),
+                rr=float(getattr(normalized_cfg, 'rr', 2.0) or 2.0),
+                swing_lookback=int(getattr(normalized_cfg, 'swing_lookback', 10) or 10),
+                tick_pct=float(getattr(normalized_cfg, 'tick_pct', 0.0005) or 0.0005),
             )
             print("[AGENT] applied config:", self.config)
             self._pair_defaults = {item.key(): item.lot_size for item in self.config.watchlist}

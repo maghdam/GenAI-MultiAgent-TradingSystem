@@ -45,6 +45,15 @@ export interface AgentConfig {
   autotrade: boolean;
   lot_size_lots: number;
   strategy: string;
+  order_type?: string;
+  llm_gate_enabled?: boolean;
+  llm_gate_threshold?: number;
+  risk_mode?: string;
+  atr_len?: number;
+  atr_mult?: number;
+  rr?: number;
+  swing_lookback?: number;
+  tick_pct?: number;
 }
 
 export interface AgentStatus extends AgentConfig {
