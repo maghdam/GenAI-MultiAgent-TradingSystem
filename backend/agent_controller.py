@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Iterable, List, Tuple
 
 from backend.agents.runner import run_symbol
+from backend.data_fetcher import ALLOWED_TF
 from backend.agent_state import clear_task_status, update_task_status, clear_last_bar_ts
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "agent_config.json")
@@ -61,6 +62,10 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
         if not sym_u or not tf_u:
             continue
 
+        # Validate timeframe against allowed set to avoid typos like 'M%'
+        if tf_u not in ALLOWED_TF:
+            continue
+
         key = (sym_u, tf_u)
         if key in seen:
             continue
@@ -80,6 +85,16 @@ class AgentConfig:
     autotrade: bool = False
     lot_size_lots: float = 0.01
     strategy: str = "smc"
+    order_type: str = "MARKET"  # MARKET|LIMIT|STOP|AUTO
+    llm_gate_enabled: bool = True
+    llm_gate_threshold: int = 3
+    # Risk defaults (global; per-symbol env overrides are also supported)
+    risk_mode: str = "atr"      # atr|swing
+    atr_len: int = 14
+    atr_mult: float = 1.0
+    rr: float = 2.0
+    swing_lookback: int = 10
+    tick_pct: float = 0.0005
 
     def __post_init__(self) -> None:
         fallback = self.lot_size_lots if self.lot_size_lots > 0 else 0.01
@@ -138,6 +153,7 @@ class AgentController:
                 self._auto_trade(),
                 lot_size,
                 self.config.strategy,
+                self.config.order_type,
                 stop,
             )
         )
@@ -174,6 +190,15 @@ class AgentController:
                 autotrade=normalized_cfg.autotrade,
                 lot_size_lots=normalized_cfg.lot_size_lots,
                 strategy=normalized_cfg.strategy,
+                order_type=(getattr(normalized_cfg, 'order_type', 'MARKET') or 'MARKET').upper(),
+                llm_gate_enabled=bool(getattr(normalized_cfg, 'llm_gate_enabled', True)),
+                llm_gate_threshold=int(getattr(normalized_cfg, 'llm_gate_threshold', 3) or 3),
+                risk_mode=str(getattr(normalized_cfg, 'risk_mode', 'atr') or 'atr'),
+                atr_len=int(getattr(normalized_cfg, 'atr_len', 14) or 14),
+                atr_mult=float(getattr(normalized_cfg, 'atr_mult', 1.0) or 1.0),
+                rr=float(getattr(normalized_cfg, 'rr', 2.0) or 2.0),
+                swing_lookback=int(getattr(normalized_cfg, 'swing_lookback', 10) or 10),
+                tick_pct=float(getattr(normalized_cfg, 'tick_pct', 0.0005) or 0.0005),
             )
             print("[AGENT] applied config:", self.config)
             self._pair_defaults = {item.key(): item.lot_size for item in self.config.watchlist}

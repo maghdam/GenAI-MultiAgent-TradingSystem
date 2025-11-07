@@ -79,7 +79,8 @@ app.add_middleware(
 
 # ── Env (LLM + defaults) ────────────────────────────────────────────────
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llava:7b")
+# Keep in sync with backend.llm_analyzer defaults; can be overridden via env
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
 DEFAULT_SYMBOL = os.getenv("DEFAULT_SYMBOL", "XAUUSD")
 
 def _clamp_int(x, lo, hi, default):
@@ -217,7 +218,14 @@ async def agent_status():
 
 
 @app.get("/api/strategies/backtest")
-async def strategies_backtest(strategy: str, symbol: str, timeframe: str = "M5", num_bars: int = 1500):
+async def strategies_backtest(
+    strategy: str,
+    symbol: str,
+    timeframe: str = "M5",
+    num_bars: int = 1500,
+    fee_bps: float = 0.0,
+    slippage_bps: float = 0.0,
+):
     """Backtest a saved strategy that exposes a vectorized `signals(df)` function.
 
     Notes:
@@ -268,14 +276,24 @@ async def strategies_backtest(strategy: str, symbol: str, timeframe: str = "M5",
     pos = sig.apply(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0))
     pos = pos.ffill().fillna(0.0)
     strat_rets = rets * pos
-    equity = (1.0 + strat_rets).cumprod()
+    # Transitions for entries/exits and flips
+    prev = pos.shift(1).fillna(0.0)
+    flips = (pos != 0.0) & (prev != 0.0) & (pos != prev)
+    entries = ((pos != 0.0) & (prev == 0.0)) | flips
+    exits = ((pos == 0.0) & (prev != 0.0)) | flips
+    # Apply per-event costs (fees + slippage) on entry and exit bars
+    cost_side = max(0.0, float(fee_bps) + float(slippage_bps)) / 10_000.0
+    cost_series = (entries.astype(float) + exits.astype(float)) * (-cost_side)
+    cost_series = cost_series.reindex(strat_rets.index).fillna(0.0)
+    strat_rets_net = strat_rets + cost_series
+    equity = (1.0 + strat_rets_net).cumprod()
 
     # Trades metrics from entry/exit transitions
-    entries = (pos != 0) & (pos.shift(1).fillna(0) == 0)
-    exits = (pos == 0) & (pos.shift(1).fillna(0) != 0)
+    # reuse entries/exits with flips considered
     entries_idx = list(entries[entries].index)
     exits_idx = list(exits[exits].index)
     trade_rets: list[float] = []
+    hold_bars_list: list[int] = []
     if entries_idx:
         import bisect
         exits_idx_sorted = list(sorted(exits_idx))
@@ -288,7 +306,16 @@ async def strategies_backtest(strategy: str, symbol: str, timeframe: str = "M5",
             direction = float(pos.loc[e])
             grow = (close.loc[x] / close.loc[e])
             trade_ret = (grow - 1.0) if direction > 0 else ((1.0 / grow) - 1.0)
-            trade_rets.append(float(trade_ret))
+            # Apply per-trade costs (entry + exit)
+            net_trade = ((1.0 + float(trade_ret)) * (1.0 - cost_side) * (1.0 - cost_side)) - 1.0
+            trade_rets.append(float(net_trade))
+            # Duration in bars
+            try:
+                e_i = df.index.get_loc(e)
+                x_i = df.index.get_loc(x)
+                hold_bars_list.append(int(max(0, x_i - e_i)))
+            except Exception:
+                pass
 
     num_trades = len(trade_rets)
     wins = sum(1 for r in trade_rets if r > 0)
@@ -296,11 +323,50 @@ async def strategies_backtest(strategy: str, symbol: str, timeframe: str = "M5",
     total_return = float(equity.iloc[-1] - 1.0) * 100.0
     avg_trade = (sum(trade_rets) / num_trades * 100.0) if num_trades > 0 else 0.0
 
-    # Rough annualization assuming 5m bars; a UI control could refine this
-    ann_factor = math.sqrt(252 * (24 * 60 / 5))
+    # Annualization based on timeframe minutes
+    def _tf_minutes(tf: str) -> int:
+        tf = (tf or "M5").upper()
+        return {"M1":1, "M5":5, "M15":15, "M30":30, "H1":60, "H4":240, "D1":1440}.get(tf, 5)
+    import math
+    ann_factor = math.sqrt(252 * (24 * 60 / max(1, _tf_minutes(timeframe))))
     sharpe = 0.0
-    if strat_rets.std(ddof=0) > 0:
-        sharpe = float(strat_rets.mean() / strat_rets.std(ddof=0)) * ann_factor
+    std_bar = float(strat_rets_net.std(ddof=0))
+    if std_bar > 0:
+        sharpe = float(strat_rets_net.mean() / std_bar) * ann_factor
+
+    # Daily Sharpe from compounded daily returns
+    try:
+        daily = (1.0 + strat_rets_net).resample('1D').prod() - 1.0
+        std_d = float(daily.std(ddof=0))
+        daily_sharpe = float(daily.mean() / std_d) * math.sqrt(252) if std_d > 0 and len(daily) >= 2 else 0.0
+        avg_daily_pct = float(daily.mean() * 100.0) if len(daily) > 0 else 0.0
+    except Exception:
+        daily_sharpe = 0.0
+        avg_daily_pct = 0.0
+
+    # Per-trade statistics
+    trade_sharpe = 0.0
+    sqn = 0.0
+    avg_hold_bars = float(sum(hold_bars_list) / len(hold_bars_list)) if hold_bars_list else 0.0
+    if len(trade_rets) >= 2:
+        import statistics
+        mu_t = float(statistics.mean(trade_rets))
+        try:
+            sd_t = float(statistics.pstdev(trade_rets))  # population std to match ddof=0 style
+        except statistics.StatisticsError:
+            sd_t = 0.0
+        if sd_t > 0:
+            trade_sharpe = mu_t / sd_t  # per-trade Sharpe (not annualized)
+            sqn = (len(trade_rets) ** 0.5) * (mu_t / sd_t)
+
+    # Trades/day (calendar days between first/last bar)
+    days = 0.0
+    try:
+        delta_s = (df.index[-1] - df.index[0]).total_seconds()
+        days = max(0.0001, delta_s / 86400.0)
+    except Exception:
+        days = 0.0
+    trades_per_day = float(len(trade_rets) / days) if days > 0 else 0.0
 
     peak = equity.cummax()
     dd = (equity / peak) - 1.0
@@ -315,7 +381,15 @@ async def strategies_backtest(strategy: str, symbol: str, timeframe: str = "M5",
         "Win Rate [%]": round(win_rate, 2),
         "Avg Trade [%]": round(avg_trade, 4),
         "Max Drawdown [%]": round(mdd * 100.0, 2),
-        "Sharpe": round(sharpe, 3),
+        "Sharpe": round(sharpe, 3),  # per-bar annualized (net of costs)
+        "Daily Sharpe": round(daily_sharpe, 3),
+        "Avg Daily Return [%]": round(avg_daily_pct, 4),
+        "Fees [bps]": round(float(fee_bps), 3),
+        "Slippage [bps]": round(float(slippage_bps), 3),
+        "Trade Sharpe": round(trade_sharpe, 3),  # per-trade
+        "SQN": round(sqn, 3),
+        "Trades/Day": round(trades_per_day, 3),
+        "Avg Hold [bars]": round(avg_hold_bars, 2),
     }
 
 @app.post("/api/agent/execute_task")
@@ -742,12 +816,29 @@ def execute_trade(order: PlaceOrderRequest):
 
         result = ctd.wait_for_deferred(deferred, timeout=25)
 
-        # Journal the trade
+        # Journal the trade (prefer result price; fallback to scanning open positions)
+        entry_px = None
+        try:
+            if isinstance(result, dict):
+                entry_px = result.get('price')
+        except Exception:
+            entry_px = None
+        if entry_px in (None, 0, 0.0) and order.order_type.upper() == "MARKET":
+            import time as _t
+            for _ in range(6):  # ~3s
+                _t.sleep(0.5)
+                for p in ctd.get_open_positions() or []:
+                    if p.get("symbol_name", "").upper() == order.symbol.upper() and p.get("direction", "").upper() == order.direction.upper():
+                        entry_px = p.get("entry_price")
+                        break
+                if entry_px not in (None, 0, 0.0):
+                    break
+
         journal_db.add_trade_entry(
             symbol=order.symbol,
             direction=order.direction,
             volume=order.volume,
-            entry_price=result.get('price'), # Use actual executed price
+            entry_price=entry_px,
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             rationale=order.rationale
@@ -854,6 +945,15 @@ class AgentConfigIn(BaseModel):
     autotrade: bool = False
     lot_size_lots: float = 0.01
     strategy: str = "smc"
+    order_type: str = "MARKET"
+    llm_gate_enabled: bool = True
+    llm_gate_threshold: int = 3
+    risk_mode: str = "atr"
+    atr_len: int = 14
+    atr_mult: float = 1.0
+    rr: float = 2.0
+    swing_lookback: int = 10
+    tick_pct: float = 0.0005
 
 
 @app.get("/api/agent/config")
@@ -871,18 +971,34 @@ async def get_agent_cfg():
         "autotrade": cfg.autotrade,
         "lot_size_lots": cfg.lot_size_lots,
         "strategy": cfg.strategy,
+        "order_type": getattr(cfg, "order_type", "MARKET"),
+        "llm_gate_enabled": getattr(cfg, "llm_gate_enabled", True),
+        "llm_gate_threshold": getattr(cfg, "llm_gate_threshold", 3),
+        "risk_mode": getattr(cfg, "risk_mode", "atr"),
+        "atr_len": getattr(cfg, "atr_len", 14),
+        "atr_mult": getattr(cfg, "atr_mult", 1.0),
+        "rr": getattr(cfg, "rr", 2.0),
+        "swing_lookback": getattr(cfg, "swing_lookback", 10),
+        "tick_pct": getattr(cfg, "tick_pct", 0.0005),
     }
 
 
 @app.post("/api/agent/config")
 async def set_agent_cfg(cfg: AgentConfigIn):
-    watch_entries = [
+    # Sanitize watchlist and drop invalid timeframes early
+    allowed = set(data_fetcher.ALLOWED_TF)
+    raw_entries = [
         {
             "symbol": item.symbol,
             "timeframe": item.timeframe,
             "lot_size": item.lot_size if item.lot_size is not None else cfg.lot_size_lots,
         }
         for item in cfg.watchlist
+    ]
+    watch_entries = [
+        {"symbol": (e["symbol"] or "").strip().upper(), "timeframe": (e["timeframe"] or "").strip().upper(), "lot_size": e["lot_size"]}
+        for e in raw_entries
+        if (e.get("symbol") and e.get("timeframe") and (str(e.get("timeframe") or "").strip().upper() in allowed))
     ]
     new_cfg = AgentConfig(
         enabled=cfg.enabled,
@@ -893,8 +1009,29 @@ async def set_agent_cfg(cfg: AgentConfigIn):
         autotrade=cfg.autotrade,
         lot_size_lots=cfg.lot_size_lots,
         strategy=cfg.strategy,
+        order_type=(cfg.order_type or "MARKET").upper(),
+        llm_gate_enabled=bool(cfg.llm_gate_enabled),
+        llm_gate_threshold=int(cfg.llm_gate_threshold or 3),
+        risk_mode=str(cfg.risk_mode or "atr"),
+        atr_len=int(cfg.atr_len or 14),
+        atr_mult=float(cfg.atr_mult or 1.0),
+        rr=float(cfg.rr or 2.0),
+        swing_lookback=int(cfg.swing_lookback or 10),
+        tick_pct=float(cfg.tick_pct or 0.0005),
     )
     await controller.apply_config(new_cfg)
+    # Reflect gate settings in process env so analyzer picks them up next call
+    try:
+        os.environ["LLM_GATE_WEAK_VOTES"] = "1" if new_cfg.llm_gate_enabled else "0"
+        os.environ["LLM_GATE_THRESHOLD"] = str(int(new_cfg.llm_gate_threshold or 3))
+        os.environ["SMC_RISK_MODE"] = str(new_cfg.risk_mode)
+        os.environ["SMC_ATR_LEN"] = str(int(new_cfg.atr_len))
+        os.environ["SMC_ATR_MULT"] = str(float(new_cfg.atr_mult))
+        os.environ["SMC_RR"] = str(float(new_cfg.rr))
+        os.environ["SMC_SWING_LOOKBACK"] = str(int(new_cfg.swing_lookback))
+        os.environ["SMC_TICK_PCT"] = str(float(new_cfg.tick_pct))
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -911,6 +1048,9 @@ async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] 
     tf_u = (timeframe or "").strip().upper()
     if not sym_u or not tf_u:
         raise HTTPException(status_code=400, detail="symbol and timeframe are required")
+    # Validate timeframe
+    if tf_u not in data_fetcher.ALLOWED_TF:
+        raise HTTPException(status_code=400, detail=f"Invalid timeframe '{tf_u}'. Allowed: {sorted(data_fetcher.ALLOWED_TF)}")
 
     try:
         lot = float(lot_size) if lot_size is not None else float(cfg.lot_size_lots)

@@ -5,6 +5,8 @@ from typing import Tuple, Optional
 import logging
 import pandas as pd
 import backend.ctrader_client as ctd
+import time
+import random
 
 logger = logging.getLogger("backend.data_fetcher")
 
@@ -29,9 +31,35 @@ def fetch_data(symbol: str, timeframe: str, num_bars: int = 5000) -> Tuple[pd.Da
         if tf not in ALLOWED_TF:
             raise ValueError(f"Invalid timeframe '{tf}'. Allowed: {sorted(ALLOWED_TF)}")
 
-        rows = ctd.get_ohlc_data(symbol=sym, tf=tf, n=num_bars)
-        df = pd.DataFrame(rows)
+        # Retry loop to mitigate transient empty/timeout fetches
+        retries = 3
+        try:
+            retries = max(1, int((__import__('os').getenv('DATA_FETCH_RETRIES') or '3')))
+        except Exception:
+            retries = 3
+        base_delay = 0.5
+        try:
+            base_delay = float((__import__('os').getenv('DATA_FETCH_RETRY_DELAY') or '0.5'))
+        except Exception:
+            base_delay = 0.5
+
+        df = pd.DataFrame()
+        last_err: Exception | None = None
+        for i in range(retries):
+            try:
+                rows = ctd.get_ohlc_data(symbol=sym, tf=tf, n=num_bars)
+                df = pd.DataFrame(rows)
+                if not df.empty:
+                    break
+                last_err = ValueError('empty dataframe from broker')
+            except Exception as e:
+                last_err = e
+            if i < retries - 1:
+                # jittered backoff
+                time.sleep(base_delay + random.random() * base_delay)
         if df.empty:
+            if last_err:
+                logger.warning("⚠️ fetch_data retries exhausted for %s/%s: %s", sym, tf, last_err)
             return df, None
 
         # Normalize schema

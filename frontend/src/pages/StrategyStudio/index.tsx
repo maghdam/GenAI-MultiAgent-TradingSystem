@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { executeTask, listStrategyFiles, type TaskRequest, type TaskResponse } from '../../services/api';
+import { executeTask, listStrategyFiles, backtestSavedStrategy, type TaskRequest, type TaskResponse } from '../../services/api';
 import StrategyChat, { type ChatMessage } from '../../components/StrategyChat';
 import { CodeDisplay } from '../../components/CodeDisplay';
 import { BacktestResult } from '../../components/BacktestResult';
@@ -15,11 +15,22 @@ export default function StrategyStudioPage() {
   const [numBars, setNumBars] = useState(1500);
   const [savedStrategy, setSavedStrategy] = useState<string>('');
   const [availableSaved, setAvailableSaved] = useState<string[]>([]);
+  const [showCosts, setShowCosts] = useState(false);
+  const [feeBps, setFeeBps] = useState<number>(0);
+  const [slippageBps, setSlippageBps] = useState<number>(0);
 
   React.useEffect(() => {
     let mounted = true;
     listStrategyFiles()
-      .then((files) => { if (mounted) setAvailableSaved(Array.isArray(files) ? files : []); })
+      .then((files) => {
+        if (!mounted) return;
+        const list = Array.isArray(files) ? files : [];
+        setAvailableSaved(list);
+        // Preselect 'smc' if available and nothing selected
+        if (!savedStrategy && list.includes('smc')) {
+          setSavedStrategy('smc');
+        }
+      })
       .catch(() => {})
     return () => { mounted = false };
   }, []);
@@ -71,17 +82,19 @@ export default function StrategyStudioPage() {
     setMessages(prev => [...prev, { role: 'user', content: `Backtest ${symbol} ${timeframe} (${numBars} bars)` }]);
     setLastResult(null);
     try {
-      const req: TaskRequest = {
-        task_type: 'backtest_strategy',
-        goal: `backtest ${symbol} on ${timeframe}`,
-        params: { symbol, timeframe, num_bars: numBars },
-      };
-      const res: TaskResponse = await executeTask(req);
-      if (res.status === 'success') {
-        setLastResult(res.result);
-        setMessages(prev => [...prev, { role: 'assistant', content: res.message || 'Backtest complete.' }]);
+      if (savedStrategy) {
+        const result = await backtestSavedStrategy(
+          savedStrategy,
+          symbol,
+          timeframe,
+          numBars,
+          feeBps,
+          slippageBps,
+        );
+        setLastResult(result);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Backtest complete.' }]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', type: 'error', content: res.message || 'Backtest failed.' }]);
+        setMessages(prev => [...prev, { role: 'assistant', type: 'error', content: 'Please select a saved strategy to backtest (e.g., smc).' }]);
       }
     } catch (e: any) {
       setMessages(prev => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Request failed.' }]);
@@ -138,6 +151,31 @@ export default function StrategyStudioPage() {
             <input type="number" min={200} max={5000} step={100} value={numBars}
               onChange={e => setNumBars(Math.max(200, Math.min(5000, parseInt(e.target.value || '1500', 10))))}
               style={{ width: 110 }} title="Bars" />
+            <button className="btn" type="button" onClick={() => setShowCosts(s => !s)} title="Toggle fee/slippage inputs">{showCosts ? 'Hide Costs' : 'Costs'}</button>
+            {showCosts && (
+              <>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={feeBps}
+                  onChange={e => setFeeBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
+                  style={{ width: 110 }}
+                  title="Fees (bps)"
+                  placeholder="Fee bps"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={slippageBps}
+                  onChange={e => setSlippageBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
+                  style={{ width: 130 }}
+                  title="Slippage (bps)"
+                  placeholder="Slippage bps"
+                />
+              </>
+            )}
             <button className="btn" type="button" onClick={runBacktest} disabled={isLoading}>Run Backtest</button>
             <select value={savedStrategy} onChange={e => setSavedStrategy(e.target.value)} title="Saved Strategy">
               <option value="">Select strategy…</option>

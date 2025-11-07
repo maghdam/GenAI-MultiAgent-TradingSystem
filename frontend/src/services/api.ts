@@ -45,6 +45,15 @@ export interface AgentConfig {
   autotrade: boolean;
   lot_size_lots: number;
   strategy: string;
+  order_type?: string;
+  llm_gate_enabled?: boolean;
+  llm_gate_threshold?: number;
+  risk_mode?: string;
+  atr_len?: number;
+  atr_mult?: number;
+  rr?: number;
+  swing_lookback?: number;
+  tick_pct?: number;
 }
 
 export interface AgentStatus extends AgentConfig {
@@ -206,7 +215,9 @@ export const backtestSavedStrategy = async (
   strategy: string,
   symbol: string,
   timeframe: string,
-  numBars: number
+  numBars: number,
+  feeBps?: number,
+  slippageBps?: number,
 ): Promise<any> => {
   const params = new URLSearchParams({
     strategy,
@@ -214,6 +225,12 @@ export const backtestSavedStrategy = async (
     timeframe,
     num_bars: String(numBars),
   });
+  if (typeof feeBps === 'number' && Number.isFinite(feeBps)) {
+    params.set('fee_bps', String(feeBps));
+  }
+  if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) {
+    params.set('slippage_bps', String(slippageBps));
+  }
   const response = await fetch(`/api/strategies/backtest?${params.toString()}`);
   if (!response.ok) {
     const text = await response.text();

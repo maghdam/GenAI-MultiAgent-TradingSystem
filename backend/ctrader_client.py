@@ -77,12 +77,15 @@ def _px(x):
         return None
 
 def _px_sym(symbol_id: int | None, x):
-    """Return a float price rounded to symbol decimals (no integer scaling)."""
+    """Return a float price rounded to per-symbol money digits (no integer scaling)."""
     if x is None:
         return None
     try:
         sid = int(symbol_id) if symbol_id is not None else None
-        digits = int(symbol_digits_map.get(sid, 5)) if sid is not None else 5
+        if sid is not None and sid in symbol_money_digits_map:
+            digits = int(symbol_money_digits_map[sid])
+        else:
+            digits = int(symbol_digits_map.get(sid, 5)) if sid is not None else 5
     except Exception:
         digits = 5
     try:
@@ -91,20 +94,25 @@ def _px_sym(symbol_id: int | None, x):
         return float(x)
 
 def _decode_px(symbol_id: int | None, raw):
-    """Decode price coming from API by dividing by the per-symbol factor if needed."""
+    """Decode cTrader price; avoid over-dividing indices like US30.
+    Divide only if value looks like a scaled integer using moneyDigits."""
     if raw is None:
         return None
     try:
         v = float(raw)
     except Exception:
         return raw
-    pf = _price_factor_for_symbol(symbol_id)
-    # Heuristic: if the magnitude is clearly larger than expected for the symbol, divide
-    if pf and v > 50 * pf:  # extremely large -> assume already scaled
-        return v / pf
-    if pf and v > 10000:    # XAUUSD/Index prices
-        return v / pf
-    # else assume already float
+    try:
+        sid = int(symbol_id) if symbol_id is not None else None
+        md = int(symbol_money_digits_map.get(sid, symbol_digits_map.get(sid, 2))) if sid is not None else 2
+    except Exception:
+        md = 2
+    try:
+        threshold = float(10 ** (md + 3))
+    except Exception:
+        threshold = 100000.0
+    if v >= threshold:
+        return v / (10 ** md)
     return v
 
 def _price_factor_for_symbol(symbol_id: int | None) -> int:
@@ -731,10 +739,14 @@ def place_order(
                     print(f"[ERROR] Failed direct SL/TP amend by positionId: {e}")
                     # Fall through to scanning
 
-                # Fallback: scan for the opened position and amend
-                attempts = max(1, int(AMEND_POLL_ATTEMPTS))
+                # Fallback: scan for the opened position and amend (time-budgeted)
                 interval = max(0.5, float(AMEND_POLL_INTERVAL))
-                for i in range(attempts):
+                try:
+                    max_dur = float(os.getenv("SLTP_AMEND_MAX_DURATION_SEC", "600"))
+                except Exception:
+                    max_dur = 600.0
+                deadline = time.time() + max(30.0, max_dur)
+                while time.time() < deadline:
                     time.sleep(interval)
                     try:
                         open_pos = get_open_positions()
@@ -816,7 +828,7 @@ def place_order(
                             except Exception as e:
                                 print(f"[ERROR] Failed to submit SL/TP amendment: {e}")
                             return
-                print("[WARN] Could not find opened position to amend SL/TP within timeout.")
+                print("[WARN] Could not find opened position to amend SL/TP within max duration.")
 
             try:
                 threading.Thread(target=_amend_worker, daemon=True).start()

@@ -15,11 +15,13 @@ from backend import data_fetcher as _dfetch
 # Runtime toggles (env vars)
 # =========================
 JSON_ONLY_DEFAULT = os.getenv("LLM_JSON_ONLY", "1") == "1"       # prefer compact JSON
-MAX_TOK_DEFAULT   = int(os.getenv("LLM_NUM_PREDICT", "96"))      # cap tokens (lower = faster)
+# Smaller default token budget for faster responses; override via env when needed
+MAX_TOK_DEFAULT   = int(os.getenv("LLM_NUM_PREDICT", "64"))      # cap tokens (lower = faster)
 # hard cap per attempt to avoid proxy 60s cutters; can raise if your infra allows
 ATTEMPT_TIMEOUT_DEFAULT = float(os.getenv("OLLAMA_TIMEOUT", "45"))
-MODEL_DEFAULT     = os.getenv("OLLAMA_MODEL", "llama3.2:3b").strip()
-FALLBACK_MODEL    = os.getenv("OLLAMA_FALLBACK_MODEL", "llama3.2:3b").strip()
+# Prefer small, fast defaults suitable for exec-style JSON decisions
+MODEL_DEFAULT     = os.getenv("OLLAMA_MODEL", "phi3:mini").strip()
+FALLBACK_MODEL    = os.getenv("OLLAMA_FALLBACK_MODEL", "llama3.2:3b-instruct-fp16").strip()
 OLLAMA_URL        = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 KEEP_ALIVE        = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
 # overall time budget for the whole function (to avoid FastAPI/proxy hard limits)
@@ -30,7 +32,12 @@ ENFORCE_VOTES     = os.getenv("LLM_ENFORCE_VOTES", "prefer").strip().lower()  # 
 VOTE_THRESHOLD    = int(os.getenv("LLM_VOTE_THRESHOLD", "2"))
 
 # Serialize heavy calls so we don’t race the CPU/VMM
-_ANALYZE_LOCK = asyncio.Semaphore(1)
+try:
+    _ANALYZE_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENT", "1"))
+except Exception:
+    _ANALYZE_CONCURRENCY = 1
+_ANALYZE_CONCURRENCY = max(1, _ANALYZE_CONCURRENCY)
+_ANALYZE_LOCK = asyncio.Semaphore(_ANALYZE_CONCURRENCY)
 
 
 class TradeDecision:
@@ -86,6 +93,10 @@ Return ONLY a single JSON object with these keys and no extra text:
   "confidence": float
 }}
 
+SL/TP policy:
+- Prefer SMC invalidation: set SL beyond prior protected swing or OB boundary with a small buffer; if not available, use ATR-based sizing (ATR len≈14, mult≈1.0).
+- Choose TP so RR≈[1.5, 2.5] relative to SL and entry. Ensure SL below entry for long, above for short. Round prices reasonably and avoid placing SL/TP unrealistically close to entry.
+
 SMC Summary:
 {smc_text}
 
@@ -117,6 +128,10 @@ Respond in this exact format:
   "tp": float,
   "confidence": float
 }}
+
+SL/TP policy:
+- Prefer SMC invalidation: set SL beyond prior protected swing or OB boundary with a small buffer; if not available, use ATR-based sizing (ATR len≈14, mult≈1.0).
+- Choose TP so RR≈[1.5, 2.5] relative to SL and entry. Ensure SL below entry for long, above for short. Round and avoid unrealistically tight placements.
 
 Then on the next line, write a plain English explanation starting with:
 Explanation: <text>
@@ -351,11 +366,24 @@ async def analyze_data_with_llm(
         def budget_left() -> float:
             return OVERALL_BUDGET_S - (time.time() - start)
 
+        # Optional gate: skip LLM on weak votes to save time
+        GATE_ENABLED = (os.getenv("LLM_GATE_WEAK_VOTES", "1").strip() == "1")
+        try:
+            GATE_THRESHOLD = int(os.getenv("LLM_GATE_THRESHOLD", str(VOTE_THRESHOLD)))
+        except Exception:
+            GATE_THRESHOLD = VOTE_THRESHOLD
+
+        # Precompute inputs once (24 candles)
+        smc_text, last_rows, latest_reasons, votes, htf_bias, total_with_htf = build_inputs(24)
+        if GATE_ENABLED and abs(total_with_htf) < GATE_THRESHOLD:
+            reasons = latest_reasons + [f"gate: |votes+htf|={total_with_htf:+d} < {GATE_THRESHOLD}"]
+            return TradeDecision(signal="no_trade", sl=None, tp=None, confidence=0.0, reasons=reasons)
+
         # -------- Attempt 1: Text-only on primary model --------
         try:
             if budget_left() <= 5:
                 raise TimeoutError("Budget exhausted before A1.")
-            smc_text, last_rows, latest_reasons, votes, htf_bias, total_with_htf = build_inputs(24)
+            # smc_text,... already built
             prompt = _build_prompts(symbol, timeframe, smc_text, last_rows, json_only)
             content = _ollama_generate(
                 prompt=prompt,
@@ -406,7 +434,7 @@ async def analyze_data_with_llm(
         try:
             if budget_left() <= 5:
                 raise TimeoutError("Budget exhausted before A2.")
-            smc_text, last_rows, latest_reasons, votes, htf_bias, total_with_htf = build_inputs(24)
+            # reuse smc_text, last_rows, latest_reasons, votes
             prompt = _build_prompts(symbol, timeframe, smc_text, last_rows, json_only)
             content = _ollama_generate(
                 prompt=prompt,
@@ -452,9 +480,48 @@ async def analyze_data_with_llm(
         except Exception as e:
             attempts_summary.append(f"A2 (text-only, fallback={FALLBACK_MODEL}): {e}")
 
-        # If everything failed, raise one consolidated error
-        attempts_text = "\n".join(attempts_summary)
-        raise ValueError("❌ All inference attempts failed. Summary:\n" + attempts_text)
+        # If everything failed, return a votes-based decision as a graceful fallback
+        try:
+            # Map votes (+htf) to direction and scale confidence by vote strength
+            if total_with_htf >= VOTE_THRESHOLD:
+                signal = "long"
+            elif total_with_htf <= -VOTE_THRESHOLD:
+                signal = "short"
+            else:
+                signal = "no_trade"
+            # Confidence scaling (only when we have a directional signal)
+            conf = 0.0
+            if signal != "no_trade":
+                abs_total = abs(int(total_with_htf))
+                # count how many components contribute (zone/structure/fvg/ob/trend)
+                try:
+                    nonzero_votes = sum(1 for v in (votes or {}).values() if int(v) != 0)
+                except Exception:
+                    nonzero_votes = 0
+                # base from total votes
+                base = 0.5 + 0.1 * abs_total            # +0.1 per vote of net strength
+                # small bonus for broader consensus across components
+                breadth = 0.02 * nonzero_votes          # up to +0.10
+                # structure/fvg/trend bonuses
+                struct_b = 0.05 if ((votes or {}).get("structure") or 0) != 0 else 0.0
+                fvg_b    = 0.03 if ((votes or {}).get("fvg") or 0) != 0 else 0.0
+                trend_b  = 0.02 if ((votes or {}).get("trend") or 0) != 0 else 0.0
+                # HTF bonus when aligned; slight penalty when opposite
+                dir_sign = 1 if signal == "long" else -1
+                htf_b    = 0.05 if (int(htf_bias or 0) * dir_sign) > 0 else (-0.03 if (int(htf_bias or 0) * dir_sign) < 0 else 0.0)
+                conf = base + breadth + struct_b + fvg_b + trend_b + htf_b
+                # Clamp to a sane range
+                conf = max(0.55, min(0.90, float(conf)))
+            fb_reasons = latest_reasons + [
+                "fallback: votes-based due to LLM failure",
+                f"attempts: {len(attempts_summary)}",
+                f"fallback_confidence_scaled={conf:.2f}",
+            ]
+            return TradeDecision(signal=signal, sl=None, tp=None, confidence=conf, reasons=fb_reasons)
+        except Exception:
+            # Last resort: raise consolidated error
+            attempts_text = "\n".join(attempts_summary)
+            raise ValueError("❌ All inference attempts failed. Summary:\n" + attempts_text)
 
 
 async def analyze_chart_with_llm(

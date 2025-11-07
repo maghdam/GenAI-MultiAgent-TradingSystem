@@ -28,12 +28,13 @@ services:
       - backend/.env
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3.2:latest
-      - OLLAMA_FALLBACK_MODEL=llama3.2:latest
+      - OLLAMA_MODEL=phi3:mini
+      - OLLAMA_FALLBACK_MODEL=llama3.2:3b-instruct-fp16
       - LLM_USE_IMAGE=0
       - LLM_JSON_ONLY=1
-      - LLM_NUM_PREDICT=48
-      - OLLAMA_TIMEOUT=45
+      - LLM_NUM_PREDICT=32
+      - OLLAMA_TIMEOUT=30
+      - LLM_GATE_THRESHOLD=3
       - PYTHONPATH=/app
     working_dir: /app
     command: uvicorn backend.app:app --host 0.0.0.0 --port 4000
