@@ -52,7 +52,7 @@ button.btn:disabled { opacity:.5; cursor:not-allowed; }
 .list { max-height: 220px; overflow:auto; background:#0e1117; border:1px solid #1a2030; border-radius:10px; padding:10px; }
 .row { display:flex; gap:10px; align-items:center; padding:6px 8px; border-bottom:1px dashed #1e2433; }
 .row:last-child { border-bottom:none; }
-.drawer { position:fixed; right:14px; top:72px; width:320px; background:#0e1117; border:1px solid #1a2030; border-radius:12px; padding:12px; display:none; z-index:20; }
+.drawer { position:fixed; right:14px; top:72px; width:320px; background:#0e1117; border:1px solid #1a2030; border-radius:12px; padding:12px; display:none; z-index:20; max-height:calc(100vh - 94px); overflow-y:auto; overscroll-behavior:contain; }
 .drawer h3 { margin:4px 0 8px; font-size:16px; }
 .kv { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
 @media (max-width: 1100px){ .grid { grid-template-columns: 1fr; } #chartWrap{height:56vh;} .drawer{width:92vw; left:4vw; right:auto;} }
