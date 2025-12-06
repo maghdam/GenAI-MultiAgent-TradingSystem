@@ -21,6 +21,7 @@ interface AgentWatchlistEntry {
   symbol: string;
   timeframe: string;
   lot_size?: number;
+  strategy?: string | null;
 }
 
 interface AgentStatus {
@@ -154,6 +155,7 @@ export default function SidePanel({ onSignalSelected, onAgentStatus }: SidePanel
           symbol: (item?.symbol || '').toString(),
           timeframe: (item?.timeframe || '').toString(),
           lot_size: lot,
+          strategy: item?.strategy,
         };
       });
       const normalizedStatus: AgentStatus = {
@@ -225,6 +227,7 @@ export default function SidePanel({ onSignalSelected, onAgentStatus }: SidePanel
       .map(item => {
         const sym = (item.symbol || '').toUpperCase();
         const tf = (item.timeframe || '').toUpperCase();
+        const strat = (item.strategy || '').toUpperCase();
         const lot =
           typeof item.lot_size === 'number' && Number.isFinite(item.lot_size)
             ? item.lot_size.toFixed(2)
@@ -233,7 +236,9 @@ export default function SidePanel({ onSignalSelected, onAgentStatus }: SidePanel
         if (!base) {
           return null;
         }
-        return lot ? `${base} (${lot})` : base;
+        const suffix = lot ? ` (${lot})` : '';
+        const stratTag = strat ? ` [${strat}]` : '';
+        return `${base}${suffix}${stratTag}`;
       })
       .filter(Boolean)
       .join(', ')

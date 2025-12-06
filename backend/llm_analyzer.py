@@ -379,18 +379,23 @@ async def analyze_data_with_llm(
             reasons = latest_reasons + [f"gate: |votes+htf|={total_with_htf:+d} < {GATE_THRESHOLD}"]
             return TradeDecision(signal="no_trade", sl=None, tp=None, confidence=0.0, reasons=reasons)
 
+        loop = asyncio.get_running_loop()
+
         # -------- Attempt 1: Text-only on primary model --------
         try:
             if budget_left() <= 5:
                 raise TimeoutError("Budget exhausted before A1.")
             # smc_text,... already built
             prompt = _build_prompts(symbol, timeframe, smc_text, last_rows, json_only)
-            content = _ollama_generate(
-                prompt=prompt,
-                model=model,
-                timeout=min(timeout_value, max(5.0, budget_left() - 2)),
-                json_only=json_only,
-                options_overrides={"num_predict": min(80, MAX_TOK_DEFAULT)},
+            content = await loop.run_in_executor(
+                None,
+                lambda: _ollama_generate(
+                    prompt=prompt,
+                    model=model,
+                    timeout=min(timeout_value, max(5.0, budget_left() - 2)),
+                    json_only=json_only,
+                    options_overrides={"num_predict": min(80, MAX_TOK_DEFAULT)},
+                ),
             )
             td = _parse_trade_decision(content, json_only)
             # Guardrail: block directions that strongly contradict votes unless confidence high and mode=off
@@ -436,12 +441,15 @@ async def analyze_data_with_llm(
                 raise TimeoutError("Budget exhausted before A2.")
             # reuse smc_text, last_rows, latest_reasons, votes
             prompt = _build_prompts(symbol, timeframe, smc_text, last_rows, json_only)
-            content = _ollama_generate(
-                prompt=prompt,
-                model=FALLBACK_MODEL,
-                timeout=min(timeout_value, max(5.0, budget_left() - 2)),
-                json_only=json_only,
-                options_overrides={"num_predict": min(80, MAX_TOK_DEFAULT)},
+            content = await loop.run_in_executor(
+                None,
+                lambda: _ollama_generate(
+                    prompt=prompt,
+                    model=FALLBACK_MODEL,
+                    timeout=min(timeout_value, max(5.0, budget_left() - 2)),
+                    json_only=json_only,
+                    options_overrides={"num_predict": min(80, MAX_TOK_DEFAULT)},
+                ),
             )
             td = _parse_trade_decision(content, json_only)
             try:

@@ -291,7 +291,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                         # Verify broker reflects amend
                         ok = False
                         for _ in range(5):
-                            time.sleep(0.5)
+                            await asyncio.sleep(0.5)
                             for p2 in (ctd.get_open_positions() or []):
                                 if int(p2.get("position_id") or 0) == int(same.get("position_id") or 0):
                                     sl_ok = (sl_norm is None) or (abs(float(p2.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
@@ -321,7 +321,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                     # Verify again
                                     ok2 = False
                                     for _ in range(5):
-                                        time.sleep(0.5)
+                                        await asyncio.sleep(0.5)
                                         for p2 in (ctd.get_open_positions() or []):
                                             if int(p2.get("position_id") or 0) == int(same.get("position_id") or 0):
                                                 sl_ok2 = (sl_norm is None) or (abs(float(p2.get("stop_loss") or 0) - float(sl_norm)) < 1e-6)
@@ -465,6 +465,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                         except Exception:
                             max_dur = 600.0
                         deadline = time.time() + max(30.0, max_dur)
+                        ok = False
                         while time.time() < deadline:
                             await asyncio.sleep(interval)
                             for p in (ctd.get_open_positions() or []):
@@ -491,12 +492,11 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                         _push_err(symbol, timeframe, f"amend rejected: {ack2.get('error')}", "order_amend_fail", strategy_name)
                                         break
                                     # Verify with symbol-aware rounding
-                                    ok = False
-                                    tol = 0.5 * (10 ** (-_digits_for_symbol_id(p.get("symbol_id"))))
+                                    tol = _amend_tolerance(p.get("symbol_id"))
                                     expect_sl = _round_for_symbol(p.get("symbol_id"), sl_norm)
                                     expect_tp = _round_for_symbol(p.get("symbol_id"), tp_norm)
                                     for _ in range(8):
-                                        time.sleep(0.5)
+                                        await asyncio.sleep(0.5)
                                         for p3 in (ctd.get_open_positions() or []):
                                             if int(p3.get("position_id") or 0) == int(p.get("position_id") or 0):
                                                 sl_ok = (expect_sl is None) or (abs(float(p3.get("stop_loss") or 0) - float(expect_sl)) <= tol)
@@ -506,49 +506,47 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                                 break
                                         if ok:
                                             break
-                                    if not ok:
-                                        # Partial repair: try to amend only missing sides
-                                        try:
-                                            last_pos = None
-                                            for p4 in (ctd.get_open_positions() or []):
-                                                if int(p4.get("position_id") or 0) == int(p.get("position_id") or 0):
-                                                    last_pos = p4
+                            if ok:
+                                break
+                        if not ok:
+                            # Partial repair: try to amend only missing sides
+                            try:
+                                last_pos = None
+                                for p4 in (ctd.get_open_positions() or []):
+                                    if int(p4.get("position_id") or 0) == int(p.get("position_id") or 0):
+                                        last_pos = p4
+                                        break
+                                if last_pos is not None:
+                                    has_sl = (expect_sl is None) or (abs(float(last_pos.get("stop_loss") or 0) - float(expect_sl)) <= tol)
+                                    has_tp = (expect_tp is None) or (abs(float(last_pos.get("take_profit") or 0) - float(expect_tp)) <= tol)
+                                    if not (has_sl and has_tp):
+                                        d_fix = ctd.modify_position_sltp(
+                                            client=ctd.client,
+                                            account_id=ctd.ACCOUNT_ID,
+                                            position_id=p.get("position_id"),
+                                            stop_loss=(expect_sl if not has_sl else None),
+                                            take_profit=(expect_tp if not has_tp else None),
+                                            symbol_id=p.get("symbol_id"),
+                                        )
+                                        _ = ctd.wait_for_deferred(d_fix, timeout=25)
+                                        # Verify again (short)
+                                        ok2 = False
+                                        for _ in range(5):
+                                            await asyncio.sleep(0.5)
+                                            for p5 in (ctd.get_open_positions() or []):
+                                                if int(p5.get("position_id") or 0) == int(p.get("position_id") or 0):
+                                                    sl_ok2 = (expect_sl is None) or (abs(float(p5.get("stop_loss") or 0) - float(expect_sl)) <= tol)
+                                                    tp_ok2 = (expect_tp is None) or (abs(float(p5.get("take_profit") or 0) - float(expect_tp)) <= tol)
+                                                    ok2 = sl_ok2 and tp_ok2
                                                     break
-                                            if last_pos is not None:
-                                                has_sl = (expect_sl is None) or (abs(float(last_pos.get("stop_loss") or 0) - float(expect_sl)) <= tol)
-                                                has_tp = (expect_tp is None) or (abs(float(last_pos.get("take_profit") or 0) - float(expect_tp)) <= tol)
-                                                if not (has_sl and has_tp):
-                                                    d_fix = ctd.modify_position_sltp(
-                                                        client=ctd.client,
-                                                        account_id=ctd.ACCOUNT_ID,
-                                                        position_id=p.get("position_id"),
-                                                        stop_loss=(expect_sl if not has_sl else None),
-                                                        take_profit=(expect_tp if not has_tp else None),
-                                                        symbol_id=p.get("symbol_id"),
-                                                    )
-                                                    _ = ctd.wait_for_deferred(d_fix, timeout=25)
-                                                    # Verify again (short)
-                                                    ok2 = False
-                                                    for _ in range(5):
-                                                        time.sleep(0.5)
-                                                        for p5 in (ctd.get_open_positions() or []):
-                                                            if int(p5.get("position_id") or 0) == int(p.get("position_id") or 0):
-                                                                sl_ok2 = (expect_sl is None) or (abs(float(p5.get("stop_loss") or 0) - float(expect_sl)) <= tol)
-                                                                tp_ok2 = (expect_tp is None) or (abs(float(p5.get("take_profit") or 0) - float(expect_tp)) <= tol)
-                                                                ok2 = sl_ok2 and tp_ok2
-                                                                break
-                                                        if ok2:
-                                                            break
-                                                    if not ok2:
-                                                        _push_err(symbol, timeframe, "amend did not apply after verification", "order_amend_fail", strategy_name)
-                                            else:
-                                                _push_err(symbol, timeframe, "position not found after amend", "order_amend_fail", strategy_name)
-                                        except Exception as _e:
-                                            _push_err(symbol, timeframe, f"partial amend error: {_e}", "order_amend_fail", strategy_name)
-                                    break
-                            else:
-                                continue
-                            break
+                                            if ok2:
+                                                break
+                                        if not ok2:
+                                            _push_err(symbol, timeframe, "amend did not apply after verification", "order_amend_fail", strategy_name)
+                                else:
+                                    _push_err(symbol, timeframe, "position not found after amend", "order_amend_fail", strategy_name)
+                            except Exception as _e:
+                                _push_err(symbol, timeframe, f"partial amend error: {_e}", "order_amend_fail", strategy_name)
                     else:
                         # Strategy didn't provide SL/TP. Attempt to derive defaults and amend once we know entry
                         # Prefer broker-reflected entry from open positions (decoded), not raw ack
@@ -581,7 +579,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                             except Exception:
                                 widen_factors = [1.25, 1.5]
 
-                            def _attempt_amend(sl_val: float | None, tp_val: float | None) -> bool:
+                            async def _attempt_amend(sl_val: float | None, tp_val: float | None) -> bool:
                                 sl_n, tp_n = ctd.normalize_sltp_for_side(
                                     side=desired_side,
                                     entry_price=entry_px_for_defaults,
@@ -608,19 +606,20 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                 _ = ctd.wait_for_deferred(d_mod, timeout=25)
                                 # Verify
                                 ok = False
+                                tol = _amend_tolerance(sid)
                                 for _ in range(5):
-                                    time.sleep(0.5)
+                                    await asyncio.sleep(0.5)
                                     for p3 in (ctd.get_open_positions() or []):
                                         if int(p3.get("position_id") or 0) == int(pos_id_target or 0):
-                                            sl_ok = (sl_n is None) or (abs(float(p3.get("stop_loss") or 0) - float(sl_n)) < 1e-6)
-                                            tp_ok = (tp_n is None) or (abs(float(p3.get("take_profit") or 0) - float(tp_n)) < 1e-6)
+                                            sl_ok = (sl_n is None) or (abs(float(p3.get("stop_loss") or 0) - float(sl_n)) <= tol)
+                                            tp_ok = (tp_n is None) or (abs(float(p3.get("take_profit") or 0) - float(tp_n)) <= tol)
                                             ok = sl_ok and tp_ok
                                             break
                                     if ok:
                                         break
                                 return ok
 
-                            ok_base = _attempt_amend(sl_raw, tp_raw)
+                            ok_base = await _attempt_amend(sl_raw, tp_raw)
                             if not ok_base:
                                 # Widen and retry
                                 for f in widen_factors:
@@ -665,8 +664,8 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                         else:
                                             sl_w = entry_px_for_defaults + mult_w * atr
                                             tp_w = entry_px_for_defaults - rr * (sl_w - entry_px_for_defaults)
-                                    if _attempt_amend(sl_w, tp_w):
-                                        break
+                                        if await _attempt_amend(sl_w, tp_w):
+                                            break
                 except Exception as e:
                     _push_err(symbol, timeframe, f"amend fallback error: {e}", "order_amend_fail", strategy_name)
 
@@ -788,3 +787,24 @@ def _round_for_symbol(symbol_id: int | None, px: float | None) -> float | None:
         return round(float(px), d)
     except Exception:
         return px
+
+
+def _amend_tolerance(symbol_id: int | None) -> float:
+    """Return tolerance for SL/TP verification; allow env overrides for coarse-precision symbols (indices/metals)."""
+    base = 0.5 * (10 ** (-_digits_for_symbol_id(symbol_id)))
+    override = None
+    try:
+        raw = os.getenv("SMC_AMEND_TOL")
+        if raw:
+            override = float(raw)
+    except Exception:
+        override = None
+    try:
+        sym = ctd.symbol_map.get(symbol_id)
+        if sym:
+            raw_sym = os.getenv(f"SMC_AMEND_TOL_{sym.upper()}")
+            if raw_sym:
+                override = max(float(raw_sym), override) if override is not None else float(raw_sym)
+    except Exception:
+        pass
+    return max(base, override) if override is not None else base

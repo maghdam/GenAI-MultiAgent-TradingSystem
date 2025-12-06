@@ -245,6 +245,12 @@ Rebuild reminder: after frontend or backend changes, rebuild containers to keep 
 | `OLLAMA_URL` | e.g., `http://ollama:11434` |
 | `OLLAMA_MODEL` | Default model, e.g., `llama3.2` |
 | `DEFAULT_SYMBOL` | Optional initial chart symbol |
+| `API_KEY` | Optional key required via `x-api-key` header for all API calls |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins (default: `http://localhost:8080`) |
+| `NEWS_SUMMARY_ENABLED` | Set to `1` to enable external news fetching/summarization |
+| `SMC_AMEND_TOL` | Optional SL/TP amend tolerance (price units) for coarse-precision symbols |
+
+Frontend (Vite) should set `VITE_API_KEY` when `API_KEY` is enabled so the SPA forwards the header on every request.
 
 ### Frontend → Backend proxy (NGINX)
 

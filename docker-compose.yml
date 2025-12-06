@@ -41,6 +41,9 @@ services:
     volumes:
       # Persist generated strategies to the host so you can see saved files
       - ./backend/strategies_generated:/app/backend/strategies_generated
+      # Persist agent state and journal between rebuilds
+      - ./backend/data:/app/backend/data
+      - ./backend/journal:/app/backend/journal
     healthcheck:
       test:
         - CMD

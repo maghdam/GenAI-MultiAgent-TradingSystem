@@ -1,7 +1,14 @@
+import logging
+import os
+from urllib.parse import urlparse
+
 import requests
 from bs4 import BeautifulSoup
-import logging
+
 from .llm_analyzer import _ollama_generate, MODEL_DEFAULT
+
+NEWS_SUMMARY_ENABLED = os.getenv("NEWS_SUMMARY_ENABLED", "0") == "1"
+MAX_NEWS_URLS = int(os.getenv("NEWS_SUMMARY_MAX_URLS", "5") or 5)
 
 # Set a user agent to mimic a real browser
 HEADERS = {
@@ -12,7 +19,7 @@ def _fetch_search_results(query: str, num_results: int = 3) -> list[str]:
     """Fetches the top search result URLs from DuckDuckGo."""
     search_url = f"https://html.duckduckgo.com/html/?q={query}"
     try:
-        response = requests.get(search_url, headers=HEADERS, timeout=10)
+        response = requests.get(search_url, headers=HEADERS, timeout=8)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         links = [a['href'] for a in soup.find_all('a', class_='result__a')]
@@ -47,6 +54,9 @@ TRUSTED_SOURCES = [
 
 def get_news_summary(topic: str) -> str:
     """Searches for news on a topic across trusted sites, scrapes the top results, and returns an LLM-generated summary."""
+    if not NEWS_SUMMARY_ENABLED:
+        return "News summarization is disabled. Set NEWS_SUMMARY_ENABLED=1 to enable."
+
     logging.info(f"Fetching news summary for topic: {topic} from trusted sources.")
 
     # Create a list of search queries for DuckDuckGo
@@ -65,12 +75,18 @@ def get_news_summary(topic: str) -> str:
     # Remove duplicates while preserving order
     unique_urls = list(dict.fromkeys(all_urls))
 
+    def _allowed_host(u: str) -> bool:
+        host = urlparse(u).netloc.lower()
+        return any(src in host for src in TRUSTED_SOURCES)
+
+    unique_urls = [u for u in unique_urls if _allowed_host(u)]
+
     if not unique_urls:
         return f"I couldn't find any recent news for '{topic}' from trusted sources."
 
     # Scrape content from the top 5 unique URLs to keep it efficient
     content = []
-    for url in unique_urls[:5]:
+    for url in unique_urls[:max(1, min(MAX_NEWS_URLS, 5))]:
         scraped_text = _scrape_article_text(url)
         if scraped_text:
             content.append(scraped_text)

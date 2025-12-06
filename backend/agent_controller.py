@@ -16,6 +16,7 @@ class WatchlistItem:
     symbol: str
     timeframe: str
     lot_size: float
+    strategy: str | None = None
 
     def key(self) -> Tuple[str, str]:
         return (self.symbol.upper(), self.timeframe.upper())
@@ -27,7 +28,7 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
     fallback = default_lot if isinstance(default_lot, (int, float)) and default_lot > 0 else 0.01
 
     for item in raw or []:
-        sym = tf = None
+        sym = tf = strat = None
         lot: Any = None
 
         if isinstance(item, WatchlistItem):
@@ -38,6 +39,7 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
             sym = item.get("symbol") or item.get("pair") or item.get("name")
             tf = item.get("timeframe") or item.get("tf")
             lot = item.get("lot_size") or item.get("lotSize") or item.get("volume")
+            strat = item.get("strategy") or item.get("strat")
         elif isinstance(item, (list, tuple)):
             if len(item) >= 2:
                 sym, tf = item[0], item[1]
@@ -49,6 +51,7 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
 
         sym_u = (sym or "").strip().upper()
         tf_u = (tf or "").strip().upper()
+        strat_u = (strat or "").strip().lower() or None
 
         try:
             lot_val = float(lot) if lot is not None else float(fallback)
@@ -70,7 +73,7 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
         if key in seen:
             continue
         seen.add(key)
-        normalized.append(WatchlistItem(symbol=sym_u, timeframe=tf_u, lot_size=lot_val))
+        normalized.append(WatchlistItem(symbol=sym_u, timeframe=tf_u, lot_size=lot_val, strategy=strat_u))
 
     return normalized
 
@@ -111,6 +114,9 @@ class AgentController:
         self._pair_defaults: Dict[Tuple[str, str], float] = {
             item.key(): item.lot_size for item in (self.config.watchlist or [])
         }
+        self._pair_strategies: Dict[Tuple[str, str], str | None] = {
+            item.key(): item.strategy for item in (self.config.watchlist or [])
+        }
 
     def _load_config(self) -> AgentConfig:
         try:
@@ -134,6 +140,9 @@ class AgentController:
     def _pair_lot_size(self, sym: str, tf: str) -> float:
         return self._pair_defaults.get((sym.upper(), tf.upper()), self.config.lot_size_lots)
 
+    def _pair_strategy(self, sym: str, tf: str) -> str:
+        return (self._pair_strategies.get((sym.upper(), tf.upper())) or self.config.strategy)
+
     async def _start_pair(self, pair: Tuple[str, str]) -> None:
         if pair in self._tasks:
             return
@@ -141,7 +150,8 @@ class AgentController:
         self._stops[pair] = stop
         sym, tf = pair
         lot_size = self._pair_lot_size(sym, tf)
-        print(f"[AGENT] starting {sym}/{tf} lot_size={lot_size}")
+        strategy_name = self._pair_strategy(sym, tf)
+        print(f"[AGENT] starting {sym}/{tf} lot_size={lot_size} strategy={strategy_name}")
         clear_last_bar_ts(sym, tf)
         update_task_status(sym, tf, state="starting")
         task = asyncio.create_task(
@@ -152,7 +162,7 @@ class AgentController:
                 self.config.min_confidence,
                 self._auto_trade(),
                 lot_size,
-                self.config.strategy,
+                strategy_name,
                 self.config.order_type,
                 stop,
             )
@@ -202,6 +212,7 @@ class AgentController:
             )
             print("[AGENT] applied config:", self.config)
             self._pair_defaults = {item.key(): item.lot_size for item in self.config.watchlist}
+            self._pair_strategies = {item.key(): item.strategy for item in self.config.watchlist}
             self._save_config(self.config)
 
             if not new_cfg.enabled:
@@ -222,16 +233,23 @@ class AgentController:
 
             old_lot_map = {(item.symbol, item.timeframe): item.lot_size for item in old_cfg.watchlist or []}
             new_lot_map = {(item.symbol, item.timeframe): item.lot_size for item in self.config.watchlist}
+            old_strat_map = {(item.symbol, item.timeframe): (item.strategy or old_cfg.strategy) for item in old_cfg.watchlist or []}
+            new_strat_map = {(item.symbol, item.timeframe): (item.strategy or self.config.strategy) for item in self.config.watchlist}
             lot_change_pairs = {
                 pair
                 for pair, lot in new_lot_map.items()
                 if pair in old_lot_map and abs(lot - old_lot_map.get(pair, lot)) > 1e-9
             }
+            strat_change_pairs = {
+                pair
+                for pair, strat in new_strat_map.items()
+                if pair in old_strat_map and (strat or "") != (old_strat_map.get(pair, "") or "")
+            }
 
             to_stop = running - desired
             to_start = desired - running
             common_pairs = running & desired
-            to_restart = common_pairs if restart_needed else (common_pairs & lot_change_pairs)
+            to_restart = common_pairs if restart_needed else (common_pairs & (lot_change_pairs | strat_change_pairs))
 
             tasks_to_stop = to_stop | to_restart
             tasks_to_start = to_start | to_restart
@@ -251,9 +269,14 @@ class AgentController:
         async with self._lock:
             cfg = self.config
             running = list(self._tasks.keys())
+            running_detail = [
+                {"symbol": sym, "timeframe": tf, "strategy": self._pair_strategy(sym, tf)}
+                for sym, tf in running
+            ]
         return {
             "config": asdict(cfg),
             "running_pairs": running,
+            "running_pairs_detail": running_detail,
         }
 
 

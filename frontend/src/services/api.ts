@@ -1,5 +1,13 @@
 import type { AgentSignal } from '../types';
 
+const API_KEY = import.meta.env.VITE_API_KEY;
+
+const authFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers || {});
+  if (API_KEY) headers.set('x-api-key', API_KEY as string);
+  return fetch(input, { ...init, headers });
+};
+
 export interface Candle {
   time: number;
   open: number;
@@ -34,6 +42,7 @@ export interface WatchlistEntry {
   symbol: string;
   timeframe: string;
   lot_size: number;
+  strategy?: string | null;
 }
 
 export interface AgentConfig {
@@ -59,8 +68,49 @@ export interface AgentConfig {
 export interface AgentStatus extends AgentConfig {
   running: boolean;
   running_pairs: [string, string][];
+  running_pairs_detail?: Array<{ symbol: string; timeframe: string; strategy?: string | null }>;
   tasks: Array<Record<string, any>>;
   available_strategies: string[];
+}
+
+// Auto checklist
+export interface AutoChecklistComponent {
+  symbol: string;
+  bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
+  change_pct?: number | null;
+}
+
+export interface AutoChecklist {
+  ts: number;
+  us30_bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
+  xau_bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
+  dxy_bias?: 'bullish' | 'bearish' | 'flat' | 'unknown';
+  dxy_change_pct?: number | null;
+  correlation: 'normal' | 'fear' | 'dollar_crash' | 'weird' | 'unknown';
+  scenario: '' | 'A' | 'B' | 'C' | 'D';
+  components: Record<string, AutoChecklistComponent>;
+  component_score?: number | null;
+  top_movers?: AutoChecklistComponent[];
+  structure_hint?: 'bullish' | 'bearish' | 'range' | 'unknown';
+  volume_hint?: 'rising' | 'falling' | 'flat' | 'unknown';
+  structure_tf?: string | null;
+  volume_tf?: string | null;
+  smc_signal?: {
+    symbol?: string;
+    timeframe?: string;
+    strategy?: string;
+    signal?: string;
+    confidence?: number;
+    rationale?: string;
+  } | null;
+  notes?: string | null;
+}
+
+export interface CalendarEvent {
+  ts: number | null;
+  title: string | null;
+  impact: 'high' | 'medium' | 'low' | 'unknown';
+  source?: string | null;
 }
 
 export async function getCandles(
@@ -68,7 +118,7 @@ export async function getCandles(
   timeframe: string,
   numBars: number = 5000
 ): Promise<CandlesResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `/api/candles?symbol=${symbol}&timeframe=${timeframe}&num_bars=${numBars}`
   );
 
@@ -80,7 +130,7 @@ export async function getCandles(
 }
 
 export const getSymbols = async (): Promise<SymbolsResponse> => {
-  const response = await fetch("/api/symbols");
+  const response = await authFetch("/api/symbols");
 
   if (!response.ok) {
     throw new Error(`Failed to fetch symbols: ${response.statusText}`);
@@ -91,7 +141,7 @@ export const getSymbols = async (): Promise<SymbolsResponse> => {
 
 export const getSymbolLimits = async (symbol?: string): Promise<SymbolLimitsMap | SymbolLimit> => {
   const url = symbol ? `/api/symbol_limits?symbol=${encodeURIComponent(symbol)}` : '/api/symbol_limits';
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch symbol limits: ${response.status} ${response.statusText}`);
   }
@@ -99,7 +149,7 @@ export const getSymbolLimits = async (symbol?: string): Promise<SymbolLimitsMap 
 };
 
 export const getAgentConfig = async (): Promise<AgentConfig> => {
-  const response = await fetch("/api/agent/config");
+  const response = await authFetch("/api/agent/config");
   if (!response.ok) {
     throw new Error(`Failed to fetch agent config: ${response.statusText}`);
   }
@@ -107,7 +157,7 @@ export const getAgentConfig = async (): Promise<AgentConfig> => {
 };
 
 export const setAgentConfig = async (config: AgentConfig): Promise<{ ok: boolean }> => {
-  const response = await fetch("/api/agent/config", {
+  const response = await authFetch("/api/agent/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
@@ -120,7 +170,7 @@ export const setAgentConfig = async (config: AgentConfig): Promise<{ ok: boolean
 };
 
 export const getAgentStatus = async (): Promise<AgentStatus> => {
-  const response = await fetch('/api/agent/status');
+  const response = await authFetch('/api/agent/status');
   if (!response.ok) {
       throw new Error(`Failed to fetch agent status: ${response.statusText}`);
   }
@@ -130,7 +180,7 @@ export const getAgentStatus = async (): Promise<AgentStatus> => {
 
 
 export const getAgentSignals = async (limit = 50): Promise<AgentSignal[]> => {
-  const response = await fetch(`/api/agent/signals?n=${limit}`);
+  const response = await authFetch(`/api/agent/signals?n=${limit}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch agent signals: ${response.statusText}`);
   }
@@ -140,13 +190,17 @@ export const getAgentSignals = async (limit = 50): Promise<AgentSignal[]> => {
 export const addToWatchlist = async (
   symbol: string,
   timeframe: string,
-  lotSize?: number
+  lotSize?: number,
+  strategy?: string
 ): Promise<{ ok: boolean }> => {
   const params = new URLSearchParams({ symbol, timeframe });
   if (typeof lotSize === 'number' && Number.isFinite(lotSize)) {
     params.set('lot_size', lotSize.toString());
   }
-  const response = await fetch(`/api/agent/watchlist/add?${params.toString()}`, {
+  if (strategy) {
+    params.set('strategy', strategy);
+  }
+  const response = await authFetch(`/api/agent/watchlist/add?${params.toString()}`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -171,7 +225,7 @@ export interface TaskResponse {
 }
 
 export const executeTask = async (request: TaskRequest): Promise<TaskResponse> => {
-  const response = await fetch('/api/agent/execute_task', {
+  const response = await authFetch('/api/agent/execute_task', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -187,10 +241,10 @@ export const executeTask = async (request: TaskRequest): Promise<TaskResponse> =
 
 export const reloadStrategies = async (): Promise<{ ok: boolean; loaded: number; available: string[] } | null> => {
   try {
-    const response = await fetch('/api/strategies/reload', { method: 'POST' });
+    const response = await authFetch('/api/strategies/reload', { method: 'POST' });
     if (!response.ok) {
       // Fallback to GET if POST is blocked
-      const r2 = await fetch('/api/strategies/reload');
+      const r2 = await authFetch('/api/strategies/reload');
       if (!r2.ok) throw new Error(await r2.text());
       return r2.json();
     }
@@ -201,7 +255,7 @@ export const reloadStrategies = async (): Promise<{ ok: boolean; loaded: number;
 };
 
 export const listStrategyFiles = async (): Promise<string[]> => {
-  const response = await fetch('/api/strategies/files');
+  const response = await authFetch('/api/strategies/files');
   if (!response.ok) {
     throw new Error(`Failed to list strategy files: ${response.status} ${response.statusText}`);
   }
@@ -231,10 +285,35 @@ export const backtestSavedStrategy = async (
   if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) {
     params.set('slippage_bps', String(slippageBps));
   }
-  const response = await fetch(`/api/strategies/backtest?${params.toString()}`);
+  const response = await authFetch(`/api/strategies/backtest?${params.toString()}`);
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `Backtest failed: ${response.status} ${response.statusText}`);
   }
   return response.json();
+};
+
+export const fetchAutoChecklist = async (params?: { tf?: string; structure_tf?: string }): Promise<AutoChecklist> => {
+  const search = new URLSearchParams();
+  if (params?.tf) search.set('tf', params.tf);
+  if (params?.structure_tf) search.set('structure_tf', params.structure_tf);
+  const qs = search.toString();
+  const response = await authFetch(`/api/checklist/auto${qs ? `?${qs}` : ''}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to fetch auto checklist: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const fetchNextCalendarEvent = async (): Promise<CalendarEvent | null> => {
+  try {
+    const response = await authFetch('/api/calendar/next');
+    if (!response.ok) {
+      return null;
+    }
+    return response.json();
+  } catch {
+    return null;
+  }
 };

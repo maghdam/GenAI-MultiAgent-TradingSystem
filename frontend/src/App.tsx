@@ -15,6 +15,7 @@ import AgentSettings from './components/AgentSettings';
 import SymbolSelector from './components/SymbolSelector';
 import ChatWidget from './components/ChatWidget';
 import StrategyStudioPage from './pages/StrategyStudio/index';
+import HeavyweightChecklistPage from './pages/HeavyweightChecklist';
 
 function Dashboard() {
   const [symbol, setSymbol] = useState('XAUUSD');
@@ -81,7 +82,7 @@ function Dashboard() {
 
   const handleWatchCurrent = async () => {
     try {
-      await addToWatchlist(symbol, timeframe, lotSize);
+      await addToWatchlist(symbol, timeframe, lotSize, strategy);
       const status = await getAgentStatus();
       setAgentStatus(status);
     } catch (error) {
@@ -186,6 +187,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Dashboard />} />
       <Route path="/strategy-studio" element={<StrategyStudioPage />} />
+      <Route path="/heavyweight-checklist" element={<HeavyweightChecklistPage />} />
     </Routes>
   );
 }

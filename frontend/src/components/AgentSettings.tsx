@@ -46,6 +46,7 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           symbol: item.symbol || '',
           timeframe: item.timeframe || '',
           lot_size: Number.isFinite(item.lot_size) ? item.lot_size : fallbackLot,
+          strategy: item.strategy || cfg.strategy || 'smc',
         }));
         setConfig({ ...cfg, watchlist: sanitizedWatchlist });
         const opts = Array.from(new Set([...(status?.available_strategies || []), 'smc', 'rsi', cfg.strategy].filter(Boolean))) as string[];
@@ -68,7 +69,7 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     }
   };
 
-  const handleWatchlistChange = (index: number, field: 'symbol' | 'timeframe' | 'lot_size', value: string) => {
+  const handleWatchlistChange = (index: number, field: 'symbol' | 'timeframe' | 'lot_size' | 'strategy', value: string) => {
     const updated = config.watchlist.map((item, i) => {
       if (i !== index) {
         return item;
@@ -78,6 +79,9 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       }
       if (field === 'timeframe') {
         return { ...item, timeframe: value };
+      }
+      if (field === 'strategy') {
+        return { ...item, strategy: value };
       }
       const parsed = parseFloat(value);
       return { ...item, lot_size: Number.isFinite(parsed) ? parsed : item.lot_size };
@@ -89,7 +93,7 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     const fallbackLot = Number.isFinite(config.lot_size_lots) ? config.lot_size_lots : 0.01;
     setConfig({
       ...config,
-      watchlist: [...config.watchlist, { symbol: '', timeframe: '', lot_size: fallbackLot }],
+      watchlist: [...config.watchlist, { symbol: '', timeframe: '', lot_size: fallbackLot, strategy: config.strategy }],
     });
   };
 
@@ -146,12 +150,13 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               <option value="paper">Paper</option>
               <option value="live">Live</option>
             </select>
-            <label>Strategy</label>
+            <label>Default Strategy</label>
             <select value={config.strategy} onChange={e => setConfig({ ...config, strategy: e.target.value })}>
               {availableStrategies.map(name => (
                 <option key={name} value={name}>{name.toUpperCase()}</option>
               ))}
             </select>
+            <div className="muted" style={{ fontSize: '12px' }}>Applied when a watchlist row has no strategy selected.</div>
             <label>Order Type</label>
             <select
               value={config.order_type || 'MARKET'}
@@ -194,6 +199,15 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                 onChange={e => handleWatchlistChange(index, 'timeframe', e.target.value)}
                 style={{ width: '100px' }}
               />
+              <select
+                value={entry.strategy || config.strategy}
+                onChange={e => handleWatchlistChange(index, 'strategy', e.target.value)}
+                style={{ width: '120px' }}
+              >
+                {availableStrategies.map(name => (
+                  <option key={name} value={name}>{name.toUpperCase()}</option>
+                ))}
+              </select>
               <input
                 type="number"
                 min="0.01"

@@ -13,6 +13,7 @@ class ProgrammerAgent:
 
     async def generate_code(self, goal: str, task_type: TaskKind) -> str:
         goal = (goal or "").strip()
+        goal_lower = goal.lower()
         if task_type == "indicator":
             src = f"""
                 # Example: Simple RSI (14) using pandas
@@ -30,16 +31,132 @@ class ProgrammerAgent:
             return textwrap.dedent(src).strip()
 
         if task_type == "strategy":
+            # Lightweight keyword router so Strategy Studio returns code closer to the user's intent.
+            if "daily" in goal_lower and "close" in goal_lower:
+                src = f"""
+                    # Trend-following on daily closes: long if today's close is above yesterday's, else short.
+                    import pandas as pd
+
+                    def daily_candle_cross(df: pd.DataFrame) -> pd.DataFrame:
+                        if df is None or df.empty:
+                            raise ValueError("Historical data is required.")
+                        if not isinstance(df.index, pd.DatetimeIndex):
+                            df = df.copy()
+                            df.index = pd.to_datetime(df.index, errors="coerce")
+                        else:
+                            df = df.copy()
+                        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+                        df = df.dropna(subset=["close"])
+
+                        daily = df["close"].resample("1D").last().dropna()
+                        prev = daily.shift(1)
+                        df["daily_close"] = daily.reindex(df.index, method="ffill")
+                        df["daily_prev"] = prev.reindex(df.index, method="ffill")
+                        has_prev = df["daily_prev"].notna()
+
+                        df["long_signal"] = ((df["daily_close"] > df["daily_prev"]) & has_prev).astype(int)
+                        df["short_signal"] = ((df["daily_close"] <= df["daily_prev"]) & has_prev).astype(int)
+                        df["position"] = df["long_signal"] - df["short_signal"]
+                        df["returns"] = df["close"].pct_change()
+                        df["strategy_returns"] = df["returns"] * df["position"].shift(1).fillna(0)
+                        return df
+
+                    def signals(df: pd.DataFrame) -> pd.Series:
+                        enriched = daily_candle_cross(df)
+                        return enriched["position"].reindex(df.index).fillna(0)
+                """
+                return textwrap.dedent(src).strip()
+
+            if "rsi" in goal_lower:
+                src = f"""
+                    # Mean-reversion using RSI: long when RSI < 30, short when RSI > 70.
+                    import pandas as pd
+
+                    def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+                        delta = series.diff()
+                        gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+                        loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
+                        rs = gain / loss.replace(0, 1e-9)
+                        return 100 - (100 / (1 + rs))
+
+                    def signals(df: pd.DataFrame, period: int = 14, lower: float = 30, upper: float = 70) -> pd.Series:
+                        r = rsi(df["close"], period)
+                        sig = pd.Series(0, index=df.index, dtype=float)
+                        sig[r < lower] = 1   # long bias
+                        sig[r > upper] = -1  # short bias
+                        return sig.ffill().fillna(0)
+                """
+                return textwrap.dedent(src).strip()
+
+            if "macd" in goal_lower:
+                src = f"""
+                    # MACD line/signal crossover.
+                    import pandas as pd
+
+                    def ema(series: pd.Series, span: int) -> pd.Series:
+                        return series.ewm(span=span, adjust=False).mean()
+
+                    def signals(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.Series:
+                        price = df["close"]
+                        macd_line = ema(price, fast) - ema(price, slow)
+                        signal_line = ema(macd_line, signal)
+                        cross_up = (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1))
+                        cross_dn = (macd_line < signal_line) & (macd_line.shift(1) >= signal_line.shift(1))
+                        sig = pd.Series(0, index=df.index, dtype=float)
+                        sig[cross_up] = 1
+                        sig[cross_dn] = -1
+                        return sig.ffill().fillna(0)
+                """
+                return textwrap.dedent(src).strip()
+
+            if "bollinger" in goal_lower:
+                src = f"""
+                    # Bollinger Band mean reversion: long at lower band touch, short at upper band touch.
+                    import pandas as pd
+
+                    def signals(df: pd.DataFrame, length: int = 20, mult: float = 2.0) -> pd.Series:
+                        close = df["close"]
+                        ma = close.rolling(length, min_periods=length).mean()
+                        std = close.rolling(length, min_periods=length).std(ddof=0)
+                        upper = ma + mult * std
+                        lower = ma - mult * std
+                        sig = pd.Series(0, index=df.index, dtype=float)
+                        sig[close < lower] = 1
+                        sig[close > upper] = -1
+                        return sig.ffill().fillna(0)
+                """
+                return textwrap.dedent(src).strip()
+
+            if "breakout" in goal_lower or "range" in goal_lower:
+                src = f"""
+                    # Simple breakout: long on highest-high breakout, short on lowest-low breakdown.
+                    import pandas as pd
+
+                    def signals(df: pd.DataFrame, lookback: int = 20) -> pd.Series:
+                        highs = df["high"].rolling(lookback, min_periods=lookback).max()
+                        lows = df["low"].rolling(lookback, min_periods=lookback).min()
+                        close = df["close"]
+                        long_trig = (close > highs.shift(1))
+                        short_trig = (close < lows.shift(1))
+                        sig = pd.Series(0, index=df.index, dtype=float)
+                        sig[long_trig] = 1
+                        sig[short_trig] = -1
+                        return sig.ffill().fillna(0)
+                """
+                return textwrap.dedent(src).strip()
+
+            # Fallback: SMA crossover (kept as a default) but at least echo the request.
             src = f"""
-                # Example: SMA crossover strategy skeleton
+                # Default crossover strategy (fallback when the request is unclear).
+                # Original request: {goal or "no description provided"}
                 import pandas as pd
 
                 def sma(series: pd.Series, n: int) -> pd.Series:
                     return series.rolling(n, min_periods=n).mean()
 
                 def signals(df: pd.DataFrame, fast: int = 50, slow: int = 200) -> pd.Series:
-                    f = sma(df['close'], fast)
-                    s = sma(df['close'], slow)
+                    f = sma(df["close"], fast)
+                    s = sma(df["close"], slow)
                     sig = (f > s).astype(int).diff().fillna(0)
                     # 1 = long entry, -1 = exit/short entry depending on rules
                     return sig

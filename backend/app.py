@@ -8,7 +8,7 @@ try:
 except ImportError:
     pass # If twisted isn't installed, app will fail later with a clearer error.
 
-from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi import FastAPI, Request, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -23,6 +23,7 @@ from dataclasses import asdict
 from threading import Lock
 from pathlib import Path
 from typing import List, Optional
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -58,6 +59,8 @@ from backend.strategy import (
 )
 from backend.llm_analyzer import warm_ollama
 from backend import web_search
+from backend.checklist import compute_auto_checklist
+from backend.data_fetcher import ALLOWED_TF
 
 from backend.journal import db as journal_db
 from backend.journal.router import router as journal_router
@@ -69,9 +72,36 @@ app = FastAPI()
 
 app.include_router(journal_router, prefix="/api/journal")
 
+# ── Security: optional API key gate & CORS tightening ─────────────────────
+API_KEY = os.getenv("API_KEY")
+
+
+def require_api_key(req: Request):
+    """Lightweight header check; no-op if API_KEY is unset."""
+    if not API_KEY:
+        return
+    provided = (
+        req.headers.get("x-api-key")
+        or req.headers.get("authorization")
+        or req.headers.get("Authorization")
+    )
+    if provided and provided.lower().startswith("bearer "):
+        provided = provided[7:]
+    if provided != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+@lru_cache(maxsize=1)
+def _allowed_origins() -> list[str]:
+    raw = os.getenv("ALLOWED_ORIGINS", "")
+    if raw.strip():
+        items = [o.strip() for o in raw.split(",") if o.strip()]
+        return items or ["http://localhost:8080"]
+    return ["http://localhost:8080"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -151,7 +181,7 @@ async def agent_signals(n: int = 50):
     return recent_signals(n)
 
 
-@app.post("/api/agent/reset_state")
+@app.post("/api/agent/reset_state", dependencies=[Depends(require_api_key)])
 async def agent_reset_state():
     """Clear persisted signals, last-bar timestamps, and task status.
 
@@ -162,8 +192,8 @@ async def agent_reset_state():
     return {"ok": True}
 
 
-@app.post("/api/strategies/reload")
-@app.get("/api/strategies/reload")
+@app.post("/api/strategies/reload", dependencies=[Depends(require_api_key)])
+@app.get("/api/strategies/reload", dependencies=[Depends(require_api_key)])
 async def strategies_reload():
     try:
         cnt = load_generated_strategies()
@@ -172,12 +202,12 @@ async def strategies_reload():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/strategies")
+@app.get("/api/strategies", dependencies=[Depends(require_api_key)])
 async def strategies_list():
     return {"available": available_strategies(), "errors": get_last_strategy_load_errors()}
 
 
-@app.get("/api/strategies/files")
+@app.get("/api/strategies/files", dependencies=[Depends(require_api_key)])
 async def strategies_files():
     """List .py files visible to the container under strategies_generated.
 
@@ -196,6 +226,7 @@ async def agent_status():
     snap = await controller.snapshot()
     cfg = snap.get("config") or {}
     running_pairs = snap.get("running_pairs") or []
+    running_pairs_detail = snap.get("running_pairs_detail") or []
     # Ensure tasks is always a list for the frontend
     tasks = all_task_status() or []
 
@@ -212,12 +243,13 @@ async def agent_status():
         "lot_size_lots": cfg.get("lot_size_lots"),
         "strategy": cfg.get("strategy"),
         "running_pairs": running_pairs,
+        "running_pairs_detail": running_pairs_detail,
         "tasks": tasks,
         "available_strategies": available_strategies(),
     }
 
 
-@app.get("/api/strategies/backtest")
+@app.get("/api/strategies/backtest", dependencies=[Depends(require_api_key)])
 async def strategies_backtest(
     strategy: str,
     symbol: str,
@@ -392,7 +424,7 @@ async def strategies_backtest(
         "Avg Hold [bars]": round(avg_hold_bars, 2),
     }
 
-@app.post("/api/agent/execute_task")
+@app.post("/api/agent/execute_task", dependencies=[Depends(require_api_key)])
 async def execute_task_endpoint(req: Request):
     """Compatibility endpoint for Strategy Studio tasks.
 
@@ -591,7 +623,7 @@ def _truthy(x) -> bool:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", dependencies=[Depends(require_api_key)])
 async def analyze(req: Request):
     body = await req.json()
     symbol     = (body.get("symbol") or "").strip()
@@ -727,7 +759,7 @@ def _close_opposites_and_wait(symbol: str, desired_dir: str, *, timeout_sec: int
     return None
 
 
-@app.post("/api/execute_trade")
+@app.post("/api/execute_trade", dependencies=[Depends(require_api_key)])
 def execute_trade(order: PlaceOrderRequest):
     try:
         if not ctd.symbol_name_to_id:
@@ -934,6 +966,7 @@ class WatchlistItemIn(BaseModel):
     symbol: str = Field(..., min_length=1)
     timeframe: str = Field(..., min_length=1)
     lot_size: Optional[float] = Field(None, gt=0)
+    strategy: Optional[str] = None
 
 
 class AgentConfigIn(BaseModel):
@@ -956,13 +989,13 @@ class AgentConfigIn(BaseModel):
     tick_pct: float = 0.0005
 
 
-@app.get("/api/agent/config")
+@app.get("/api/agent/config", dependencies=[Depends(require_api_key)])
 async def get_agent_cfg():
     cfg = controller.config
     return {
         "enabled": cfg.enabled,
         "watchlist": [
-            {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size}
+            {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size, "strategy": item.strategy or cfg.strategy}
             for item in cfg.watchlist
         ],
         "interval_sec": cfg.interval_sec,
@@ -983,7 +1016,7 @@ async def get_agent_cfg():
     }
 
 
-@app.post("/api/agent/config")
+@app.post("/api/agent/config", dependencies=[Depends(require_api_key)])
 async def set_agent_cfg(cfg: AgentConfigIn):
     # Sanitize watchlist and drop invalid timeframes early
     allowed = set(data_fetcher.ALLOWED_TF)
@@ -992,11 +1025,17 @@ async def set_agent_cfg(cfg: AgentConfigIn):
             "symbol": item.symbol,
             "timeframe": item.timeframe,
             "lot_size": item.lot_size if item.lot_size is not None else cfg.lot_size_lots,
+            "strategy": (item.strategy or cfg.strategy).lower() if item.strategy else cfg.strategy,
         }
         for item in cfg.watchlist
     ]
     watch_entries = [
-        {"symbol": (e["symbol"] or "").strip().upper(), "timeframe": (e["timeframe"] or "").strip().upper(), "lot_size": e["lot_size"]}
+        {
+            "symbol": (e["symbol"] or "").strip().upper(),
+            "timeframe": (e["timeframe"] or "").strip().upper(),
+            "lot_size": e["lot_size"],
+            "strategy": (e.get("strategy") or cfg.strategy).strip().lower(),
+        }
         for e in raw_entries
         if (e.get("symbol") and e.get("timeframe") and (str(e.get("timeframe") or "").strip().upper() in allowed))
     ]
@@ -1035,12 +1074,12 @@ async def set_agent_cfg(cfg: AgentConfigIn):
     return {"ok": True}
 
 
-@app.post("/api/agent/watchlist/add")
-async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] = None):
+@app.post("/api/agent/watchlist/add", dependencies=[Depends(require_api_key)])
+async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] = None, strategy: Optional[str] = None):
     cfg = controller.config
     # Normalize current watchlist to list of tuples, uppercase, filter empties
     current: list[dict[str, object]] = [
-        {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size}
+        {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size, "strategy": item.strategy or cfg.strategy}
         for item in (cfg.watchlist or [])
     ]
 
@@ -1059,14 +1098,17 @@ async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] 
     if lot <= 0:
         lot = float(cfg.lot_size_lots)
 
+    strat_l = (strategy or cfg.strategy).strip().lower()
+
     updated = False
     for entry in current:
         if entry["symbol"] == sym_u and entry["timeframe"] == tf_u:
             entry["lot_size"] = lot
+            entry["strategy"] = strat_l
             updated = True
             break
     if not updated:
-        current.append({"symbol": sym_u, "timeframe": tf_u, "lot_size": lot})
+        current.append({"symbol": sym_u, "timeframe": tf_u, "lot_size": lot, "strategy": strat_l})
 
     await controller.apply_config(
         AgentConfig(
@@ -1083,7 +1125,7 @@ async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] 
     return {"ok": True}
 
 
-@app.post("/api/agent/watchlist/remove")
+@app.post("/api/agent/watchlist/remove", dependencies=[Depends(require_api_key)])
 async def agent_remove_pair(symbol: str, timeframe: str):
     cfg = controller.config
     sym_u = (symbol or "").strip().upper()
@@ -1093,7 +1135,7 @@ async def agent_remove_pair(symbol: str, timeframe: str):
     for item in (cfg.watchlist or []):
         if item.symbol == sym_u and item.timeframe == tf_u:
             continue
-        next_list.append({"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size})
+        next_list.append({"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size, "strategy": item.strategy or cfg.strategy})
 
     await controller.apply_config(
         AgentConfig(
@@ -1108,6 +1150,36 @@ async def agent_remove_pair(symbol: str, timeframe: str):
         )
     )
     return {"ok": True}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Checklist automation
+# ──────────────────────────────────────────────────────────────────────────
+@app.get("/api/checklist/auto", dependencies=[Depends(require_api_key)])
+async def checklist_auto(tf: str = Query("M5"), structure_tf: str = Query("H1")):
+    try:
+        tf_u = (tf or "M5").upper()
+        st_tf = (structure_tf or "H1").upper()
+        if tf_u not in ALLOWED_TF:
+            raise HTTPException(status_code=400, detail=f"Invalid timeframe '{tf_u}'. Allowed: {sorted(ALLOWED_TF)}")
+        if st_tf not in ALLOWED_TF:
+            raise HTTPException(status_code=400, detail=f"Invalid structure timeframe '{st_tf}'. Allowed: {sorted(ALLOWED_TF)}")
+        auto = compute_auto_checklist(bias_tf=tf_u, structure_tf=st_tf, volume_tf=tf_u)
+        return auto.dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/calendar/next", dependencies=[Depends(require_api_key)])
+async def calendar_next():
+    try:
+        from backend.calendar import get_next_event
+        evt = get_next_event()
+        if not evt:
+            return {"ts": None, "title": None, "impact": "unknown", "source": None}
+        return evt
+    except Exception as e:
+        return {"ts": None, "title": None, "impact": "unknown", "source": f"error: {e}"}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Chat endpoint
@@ -1136,12 +1208,16 @@ Respond with ONLY a single JSON object in the following format and nothing else:
 {{"intent": "<intent>", "symbol": "<symbol or null>", "topic": "<topic or null>", "timeframe": "<timeframe or null>", "strategy": "<strategy or null>"}}"""
 
     try:
-        response_text = _ollama_generate(
-            prompt=prompt,
-            model=MODEL_DEFAULT, 
-            timeout=300, # A longer timeout for chat responses
-            json_only=True,
-            options_overrides={"num_predict": 48}
+        loop = asyncio.get_running_loop()
+        response_text = await loop.run_in_executor(
+            None,
+            lambda: _ollama_generate(
+                prompt=prompt,
+                model=MODEL_DEFAULT, 
+                timeout=300, # A longer timeout for chat responses
+                json_only=True,
+                options_overrides={"num_predict": 48}
+            ),
         )
         return json.loads(response_text)
     except Exception as e:
@@ -1323,7 +1399,8 @@ Summary:
         # This can be slow, so let the user know we're working on it
         # (Socket notification removed)
         
-        summary = await web_search.get_news_summary(topic)
+        loop = asyncio.get_running_loop()
+        summary = await loop.run_in_executor(None, web_search.get_news_summary, topic)
         return summary
 
     elif intent == "get_agent_status":
@@ -1340,23 +1417,27 @@ Summary:
                 sym = entry.get("symbol")
                 tf = entry.get("timeframe")
                 lot = entry.get("lot_size")
+                strat = entry.get("strategy") or cfg.get("strategy")
             elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
                 sym, tf = entry[0], entry[1]
                 lot = entry[2] if len(entry) >= 3 else None
+                strat = entry[3] if len(entry) >= 4 else cfg.get("strategy")
             else:
                 continue
             sym_u = (sym or "").strip().upper()
             tf_u = (tf or "").strip().upper()
+            strat_l = (strat or "").strip().lower()
             if not sym_u or not tf_u:
                 continue
             try:
                 lot_val = float(lot) if lot is not None else None
             except (TypeError, ValueError):
                 lot_val = None
+            suffix = ""
             if lot_val is not None:
-                watchlist_items.append(f"{sym_u}/{tf_u} ({lot_val:.2f})")
-            else:
-                watchlist_items.append(f"{sym_u}/{tf_u}")
+                suffix = f" ({lot_val:.2f})"
+            strat_suffix = f" [{strat_l}]" if strat_l else ""
+            watchlist_items.append(f"{sym_u}/{tf_u}{suffix}{strat_suffix}")
         watchlist_text = ', '.join(watchlist_items) if watchlist_items else "not set"
 
 
@@ -1390,7 +1471,7 @@ class ChatStreamRequest(BaseModel):
     client_id: Optional[str] = None
 
 
-@app.post("/api/chat/stream")
+@app.post("/api/chat/stream", dependencies=[Depends(require_api_key)])
 async def chat_stream(req: ChatStreamRequest):
     """Streaming chat endpoint.
 

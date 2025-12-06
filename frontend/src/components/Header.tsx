@@ -206,6 +206,9 @@ export default function Header({
       <button className="btn" type="button" onClick={onReloadStrategies}>
         Reload Strategies
       </button>
+      <a className="btn" href="/heavyweight-checklist">
+        📋 Checklist
+      </a>
       <span className="muted">{agentStatusText}</span>
     </header>
   );
