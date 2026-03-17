@@ -15,6 +15,7 @@ import AgentSettings from './components/AgentSettings';
 import SymbolSelector from './components/SymbolSelector';
 import ChatWidget from './components/ChatWidget';
 import StrategyStudioPage from './pages/StrategyStudio/index';
+import StrategyStudioResultsPage from './pages/StrategyStudio/Results';
 import HeavyweightChecklistPage from './pages/HeavyweightChecklist';
 
 function Dashboard() {
@@ -187,6 +188,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Dashboard />} />
       <Route path="/strategy-studio" element={<StrategyStudioPage />} />
+      <Route path="/strategy-studio/results" element={<StrategyStudioResultsPage />} />
       <Route path="/heavyweight-checklist" element={<HeavyweightChecklistPage />} />
     </Routes>
   );

@@ -17,6 +17,13 @@ class WatchlistItem:
     timeframe: str
     lot_size: float
     strategy: str | None = None
+    risk_enabled: bool | None = None
+    risk_mode: str | None = None
+    atr_len: int | None = None
+    atr_mult: float | None = None
+    rr: float | None = None
+    swing_lookback: int | None = None
+    tick_pct: float | None = None
 
     def key(self) -> Tuple[str, str]:
         return (self.symbol.upper(), self.timeframe.upper())
@@ -30,16 +37,38 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
     for item in raw or []:
         sym = tf = strat = None
         lot: Any = None
+        risk_enabled = None
+        risk_mode = None
+        atr_len = None
+        atr_mult = None
+        rr = None
+        swing_lookback = None
+        tick_pct = None
 
         if isinstance(item, WatchlistItem):
             sym = item.symbol
             tf = item.timeframe
             lot = item.lot_size
+            strat = item.strategy
+            risk_enabled = getattr(item, "risk_enabled", None)
+            risk_mode = getattr(item, "risk_mode", None)
+            atr_len = getattr(item, "atr_len", None)
+            atr_mult = getattr(item, "atr_mult", None)
+            rr = getattr(item, "rr", None)
+            swing_lookback = getattr(item, "swing_lookback", None)
+            tick_pct = getattr(item, "tick_pct", None)
         elif isinstance(item, dict):
             sym = item.get("symbol") or item.get("pair") or item.get("name")
             tf = item.get("timeframe") or item.get("tf")
             lot = item.get("lot_size") or item.get("lotSize") or item.get("volume")
             strat = item.get("strategy") or item.get("strat")
+            risk_enabled = item.get("risk_enabled")
+            risk_mode = item.get("risk_mode")
+            atr_len = item.get("atr_len")
+            atr_mult = item.get("atr_mult")
+            rr = item.get("rr")
+            swing_lookback = item.get("swing_lookback")
+            tick_pct = item.get("tick_pct")
         elif isinstance(item, (list, tuple)):
             if len(item) >= 2:
                 sym, tf = item[0], item[1]
@@ -52,6 +81,7 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
         sym_u = (sym or "").strip().upper()
         tf_u = (tf or "").strip().upper()
         strat_u = (strat or "").strip().lower() or None
+        risk_mode_u = (risk_mode or "").strip().lower() or None
 
         try:
             lot_val = float(lot) if lot is not None else float(fallback)
@@ -73,7 +103,21 @@ def normalize_watchlist(raw: Iterable[Any] | None, default_lot: float) -> List[W
         if key in seen:
             continue
         seen.add(key)
-        normalized.append(WatchlistItem(symbol=sym_u, timeframe=tf_u, lot_size=lot_val, strategy=strat_u))
+        normalized.append(
+            WatchlistItem(
+                symbol=sym_u,
+                timeframe=tf_u,
+                lot_size=lot_val,
+                strategy=strat_u,
+                risk_enabled=bool(risk_enabled) if risk_enabled is not None else None,
+                risk_mode=risk_mode_u,
+                atr_len=int(atr_len) if atr_len is not None else None,
+                atr_mult=float(atr_mult) if atr_mult is not None else None,
+                rr=float(rr) if rr is not None else None,
+                swing_lookback=int(swing_lookback) if swing_lookback is not None else None,
+                tick_pct=float(tick_pct) if tick_pct is not None else None,
+            )
+        )
 
     return normalized
 
@@ -117,6 +161,18 @@ class AgentController:
         self._pair_strategies: Dict[Tuple[str, str], str | None] = {
             item.key(): item.strategy for item in (self.config.watchlist or [])
         }
+        self._pair_risk: Dict[Tuple[str, str], Dict[str, object]] = {
+            item.key(): {
+                "enabled": item.risk_enabled,
+                "mode": item.risk_mode,
+                "atr_len": item.atr_len,
+                "atr_mult": item.atr_mult,
+                "rr": item.rr,
+                "swing_lookback": item.swing_lookback,
+                "tick_pct": item.tick_pct,
+            }
+            for item in (self.config.watchlist or [])
+        }
 
     def _load_config(self) -> AgentConfig:
         try:
@@ -143,6 +199,9 @@ class AgentController:
     def _pair_strategy(self, sym: str, tf: str) -> str:
         return (self._pair_strategies.get((sym.upper(), tf.upper())) or self.config.strategy)
 
+    def _pair_risk_cfg(self, sym: str, tf: str) -> Dict[str, object]:
+        return self._pair_risk.get((sym.upper(), tf.upper()), {})
+
     async def _start_pair(self, pair: Tuple[str, str]) -> None:
         if pair in self._tasks:
             return
@@ -151,6 +210,7 @@ class AgentController:
         sym, tf = pair
         lot_size = self._pair_lot_size(sym, tf)
         strategy_name = self._pair_strategy(sym, tf)
+        risk_cfg = self._pair_risk_cfg(sym, tf)
         print(f"[AGENT] starting {sym}/{tf} lot_size={lot_size} strategy={strategy_name}")
         clear_last_bar_ts(sym, tf)
         update_task_status(sym, tf, state="starting")
@@ -164,6 +224,7 @@ class AgentController:
                 lot_size,
                 strategy_name,
                 self.config.order_type,
+                risk_cfg,
                 stop,
             )
         )
@@ -213,6 +274,18 @@ class AgentController:
             print("[AGENT] applied config:", self.config)
             self._pair_defaults = {item.key(): item.lot_size for item in self.config.watchlist}
             self._pair_strategies = {item.key(): item.strategy for item in self.config.watchlist}
+            self._pair_risk = {
+                item.key(): {
+                    "enabled": item.risk_enabled,
+                    "mode": item.risk_mode,
+                    "atr_len": item.atr_len,
+                    "atr_mult": item.atr_mult,
+                    "rr": item.rr,
+                    "swing_lookback": item.swing_lookback,
+                    "tick_pct": item.tick_pct,
+                }
+                for item in self.config.watchlist
+            }
             self._save_config(self.config)
 
             if not new_cfg.enabled:
@@ -235,6 +308,30 @@ class AgentController:
             new_lot_map = {(item.symbol, item.timeframe): item.lot_size for item in self.config.watchlist}
             old_strat_map = {(item.symbol, item.timeframe): (item.strategy or old_cfg.strategy) for item in old_cfg.watchlist or []}
             new_strat_map = {(item.symbol, item.timeframe): (item.strategy or self.config.strategy) for item in self.config.watchlist}
+            old_risk_map = {
+                (item.symbol, item.timeframe): {
+                    "enabled": item.risk_enabled,
+                    "mode": item.risk_mode,
+                    "atr_len": item.atr_len,
+                    "atr_mult": item.atr_mult,
+                    "rr": item.rr,
+                    "swing_lookback": item.swing_lookback,
+                    "tick_pct": item.tick_pct,
+                }
+                for item in old_cfg.watchlist or []
+            }
+            new_risk_map = {
+                (item.symbol, item.timeframe): {
+                    "enabled": item.risk_enabled,
+                    "mode": item.risk_mode,
+                    "atr_len": item.atr_len,
+                    "atr_mult": item.atr_mult,
+                    "rr": item.rr,
+                    "swing_lookback": item.swing_lookback,
+                    "tick_pct": item.tick_pct,
+                }
+                for item in self.config.watchlist
+            }
             lot_change_pairs = {
                 pair
                 for pair, lot in new_lot_map.items()
@@ -245,11 +342,16 @@ class AgentController:
                 for pair, strat in new_strat_map.items()
                 if pair in old_strat_map and (strat or "") != (old_strat_map.get(pair, "") or "")
             }
+            risk_change_pairs = {
+                pair
+                for pair, risk in new_risk_map.items()
+                if pair in old_risk_map and risk != old_risk_map.get(pair, {})
+            }
 
             to_stop = running - desired
             to_start = desired - running
             common_pairs = running & desired
-            to_restart = common_pairs if restart_needed else (common_pairs & (lot_change_pairs | strat_change_pairs))
+            to_restart = common_pairs if restart_needed else (common_pairs & (lot_change_pairs | strat_change_pairs | risk_change_pairs))
 
             tasks_to_stop = to_stop | to_restart
             tasks_to_start = to_start | to_restart

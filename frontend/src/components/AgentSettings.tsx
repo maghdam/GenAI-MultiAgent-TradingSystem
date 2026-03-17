@@ -18,12 +18,6 @@ const initialConfig: AgentConfig = {
   order_type: 'MARKET',
   llm_gate_enabled: true,
   llm_gate_threshold: 3,
-  risk_mode: 'atr',
-  atr_len: 14,
-  atr_mult: 1.0,
-  rr: 2.0,
-  swing_lookback: 10,
-  tick_pct: 0.0005,
 };
 
 export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
@@ -47,6 +41,13 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           timeframe: item.timeframe || '',
           lot_size: Number.isFinite(item.lot_size) ? item.lot_size : fallbackLot,
           strategy: item.strategy || cfg.strategy || 'smc',
+          risk_enabled: item.risk_enabled ?? false,
+          risk_mode: item.risk_mode || 'atr',
+          atr_len: item.atr_len ?? 14,
+          atr_mult: item.atr_mult ?? 1.0,
+          rr: item.rr ?? 2.0,
+          swing_lookback: item.swing_lookback ?? 10,
+          tick_pct: item.tick_pct ?? 0.0005,
         }));
         setConfig({ ...cfg, watchlist: sanitizedWatchlist });
         const opts = Array.from(new Set([...(status?.available_strategies || []), 'smc', 'rsi', cfg.strategy].filter(Boolean))) as string[];
@@ -69,7 +70,7 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     }
   };
 
-  const handleWatchlistChange = (index: number, field: 'symbol' | 'timeframe' | 'lot_size' | 'strategy', value: string) => {
+  const handleWatchlistChange = (index: number, field: 'symbol' | 'timeframe' | 'lot_size' | 'strategy' | 'risk_mode' | 'atr_len' | 'atr_mult' | 'rr' | 'swing_lookback' | 'tick_pct', value: string) => {
     const updated = config.watchlist.map((item, i) => {
       if (i !== index) {
         return item;
@@ -83,6 +84,17 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       if (field === 'strategy') {
         return { ...item, strategy: value };
       }
+      if (field === 'risk_mode') {
+        return { ...item, risk_mode: value };
+      }
+      if (['atr_len', 'swing_lookback'].includes(field)) {
+        const parsed = parseInt(value, 10);
+        return { ...item, [field]: Number.isFinite(parsed) ? parsed : (item as any)[field] };
+      }
+      if (['atr_mult', 'rr', 'tick_pct'].includes(field)) {
+        const parsed = parseFloat(value);
+        return { ...item, [field]: Number.isFinite(parsed) ? parsed : (item as any)[field] };
+      }
       const parsed = parseFloat(value);
       return { ...item, lot_size: Number.isFinite(parsed) ? parsed : item.lot_size };
     });
@@ -93,7 +105,22 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     const fallbackLot = Number.isFinite(config.lot_size_lots) ? config.lot_size_lots : 0.01;
     setConfig({
       ...config,
-      watchlist: [...config.watchlist, { symbol: '', timeframe: '', lot_size: fallbackLot, strategy: config.strategy }],
+      watchlist: [
+        ...config.watchlist,
+        {
+          symbol: '',
+          timeframe: '',
+          lot_size: fallbackLot,
+          strategy: config.strategy,
+          risk_enabled: false,
+          risk_mode: 'atr',
+          atr_len: 14,
+          atr_mult: 1.0,
+          rr: 2.0,
+          swing_lookback: 10,
+          tick_pct: 0.0005,
+        },
+      ],
     });
   };
 
@@ -217,6 +244,85 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                 onChange={e => handleWatchlistChange(index, 'lot_size', e.target.value)}
                 style={{ width: '110px' }}
               />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                <input
+                  type="checkbox"
+                  checked={!!entry.risk_enabled}
+                  onChange={e => {
+                    const updated = config.watchlist.map((item, i) =>
+                      i === index ? { ...item, risk_enabled: e.target.checked } : item
+                    );
+                    setConfig({ ...config, watchlist: updated });
+                  }}
+                />
+                Use risk
+              </label>
+              {entry.risk_enabled && (
+                <div className="stack" style={{ width: '100%', gap: '6px', marginTop: '4px' }}>
+                  <div className="kv" style={{ alignItems: 'center', gridTemplateColumns: 'auto 1fr auto 1fr' }}>
+                    <label>Mode</label>
+                    <select
+                      value={entry.risk_mode || 'atr'}
+                      onChange={e => handleWatchlistChange(index, 'risk_mode', e.target.value)}
+                    >
+                      <option value="atr">ATR</option>
+                      <option value="swing">Swing</option>
+                    </select>
+                    <label>RR</label>
+                    <input
+                      type="number"
+                      min="0.5"
+                      max="5"
+                      step="0.1"
+                      value={entry.rr ?? 2.0}
+                      onChange={e => handleWatchlistChange(index, 'rr', e.target.value)}
+                    />
+                  </div>
+                  { (entry.risk_mode || 'atr') === 'atr' ? (
+                    <div className="kv" style={{ alignItems: 'center', gridTemplateColumns: 'auto 1fr auto 1fr' }}>
+                      <label>ATR Len</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="200"
+                        step="1"
+                        value={entry.atr_len ?? 14}
+                        onChange={e => handleWatchlistChange(index, 'atr_len', e.target.value)}
+                      />
+                      <label>ATR Mult</label>
+                      <input
+                        type="number"
+                        min="0.5"
+                        max="5"
+                        step="0.1"
+                        value={entry.atr_mult ?? 1.0}
+                        onChange={e => handleWatchlistChange(index, 'atr_mult', e.target.value)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="kv" style={{ alignItems: 'center', gridTemplateColumns: 'auto 1fr auto 1fr' }}>
+                      <label>Lookback</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="100"
+                        step="1"
+                        value={entry.swing_lookback ?? 10}
+                        onChange={e => handleWatchlistChange(index, 'swing_lookback', e.target.value)}
+                      />
+                      <label>Tick %</label>
+                      <input
+                        type="number"
+                        min="0.0001"
+                        max="0.01"
+                        step="0.0001"
+                        value={entry.tick_pct ?? 0.0005}
+                        onChange={e => handleWatchlistChange(index, 'tick_pct', e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
               {(() => {
                 const sym = (entry.symbol || '').toUpperCase();
                 const lim = limsHas(limits, sym) ? limits[sym] : undefined;
@@ -237,61 +343,6 @@ export default function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
 
           <div className="stack" style={{ marginTop: '16px', justifyContent: 'flex-end' }}>
             <div style={{ flex: 1 }} />
-            <div className="kv" style={{ alignItems: 'center' }}>
-              <label>Risk Mode</label>
-              <select
-                value={config.risk_mode || 'atr'}
-                onChange={e => setConfig({ ...config, risk_mode: e.target.value })}
-              >
-                <option value="atr">ATR</option>
-                <option value="swing">Swing</option>
-              </select>
-              <label>ATR Len</label>
-              <input
-                type="number"
-                min="5"
-                max="100"
-                step="1"
-                value={config.atr_len ?? 14}
-                onChange={e => setConfig({ ...config, atr_len: parseInt(e.target.value || '14', 10) })}
-              />
-              <label>ATR Mult</label>
-              <input
-                type="number"
-                min="0.5"
-                max="5.0"
-                step="0.1"
-                value={config.atr_mult ?? 1.0}
-                onChange={e => setConfig({ ...config, atr_mult: parseFloat(e.target.value || '1.0') })}
-              />
-              <label>RR</label>
-              <input
-                type="number"
-                min="1.0"
-                max="5.0"
-                step="0.1"
-                value={config.rr ?? 2.0}
-                onChange={e => setConfig({ ...config, rr: parseFloat(e.target.value || '2.0') })}
-              />
-              <label>Swing LB</label>
-              <input
-                type="number"
-                min="5"
-                max="50"
-                step="1"
-                value={config.swing_lookback ?? 10}
-                onChange={e => setConfig({ ...config, swing_lookback: parseInt(e.target.value || '10', 10) })}
-              />
-              <label>Tick %</label>
-              <input
-                type="number"
-                min="0.0001"
-                max="0.01"
-                step="0.0001"
-                value={config.tick_pct ?? 0.0005}
-                onChange={e => setConfig({ ...config, tick_pct: parseFloat(e.target.value || '0.0005') })}
-              />
-            </div>
             <button type="button" className="btn" onClick={onClose}>
               Cancel
             </button>

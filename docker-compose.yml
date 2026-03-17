@@ -4,7 +4,7 @@ services:
     container_name: ollama
     # Only other containers can reach it at http://ollama:11434
     volumes:
-      - "C:\\Users\\moham\\.ollama:/root/.ollama"
+      - "C:\\Users\\mohag\\.ollama:/root/.ollama"
     environment:
       - OLLAMA_KEEP_ALIVE=30m
       - OLLAMA_NUM_PARALLEL=1

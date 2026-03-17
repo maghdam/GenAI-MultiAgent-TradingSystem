@@ -38,6 +38,7 @@ from backend.indicators import add_indicators
 from backend.llm_analyzer import (
     analyze_data_with_llm,
     MODEL_DEFAULT,
+    FALLBACK_MODEL,
     _ollama_generate,
     TradeDecision,
 )
@@ -63,7 +64,9 @@ from backend.checklist import compute_auto_checklist
 from backend.data_fetcher import ALLOWED_TF
 
 from backend.journal import db as journal_db
+from backend.journal import db as journal_db
 from backend.journal.router import router as journal_router
+from backend.optimizer_utils import extract_parameters
 
 # ──────────────────────────────────────────────────────────────────────────
 # FastAPI app & middleware
@@ -171,6 +174,47 @@ async def llm_status():
             return {"ollama": t.status_code, "model": OLLAMA_MODEL}
     except Exception as e:
         return {"ollama": "unreachable", "error": str(e)}
+
+
+# Expose installed LLM models for UI dropdowns (Strategy Studio, etc.)
+@app.get("/api/llm/models", dependencies=[Depends(require_api_key)])
+async def llm_models():
+    """List available Ollama models (from /api/tags) and defaults."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{OLLAMA_URL}/api/tags")
+            if r.status_code != 200:
+                return {
+                    "provider": "ollama",
+                    "models": [],
+                    "default": MODEL_DEFAULT,
+                    "fallback": FALLBACK_MODEL,
+                    "error": f"ollama /api/tags -> {r.status_code}",
+                }
+            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            models_raw = data.get("models") if isinstance(data, dict) else None
+            models: list[str] = []
+            if isinstance(models_raw, list):
+                for m in models_raw:
+                    if isinstance(m, dict):
+                        name = m.get("name") or m.get("model")
+                        if isinstance(name, str) and name.strip():
+                            models.append(name.strip())
+            models = sorted({m for m in models}, key=lambda s: s.lower())
+            return {
+                "provider": "ollama",
+                "models": models,
+                "default": MODEL_DEFAULT,
+                "fallback": FALLBACK_MODEL,
+            }
+    except Exception as e:
+        return {
+            "provider": "ollama",
+            "models": [],
+            "default": MODEL_DEFAULT,
+            "fallback": FALLBACK_MODEL,
+            "error": str(e),
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -429,7 +473,7 @@ async def execute_task_endpoint(req: Request):
     """Compatibility endpoint for Strategy Studio tasks.
 
     Accepts task_type values like:
-    - 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy'
+    - 'chat' | 'calculate_indicator' | 'backtest_strategy' | 'backtest' | 'optimize' | 'save_strategy' | 'research_strategy' | 'create_strategy'
 
     Maps them to controller types and normalizes the response to:
     { status: 'success'|'error', message?: str, result?: any }
@@ -439,9 +483,176 @@ async def execute_task_endpoint(req: Request):
     goal = body.get("goal")
     params = body.get("params") or {}
 
+    def _strategy_studio_help_text() -> str:
+        return (
+            "Strategy Studio can help you:\n"
+            "- Backtest: use the UI fields + \"Run Backtest\", or chat like: \"backtest sma 20/50 on XAUUSD M5 5000 bars\".\n"
+            "- Optimize: chat like: \"optimize sma on XAUUSD\" (runs a safe grid) or \"optimize rsi on EURUSD H1\".\n"
+            "- View results: click \"Open Results\" to open the full results page.\n"
+            "- Reset: click \"Reset\" to clear the last saved result.\n"
+            "\n"
+            "Tip: include symbol/timeframe/bars in your message for more control (e.g. \"... on XAUUSD M15 20000 bars\")."
+        )
+
+    async def _strategy_studio_chat_reply(message: str, ctx: Optional[dict]) -> str:
+        msg = (message or "").strip()
+        if not msg:
+            return _strategy_studio_help_text()
+
+        ml = msg.lower()
+        # Quick friendly greeting without hitting the LLM (avoids cold-start/timeouts).
+        try:
+            import re
+            if re.match(r"^(hi|hello|hey|yo|gm|good morning|good evening)\b", ml):
+                return (
+                    "Hi! I can help you backtest and optimize strategies in Strategy Studio.\n"
+                    "Try: \"backtest sma 20/50 on XAUUSD M5 5000 bars\" or \"optimize sma on XAUUSD\"."
+                )
+            if re.search(r"\b(thanks|thank you|thx|appreciate|great|awesome|nice|cool|love you)\b", ml):
+                return "Glad it helps. Tell me what you want to backtest/optimize next (symbol, timeframe, bars)."
+        except Exception:
+            pass
+        try:
+            import re
+            if re.search(r"\b(what can (?:you )?do|what else can (?:you )?do|help|commands?|capabilit(?:y|ies))\b", ml):
+                return _strategy_studio_help_text()
+        except Exception:
+            pass
+
+        # Best-effort context (current UI selections) to make answers more actionable.
+        sym = None
+        tf = None
+        n = None
+        strat = None
+        if isinstance(ctx, dict):
+            sym = ctx.get("symbol")
+            tf = ctx.get("timeframe")
+            n = ctx.get("num_bars") or ctx.get("numBars")
+            strat = ctx.get("strategy_name") or ctx.get("strategy")
+
+        context_bits: list[str] = []
+        if sym:
+            context_bits.append(f"symbol={sym}")
+        if tf:
+            context_bits.append(f"timeframe={tf}")
+        if n:
+            context_bits.append(f"bars={n}")
+        if strat:
+            context_bits.append(f"strategy={strat}")
+        context_line = (", ".join(context_bits)) if context_bits else "n/a"
+
+        history_lines: list[str] = []
+        if isinstance(ctx, dict):
+            hist = ctx.get("history")
+            if isinstance(hist, list):
+                for item in hist[-10:]:
+                    if not isinstance(item, dict):
+                        continue
+                    role = str(item.get("role") or "").strip().lower()
+                    content = str(item.get("content") or "").strip()
+                    if not content:
+                        continue
+                    if role not in ("user", "assistant"):
+                        role = "user"
+                    history_lines.append(f"{role.title()}: {content[:400]}")
+
+        history_block = "\n".join(history_lines).strip()
+        history_text = f"\nConversation so far:\n{history_block}\n" if history_block else ""
+
+        prompt = (
+            "You are a helpful assistant inside a trading Strategy Studio web app.\n"
+            "You can answer general questions about backtesting, metrics, and how to use the UI.\n"
+            "Do NOT invent features that are not present. If the user asks for something unsupported, explain what is supported.\n"
+            "Be concise and practical. Only include code if the user explicitly asks for code.\n"
+            f"\nCurrent UI context: {context_line}\n"
+            f"{history_text}"
+            f"\nUser: {msg}\nAssistant:"
+        )
+
+        try:
+            model = MODEL_DEFAULT
+            if isinstance(ctx, dict):
+                raw_model = ctx.get("llm_model") or ctx.get("model")
+                if isinstance(raw_model, str) and raw_model.strip():
+                    m = raw_model.strip()
+                    # Basic allowlist to avoid weird/injected strings.
+                    try:
+                        import re
+                        if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", m):
+                            model = m
+                    except Exception:
+                        model = m
+
+            loop = asyncio.get_running_loop()
+            def _call(mdl: str) -> str:
+                return _ollama_generate(
+                    prompt=prompt,
+                    model=mdl,
+                    timeout=float(os.getenv("OLLAMA_TIMEOUT", "30") or 30),
+                    json_only=False,
+                    options_overrides={"num_predict": 128},
+                )
+
+            try:
+                reply = await loop.run_in_executor(None, lambda: _call(model))
+            except Exception:
+                # Try a fallback model if configured and different.
+                fb = (FALLBACK_MODEL or "").strip()
+                if fb and fb != model:
+                    reply = await loop.run_in_executor(None, lambda: _call(fb))
+                else:
+                    raise
+            reply = (reply or "").strip()
+            return reply or _strategy_studio_help_text()
+        except Exception as e:
+            logging.error(f"Strategy Studio chat LLM error: {e}")
+            # Don't spam the long help text on model failures; give an actionable hint.
+            return (
+                "I couldn't generate a chat reply right now (LLM unavailable).\n"
+                "Try selecting a different model in the Strategy Studio chat dropdown, or use commands like:\n"
+                "- backtest sma 20/50 on XAUUSD M5 5000 bars\n"
+                "- optimize sma on XAUUSD"
+            )
+
+    # Fallback intent detection: support UIs that send "calculate_indicator" even when
+    # the user is clearly asking for a backtest/optimization.
+    goal_text = (goal or "").strip() if isinstance(goal, str) else ""
+    goal_lower = goal_text.lower()
+    if t != "save_strategy" and goal_text:
+        try:
+            import re
+            looks_like_opt_cmd = bool(
+                re.match(r"\s*optimi[sz](e|ation|ing)?\b", goal_lower)
+                or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\boptimi[sz](e|ation|ing)?\b", goal_lower)
+            )
+            looks_like_bt_cmd = bool(
+                re.match(r"\s*backtest(ing)?\b", goal_lower)
+                or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\bbacktest(ing)?\b", goal_lower)
+            )
+
+            if looks_like_opt_cmd:
+                t = "optimize"
+            elif looks_like_bt_cmd:
+                if t not in ("backtest_strategy", "backtest", "optimize"):
+                    t = "backtest"
+            elif t in ("calculate_indicator", "create_strategy", "research_strategy") and re.search(
+                r"\b(what can you do|help|commands?|capabilit(?:y|ies))\b",
+                goal_lower,
+            ):
+                t = "chat"
+            elif t in ("calculate_indicator",) and not re.search(r"\b(indicator|code|script|function|generate|write)\b", goal_lower):
+                # Older UIs may send calculate_indicator for everything; treat as chat unless code was explicitly requested.
+                t = "chat"
+        except Exception:
+            pass
+
+    if t == "chat":
+        reply = await _strategy_studio_chat_reply(goal_text, params if isinstance(params, dict) else None)
+        return {"status": "success", "message": reply}
+
     mapped = (
         "indicator" if t in ("calculate_indicator",)
-        else "backtest" if t in ("backtest_strategy",)
+        else "backtest" if t in ("backtest_strategy", "backtest", "optimize")
         else "strategy"
     )
 
@@ -473,8 +684,182 @@ async def execute_task_endpoint(req: Request):
             sym = (params.get("symbol") if isinstance(params, dict) else None) or DEFAULT_SYMBOL
             tf = (params.get("timeframe") if isinstance(params, dict) else None) or "M5"
             n = int((params.get("num_bars") if isinstance(params, dict) else 1500) or 1500)
-            result = run_backtest(BacktestParams(symbol=sym, timeframe=tf, num_bars=n))
-            return {"status": "success", "message": "Backtest complete.", "result": result}
+
+            # Merge explicit params with extracted NLP params
+            extra = {}
+            if isinstance(params, dict):
+                extra.update(params)
+
+            # Best-effort: infer symbol/timeframe/bars from the goal if params are missing
+            if goal_text:
+                try:
+                    import re
+                    if (not isinstance(params, dict)) or not params.get("timeframe"):
+                        m_tf = re.search(r"\b(M1|M5|M15|M30|H1|H4|D1|W1)\b", goal_text, flags=re.I)
+                        if m_tf:
+                            tf = m_tf.group(1).upper()
+                    if (not isinstance(params, dict)) or not params.get("symbol"):
+                        m_on = re.search(r"\bon\s+([A-Za-z0-9_]{3,20})\b", goal_text, flags=re.I)
+                        m_pair = re.search(r"\b([A-Za-z]{3,10}USD)\b", goal_text, flags=re.I)
+                        if m_on:
+                            sym = m_on.group(1).upper()
+                        elif m_pair:
+                            sym = m_pair.group(1).upper()
+                    if (not isinstance(params, dict)) or not params.get("num_bars"):
+                        m_bars = re.search(r"(\d{2,9})\s*bars?\b", goal_text, flags=re.I)
+                        if m_bars:
+                            n = int(m_bars.group(1))
+                except Exception:
+                    pass
+
+            # Best-effort: extract strategy name from payload/goal
+            strategy_name = None
+            if isinstance(params, dict):
+                s = params.get("strategy_name") or params.get("strategy")
+                if isinstance(s, str) and s.strip():
+                    strategy_name = s.strip()
+            if not strategy_name and isinstance(goal, str) and goal.strip():
+                try:
+                    import re
+                    m = re.match(r"(?i)\s*(?:backtest|optimize)\s+([a-z0-9_-]+)\b", goal.strip())
+                    if m:
+                        tok = m.group(1).lower()
+                        stop = {"the", "a", "an", "my", "this", "that", "strategy", "for", "on", "in", "to", "with"}
+                        cand = None
+                        if tok not in stop:
+                            if tok in ("sma", "smc"):
+                                cand = tok
+                            else:
+                                try:
+                                    from pathlib import Path
+                                    p = Path("backend/strategies_generated") / f"{tok}.py"
+                                    if p.exists():
+                                        cand = tok
+                                except Exception:
+                                    cand = None
+                        if cand:
+                            strategy_name = cand
+                except Exception:
+                    pass
+
+            if not strategy_name and goal_text:
+                gl = goal_lower
+                if "smc" in gl:
+                    strategy_name = "smc"
+                elif "rsi" in gl:
+                    strategy_name = "rsi"
+                elif "sma" in gl:
+                    strategy_name = "sma"
+            
+            if goal:
+                extracted = extract_parameters(goal)
+                if extracted:
+                    extra.update(extracted)
+
+            # If user asked to optimize but didn't specify any ranges, use a safe default grid for SMA.
+            if t == "optimize":
+                try:
+                    wants_grid = any(isinstance(v, list) and len(v) > 1 for v in extra.values())
+                except Exception:
+                    wants_grid = False
+                strat_eff = (strategy_name or extra.get("strategy_name") or extra.get("strategy") or "sma")
+                try:
+                    strat_eff = str(strat_eff).strip().lower()
+                except Exception:
+                    strat_eff = "sma"
+                if not wants_grid:
+                    def _seed_int(key: str) -> Optional[int]:
+                        v = extra.get(key)
+                        if isinstance(v, list):
+                            if not v:
+                                return None
+                            v = v[0]
+                        try:
+                            return int(v)
+                        except Exception:
+                            return None
+
+                    def _seed_float(key: str) -> Optional[float]:
+                        v = extra.get(key)
+                        if isinstance(v, list):
+                            if not v:
+                                return None
+                            v = v[0]
+                        try:
+                            return float(v)
+                        except Exception:
+                            return None
+
+                    if strat_eff in ("sma",):
+                        fast_grid = list(range(10, 55, 5))
+                        slow_grid = list(range(60, 210, 10))
+                        seed_fast = _seed_int("fast")
+                        seed_slow = _seed_int("slow")
+                        if seed_fast is not None:
+                            fast_grid.append(max(2, seed_fast))
+                        if seed_slow is not None:
+                            slow_grid.append(max(2, seed_slow))
+                        extra["fast"] = sorted({int(x) for x in fast_grid})
+                        extra["slow"] = sorted({int(x) for x in slow_grid})
+
+                    elif strat_eff in ("rsi",):
+                        period_grid = [10, 14, 20, 28]
+                        lower_grid = [20, 30, 40]
+                        upper_grid = [60, 70, 80]
+                        seed_period = _seed_int("period") or _seed_int("rsi")
+                        seed_lower = _seed_float("lower")
+                        seed_upper = _seed_float("upper")
+                        if seed_period is not None:
+                            period_grid.append(max(2, seed_period))
+                        if seed_lower is not None:
+                            lower_grid.append(float(seed_lower))
+                        if seed_upper is not None:
+                            upper_grid.append(float(seed_upper))
+                        extra["period"] = sorted({int(x) for x in period_grid})
+                        extra["lower"] = sorted({float(x) for x in lower_grid})
+                        extra["upper"] = sorted({float(x) for x in upper_grid})
+
+                    elif strat_eff in ("smc",):
+                        # Keep combos <= OPT_MAX_COMBOS default (200). 3^4 = 81 combos.
+                        zone_grid = [30, 50, 70]
+                        struct_grid = [3, 5, 8]
+                        ob_grid = [10, 20, 30]
+                        thr_grid = [1, 2, 3]
+                        seed_zone = _seed_int("zone_window")
+                        seed_struct = _seed_int("structure_lookback")
+                        seed_ob = _seed_int("ob_window")
+                        seed_thr = _seed_int("threshold")
+                        if seed_zone is not None:
+                            zone_grid.append(max(5, seed_zone))
+                        if seed_struct is not None:
+                            struct_grid.append(max(2, seed_struct))
+                        if seed_ob is not None:
+                            ob_grid.append(max(5, seed_ob))
+                        if seed_thr is not None:
+                            thr_grid.append(max(1, seed_thr))
+                        extra["zone_window"] = sorted({int(x) for x in zone_grid})
+                        extra["structure_lookback"] = sorted({int(x) for x in struct_grid})
+                        extra["ob_window"] = sorted({int(x) for x in ob_grid})
+                        extra["threshold"] = sorted({int(x) for x in thr_grid})
+
+            # Normalize costs (support both fee_bps and decimal fees)
+            try:
+                if "fees" not in extra and "fee_bps" in extra:
+                    extra["fees"] = float(extra.get("fee_bps") or 0.0) / 10_000.0
+                if "slippage" not in extra and "slippage_bps" in extra:
+                    extra["slippage"] = float(extra.get("slippage_bps") or 0.0) / 10_000.0
+            except Exception:
+                pass
+            
+            raw_strategy = strategy_name or (extra.get("strategy_name") if isinstance(extra, dict) else None) or (extra.get("strategy") if isinstance(extra, dict) else None)
+            if not isinstance(raw_strategy, str):
+                raw_strategy = None
+            bt = BacktestParams(symbol=sym, timeframe=tf, num_bars=n, strategy_name=(raw_strategy.strip() if raw_strategy else "sma"))
+
+            result = run_backtest(bt, extra_params=extra)
+            if isinstance(result, dict) and result.get("error"):
+                return {"status": "error", "message": str(result.get("error") or "Backtest failed."), "result": result}
+            return {"status": "success", "message": result.get("message", "Backtest complete."), "result": result}
 
         # strategy or indicator -> generate code snippet for the user
         pa = ProgrammerAgent()
@@ -967,6 +1352,13 @@ class WatchlistItemIn(BaseModel):
     timeframe: str = Field(..., min_length=1)
     lot_size: Optional[float] = Field(None, gt=0)
     strategy: Optional[str] = None
+    risk_enabled: Optional[bool] = None
+    risk_mode: Optional[str] = None
+    atr_len: Optional[int] = Field(None, ge=1)
+    atr_mult: Optional[float] = Field(None, gt=0)
+    rr: Optional[float] = Field(None, gt=0)
+    swing_lookback: Optional[int] = Field(None, ge=1)
+    tick_pct: Optional[float] = Field(None, gt=0)
 
 
 class AgentConfigIn(BaseModel):
@@ -995,7 +1387,19 @@ async def get_agent_cfg():
     return {
         "enabled": cfg.enabled,
         "watchlist": [
-            {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size, "strategy": item.strategy or cfg.strategy}
+            {
+                "symbol": item.symbol,
+                "timeframe": item.timeframe,
+                "lot_size": item.lot_size,
+                "strategy": item.strategy or cfg.strategy,
+                "risk_enabled": item.risk_enabled,
+                "risk_mode": item.risk_mode,
+                "atr_len": item.atr_len,
+                "atr_mult": item.atr_mult,
+                "rr": item.rr,
+                "swing_lookback": item.swing_lookback,
+                "tick_pct": item.tick_pct,
+            }
             for item in cfg.watchlist
         ],
         "interval_sec": cfg.interval_sec,
@@ -1026,6 +1430,13 @@ async def set_agent_cfg(cfg: AgentConfigIn):
             "timeframe": item.timeframe,
             "lot_size": item.lot_size if item.lot_size is not None else cfg.lot_size_lots,
             "strategy": (item.strategy or cfg.strategy).lower() if item.strategy else cfg.strategy,
+            "risk_enabled": item.risk_enabled,
+            "risk_mode": item.risk_mode,
+            "atr_len": item.atr_len,
+            "atr_mult": item.atr_mult,
+            "rr": item.rr,
+            "swing_lookback": item.swing_lookback,
+            "tick_pct": item.tick_pct,
         }
         for item in cfg.watchlist
     ]
@@ -1035,6 +1446,13 @@ async def set_agent_cfg(cfg: AgentConfigIn):
             "timeframe": (e["timeframe"] or "").strip().upper(),
             "lot_size": e["lot_size"],
             "strategy": (e.get("strategy") or cfg.strategy).strip().lower(),
+            "risk_enabled": bool(e.get("risk_enabled")) if e.get("risk_enabled") is not None else None,
+            "risk_mode": (e.get("risk_mode") or "").strip().lower() or None,
+            "atr_len": e.get("atr_len"),
+            "atr_mult": e.get("atr_mult"),
+            "rr": e.get("rr"),
+            "swing_lookback": e.get("swing_lookback"),
+            "tick_pct": e.get("tick_pct"),
         }
         for e in raw_entries
         if (e.get("symbol") and e.get("timeframe") and (str(e.get("timeframe") or "").strip().upper() in allowed))
@@ -1079,7 +1497,19 @@ async def agent_add_pair(symbol: str, timeframe: str, lot_size: Optional[float] 
     cfg = controller.config
     # Normalize current watchlist to list of tuples, uppercase, filter empties
     current: list[dict[str, object]] = [
-        {"symbol": item.symbol, "timeframe": item.timeframe, "lot_size": item.lot_size, "strategy": item.strategy or cfg.strategy}
+        {
+            "symbol": item.symbol,
+            "timeframe": item.timeframe,
+            "lot_size": item.lot_size,
+            "strategy": item.strategy or cfg.strategy,
+            "risk_enabled": item.risk_enabled,
+            "risk_mode": item.risk_mode,
+            "atr_len": item.atr_len,
+            "atr_mult": item.atr_mult,
+            "rr": item.rr,
+            "swing_lookback": item.swing_lookback,
+            "tick_pct": item.tick_pct,
+        }
         for item in (cfg.watchlist or [])
     ]
 

@@ -11,9 +11,10 @@ interface StrategyChatProps {
   isLoading?: boolean;
   placeholder?: string;
   onSendMessage: (message: string) => void;
+  headerRight?: React.ReactNode;
 }
 
-export default function StrategyChat({ messages, isLoading, placeholder, onSendMessage }: StrategyChatProps) {
+export default function StrategyChat({ messages, isLoading, placeholder, onSendMessage, headerRight }: StrategyChatProps) {
   const [input, setInput] = useState('');
 
   const send = () => {
@@ -25,10 +26,13 @@ export default function StrategyChat({ messages, isLoading, placeholder, onSendM
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
-      <div style={{ fontWeight: 600 }}>Strategy Chat</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ fontWeight: 600 }}>Strategy Chat</div>
+        {headerRight}
+      </div>
       <div style={{ flex: 1, minHeight: 280, overflow: 'auto', background: '#0b0b0f', padding: 8, borderRadius: 6 }}>
         {messages.length === 0 ? (
-          <div className="muted">Describe a task, e.g. "create an SMA crossover strategy" or "backtest RSI on XAUUSD".</div>
+          <div className="muted">Ask a question (e.g. "what can you do?") or run tasks like "backtest RSI on XAUUSD" / "optimize SMA on XAUUSD".</div>
         ) : (
           messages.map((m, i) => (
             <div key={i} style={{ marginBottom: 10, display:'flex', justifyContent: m.role==='user'?'flex-end':'flex-start' }}>

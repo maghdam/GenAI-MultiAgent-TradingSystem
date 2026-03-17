@@ -21,6 +21,14 @@ export interface CandlesResponse {
   indicators: Record<string, any>;
 }
 
+export interface LlmModelsResponse {
+  provider: string;
+  models: string[];
+  default?: string | null;
+  fallback?: string | null;
+  error?: string;
+}
+
 export interface SymbolsResponse {
   symbols: string[];
   default: string | null;
@@ -43,6 +51,13 @@ export interface WatchlistEntry {
   timeframe: string;
   lot_size: number;
   strategy?: string | null;
+  risk_enabled?: boolean | null;
+  risk_mode?: string | null;
+  atr_len?: number | null;
+  atr_mult?: number | null;
+  rr?: number | null;
+  swing_lookback?: number | null;
+  tick_pct?: number | null;
 }
 
 export interface AgentConfig {
@@ -139,6 +154,15 @@ export const getSymbols = async (): Promise<SymbolsResponse> => {
   return response.json();
 };
 
+export const getLlmModels = async (): Promise<LlmModelsResponse> => {
+  const response = await authFetch('/api/llm/models');
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to fetch LLM models: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
 export const getSymbolLimits = async (symbol?: string): Promise<SymbolLimitsMap | SymbolLimit> => {
   const url = symbol ? `/api/symbol_limits?symbol=${encodeURIComponent(symbol)}` : '/api/symbol_limits';
   const response = await authFetch(url);
@@ -172,7 +196,7 @@ export const setAgentConfig = async (config: AgentConfig): Promise<{ ok: boolean
 export const getAgentStatus = async (): Promise<AgentStatus> => {
   const response = await authFetch('/api/agent/status');
   if (!response.ok) {
-      throw new Error(`Failed to fetch agent status: ${response.statusText}`);
+    throw new Error(`Failed to fetch agent status: ${response.statusText}`);
   }
   return response.json();
 };
@@ -213,7 +237,7 @@ export const addToWatchlist = async (
 // --- Strategy Studio Tasks ---
 
 export interface TaskRequest {
-  task_type: 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy';
+  task_type: 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy' | 'backtest' | 'optimize' | 'chat';
   goal: string;
   params?: Record<string, any>;
 }

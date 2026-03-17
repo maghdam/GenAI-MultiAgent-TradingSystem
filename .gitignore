@@ -15,6 +15,8 @@ credentials.json
 
 # Database or local state
 signals.db
+backend/data/*.db
+backend/data/agent_state.json
 
 # Jupyter Notebook checkpoints (if used)
 .ipynb_checkpoints/

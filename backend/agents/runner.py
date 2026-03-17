@@ -92,7 +92,7 @@ def _position_for_symbol(symbol: str):
 
 # ---------- core scan ----------
 async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: bool,
-                     lot_size_lots: float, strategy_name: str, order_type: str = "MARKET"):
+                     lot_size_lots: float, strategy_name: str, order_type: str = "MARKET", risk_cfg: dict | None = None):
     # Global scan concurrency gate (sequential by default)
     # Tuned via env: AGENT_MAX_CONCURRENT_SCANS (default 1)
     global _SCAN_SEM
@@ -396,7 +396,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                 try:
                     # Helpers for default SL/TP when missing
                     def _risk_param(sym: str, key: str, default_val: str) -> str:
-                        # Per-symbol override: KEY_{SYMBOL}, else KEY
+                        # Prefer explicit per-pair config, else env overrides
                         sym_u = (sym or "").upper()
                         env_key_sym = f"{key}_{sym_u}"
                         v = os.getenv(env_key_sym)
@@ -405,11 +405,18 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                         return str(v)
 
                     def _derive_default_sltp(side: str, entry_price: float | None) -> tuple[float | None, float | None]:
+                        cfg = risk_cfg or {}
+                        # If explicitly disabled, skip defaults
+                        if cfg.get("enabled") is False:
+                            return None, None
                         try:
-                            mode = (_risk_param(symbol, "SMC_RISK_MODE", "atr") or "atr").strip().lower()
-                            rr = float(_risk_param(symbol, "SMC_RR", "2.0") or 2.0)
+                            mode = (cfg.get("mode") or _risk_param(symbol, "SMC_RISK_MODE", "atr") or "atr").strip().lower()
                         except Exception:
-                            mode = "atr"; rr = 2.0
+                            mode = "atr"
+                        try:
+                            rr = float(cfg.get("rr") if cfg.get("rr") is not None else _risk_param(symbol, "SMC_RR", "2.0"))
+                        except Exception:
+                            rr = 2.0
                         if entry_price is None or entry_price == 0:
                             try:
                                 entry_price = float(df["close"].iloc[-1])
@@ -417,8 +424,8 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                 return None, None
                         if mode == "swing":
                             try:
-                                lb = int(_risk_param(symbol, "SMC_SWING_LOOKBACK", "10") or 10)
-                                pad = float(_risk_param(symbol, "SMC_TICK_PCT", "0.0005") or 0.0005)
+                                lb = int(cfg.get("swing_lookback") if cfg.get("swing_lookback") is not None else _risk_param(symbol, "SMC_SWING_LOOKBACK", "10") or 10)
+                                pad = float(cfg.get("tick_pct") if cfg.get("tick_pct") is not None else _risk_param(symbol, "SMC_TICK_PCT", "0.0005") or 0.0005)
                             except Exception:
                                 lb = 10; pad = 0.0005
                             hi = float(df["high"].iloc[-lb:].max())
@@ -432,8 +439,8 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                             return sl, tp
                         # default: ATR
                         try:
-                            n = int(_risk_param(symbol, "SMC_ATR_LEN", "14") or 14)
-                            mult = float(_risk_param(symbol, "SMC_ATR_MULT", "1.0") or 1.0)
+                            n = int(cfg.get("atr_len") if cfg.get("atr_len") is not None else _risk_param(symbol, "SMC_ATR_LEN", "14") or 14)
+                            mult = float(cfg.get("atr_mult") if cfg.get("atr_mult") is not None else _risk_param(symbol, "SMC_ATR_MULT", "1.0") or 1.0)
                         except Exception:
                             n = 14; mult = 1.0
                         try:
@@ -625,27 +632,27 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                 for f in widen_factors:
                                     # Recompute widened SL/TP
                                     try:
-                                        mode_now = (_risk_param(symbol, "SMC_RISK_MODE", "atr") or "atr").strip().lower()
+                                        mode_now = (risk_cfg.get("mode") if risk_cfg else None) or (_risk_param(symbol, "SMC_RISK_MODE", "atr") or "atr").strip().lower()
                                     except Exception:
                                         mode_now = "atr"
                                     if mode_now == "swing":
                                         try:
-                                            pad0 = float(_risk_param(symbol, "SMC_TICK_PCT", "0.0005") or 0.0005)
+                                            pad0 = float((risk_cfg or {}).get("tick_pct") if (risk_cfg or {}).get("tick_pct") is not None else _risk_param(symbol, "SMC_TICK_PCT", "0.0005") or 0.0005)
                                         except Exception:
                                             pad0 = 0.0005
                                         pad = pad0 * float(f)
-                                        lb = int(_risk_param(symbol, "SMC_SWING_LOOKBACK", "10") or 10)
+                                        lb = int((risk_cfg or {}).get("swing_lookback") if (risk_cfg or {}).get("swing_lookback") is not None else _risk_param(symbol, "SMC_SWING_LOOKBACK", "10") or 10)
                                         hi = float(df["high"].iloc[-lb:].max())
                                         lo = float(df["low"].iloc[-lb:].min())
                                         if desired_side == "BUY":
                                             sl_w = lo * (1.0 - pad)
-                                            tp_w = entry_px_for_defaults + float(_risk_param(symbol, "SMC_RR", "2.0") or 2.0) * (entry_px_for_defaults - sl_w)
+                                            tp_w = entry_px_for_defaults + float((risk_cfg or {}).get("rr") if (risk_cfg or {}).get("rr") is not None else _risk_param(symbol, "SMC_RR", "2.0") or 2.0) * (entry_px_for_defaults - sl_w)
                                         else:
                                             sl_w = hi * (1.0 + pad)
-                                            tp_w = entry_px_for_defaults - float(_risk_param(symbol, "SMC_RR", "2.0") or 2.0) * (sl_w - entry_px_for_defaults)
+                                            tp_w = entry_px_for_defaults - float((risk_cfg or {}).get("rr") if (risk_cfg or {}).get("rr") is not None else _risk_param(symbol, "SMC_RR", "2.0") or 2.0) * (sl_w - entry_px_for_defaults)
                                     else:
                                         # ATR widen
-                                        n = int(_risk_param(symbol, "SMC_ATR_LEN", "14") or 14)
+                                        n = int((risk_cfg or {}).get("atr_len") if (risk_cfg or {}).get("atr_len") is not None else _risk_param(symbol, "SMC_ATR_LEN", "14") or 14)
                                         high = df["high"].astype(float)
                                         low = df["low"].astype(float)
                                         close = df["close"].astype(float)
@@ -655,9 +662,9 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
                                         tr["lc"] = (low - prev_close).abs()
                                         tr_max = tr.max(axis=1)
                                         atr = float(tr_max.rolling(n, min_periods=n).mean().iloc[-1])
-                                        mult0 = float(_risk_param(symbol, "SMC_ATR_MULT", "1.0") or 1.0)
+                                        mult0 = float((risk_cfg or {}).get("atr_mult") if (risk_cfg or {}).get("atr_mult") is not None else _risk_param(symbol, "SMC_ATR_MULT", "1.0") or 1.0)
                                         mult_w = mult0 * float(f)
-                                        rr = float(_risk_param(symbol, "SMC_RR", "2.0") or 2.0)
+                                        rr = float((risk_cfg or {}).get("rr") if (risk_cfg or {}).get("rr") is not None else _risk_param(symbol, "SMC_RR", "2.0") or 2.0)
                                         if desired_side == "BUY":
                                             sl_w = entry_px_for_defaults - mult_w * atr
                                             tp_w = entry_px_for_defaults + rr * (entry_px_for_defaults - sl_w)
@@ -718,7 +725,7 @@ async def _scan_once(symbol: str, timeframe: str, min_conf: float, auto_trade: b
 
 # ---------- controller entry ----------
 async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float,
-                     auto_trade: bool, lot_size_lots: float, strategy: str, order_type: str, stop: asyncio.Event):
+                     auto_trade: bool, lot_size_lots: float, strategy: str, order_type: str, risk_cfg: dict, stop: asyncio.Event):
     timeframe = (timeframe or "M5").upper()
     tf_sec = _tf_seconds(timeframe)
     configured_interval = max(0, int(interval or 0))
@@ -741,7 +748,7 @@ async def run_symbol(symbol: str, timeframe: str, interval: int, min_conf: float
 
     while not stop.is_set():
         try:
-            await _scan_once(symbol, timeframe, min_conf, auto_trade, lot_size_lots, strategy, order_type)
+            await _scan_once(symbol, timeframe, min_conf, auto_trade, lot_size_lots, strategy, order_type, risk_cfg)
             _status(
                 symbol,
                 timeframe,
