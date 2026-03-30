@@ -1,13 +1,21 @@
-import type { ChangeEvent } from 'react';
-import type { AgentStatus } from '../services/api';
+import { Link, useLocation } from 'react-router-dom';
 
 interface StatusChip {
-  status: 'ok' | 'bad' | 'wait';
+  status: 'ok' | 'bad' | 'wait' | 'warn';
   label: string;
+}
+
+export interface DashboardEngineStatus {
+  enabled: boolean;
+  running: boolean;
+  loopActive: boolean;
+  watchlistCount: number;
+  mode: string;
 }
 
 interface HeaderProps {
   strategy: string;
+  strategyOptions?: string[];
   onStrategyChange: (value: string) => void;
   lotSize: number;
   onLotSizeChange: (value: number) => void;
@@ -25,191 +33,211 @@ interface HeaderProps {
   onPlaceTrade: () => void;
   feedStatus?: StatusChip;
   llmStatus?: StatusChip;
-  agentStatus: AgentStatus | null;
+  engineStatus: DashboardEngineStatus | null;
   onWatchCurrent?: () => void;
-  onToggleAgent?: () => void;
-  onOpenAgentSettings?: () => void;
-  onReloadStrategies?: () => void;
+  onToggleEngine?: () => void;
+  onOpenSettings?: () => void;
+  onRefreshStrategies?: () => void;
+  /* new props for the toolbar */
+  symbol?: string;
+  timeframe?: string;
+  onTimeframeChange?: (value: string) => void;
 }
 
-const DEFAULT_FEED_STATUS: StatusChip = { status: 'wait', label: 'cTrader: checking…' };
-const DEFAULT_LLM_STATUS: StatusChip = { status: 'wait', label: 'LLM: checking…' };
+const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1', 'H4', 'D1'];
+
+const DEFAULT_FEED_STATUS: StatusChip = { status: 'wait', label: 'Feed' };
+const DEFAULT_LLM_STATUS: StatusChip = { status: 'wait', label: 'Model' };
+
+const NAV_LINKS = [
+  { to: '/', label: 'Dashboard' },
+  { to: '/strategy-studio', label: 'Strategy Studio' },
+  { to: '/workbench', label: 'Workbench' },
+  { to: '/heavyweight-checklist', label: 'Checklist' },
+];
 
 export default function Header({
   strategy,
+  strategyOptions,
   onStrategyChange,
   lotSize,
   onLotSizeChange,
-  fastMode,
-  onFastModeChange,
-  maxBars,
-  onMaxBarsChange,
-  maxTokens,
-  onMaxTokensChange,
-  modelName,
-  onModelNameChange,
   isAnalyzing,
   onRunAnalysis,
   onCancelAnalysis,
   onPlaceTrade,
   feedStatus = DEFAULT_FEED_STATUS,
   llmStatus = DEFAULT_LLM_STATUS,
-  agentStatus,
+  engineStatus,
   onWatchCurrent,
-  onToggleAgent,
-  onOpenAgentSettings,
-  onReloadStrategies,
+  onToggleEngine,
+  onOpenSettings,
+  onRefreshStrategies,
+  timeframe,
+  onTimeframeChange,
 }: HeaderProps) {
-  const handleLotSizeChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextValue = parseFloat(event.target.value);
-    if (Number.isNaN(nextValue)) {
-      onLotSizeChange(0);
-      return;
-    }
-    onLotSizeChange(Math.max(0.01, nextValue));
-  };
+  const location = useLocation();
+  const resolvedStrategyOptions = Array.from(new Set([...(strategyOptions || []), strategy]));
 
-  const handleMaxBarsChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextValue = parseInt(event.target.value, 10);
-    if (Number.isNaN(nextValue)) {
-      onMaxBarsChange(50);
-      return;
-    }
-    onMaxBarsChange(Math.min(500, Math.max(50, nextValue)));
-  };
+  const engineLabel = engineStatus
+    ? engineStatus.enabled
+      ? engineStatus.loopActive ? 'Scanning' : 'Idle'
+      : 'Off'
+    : '…';
 
-  const handleMaxTokensChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextValue = parseInt(event.target.value, 10);
-    if (Number.isNaN(nextValue)) {
-      onMaxTokensChange(64);
-      return;
-    }
-    onMaxTokensChange(Math.min(1024, Math.max(64, nextValue)));
-  };
-
-  const agentStatusText = agentStatus
-    ? `Agent: ${agentStatus.enabled ? (agentStatus.running ? 'ON (running)' : 'ON (idle)') : 'OFF'} • Watchlist: ${agentStatus.watchlist.length}`
-    : 'Agent: checking…';
-
-  const strategyOptions = Array.from(
-    new Set([
-      ...(agentStatus?.available_strategies || []),
-      'smc',
-      'rsi',
-      strategy,
-    ])
-  );
+  const engineDotClass = engineStatus
+    ? engineStatus.enabled
+      ? engineStatus.loopActive ? 'ta-status__dot--ok' : 'ta-status__dot--wait'
+      : 'ta-status__dot--bad'
+    : 'ta-status__dot--wait';
 
   return (
-    <header className="stack">
-      <select title="Strategy" value={strategy} onChange={event => onStrategyChange(event.target.value)}>
-        {strategyOptions.map((name) => (
-          <option key={name} value={name}>{name.toUpperCase()}</option>
-        ))}
-      </select>
+    <>
+      {/* ─── Navbar ─── */}
+      <nav className="ta-navbar">
+        <div className="ta-navbar__brand">
+          <div className="ta-navbar__brand-icon">TA</div>
+          <span>TradeAgent</span>
+        </div>
 
-      <label className="chip">
-        Lot size
-        <input
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={lotSize}
-          onChange={handleLotSizeChange}
-          style={{ width: '70px' }}
-        />
-      </label>
+        <div className="ta-navbar__nav">
+          {NAV_LINKS.map((link) => (
+            link.to === '/' ? (
+              <Link
+                key={link.to}
+                to={link.to}
+                className={`ta-navbar__link${location.pathname === link.to ? ' ta-navbar__link--active' : ''}`}
+              >
+                {link.label}
+              </Link>
+            ) : (
+              <a
+                key={link.to}
+                href={link.to}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ta-navbar__link"
+              >
+                {link.label}
+              </a>
+            )
+          ))}
+        </div>
 
-      <label className="chip">
-        <input type="checkbox" checked={fastMode} onChange={event => onFastModeChange(event.target.checked)} /> Fast
-      </label>
+        <div className="ta-navbar__spacer" />
 
-      <label className="chip">
-        Bars
-        <input
-          type="number"
-          min="50"
-          max="500"
-          step="50"
-          value={maxBars}
-          onChange={handleMaxBarsChange}
-          style={{ width: '70px' }}
-        />
-      </label>
+        <div className="ta-navbar__status">
+          <span className="ta-status">
+            <span className={`ta-status__dot ta-status__dot--${feedStatus.status}`} />
+            {feedStatus.label}
+          </span>
+          <span className="ta-status">
+            <span className={`ta-status__dot ta-status__dot--${llmStatus.status}`} />
+            {llmStatus.label}
+          </span>
+          <span className="ta-status">
+            <span className={`ta-status__dot ${engineDotClass}`} />
+            Engine: {engineLabel}
+          </span>
 
-      <label className="chip">
-        Max tok
-        <input
-          type="number"
-          min="64"
-          max="1024"
-          step="64"
-          value={maxTokens}
-          onChange={handleMaxTokensChange}
-          style={{ width: '70px' }}
-        />
-      </label>
+          <button
+            className="ta-btn ta-btn--ghost ta-btn--sm"
+            type="button"
+            onClick={onOpenSettings}
+            title="Control Panel"
+          >
+            ⚙
+          </button>
+        </div>
+      </nav>
 
-      <label className="chip">
-        Model
-        <input
-          list="models"
-          placeholder="auto"
-          value={modelName}
-          onChange={event => onModelNameChange(event.target.value)}
-          style={{ width: '140px' }}
-        />
-        <datalist id="models">
-          <option value="llama3.2:3b-instruct-q4_K_M" />
-          <option value="phi3:3.8b-mini-instruct-q4_K_M" />
-          <option value="mistral:7b-instruct-q4_K_M" />
-        </datalist>
-      </label>
+      {/* ─── Toolbar ─── */}
+      <div className="ta-toolbar">
+        <div className="ta-toolbar__group">
+          <select
+            className="ta-select ta-select--sm"
+            title="Strategy"
+            value={strategy}
+            onChange={(e) => onStrategyChange(e.target.value)}
+          >
+            {resolvedStrategyOptions.map((name) => (
+              <option key={name} value={name}>
+                {name.replace(/_/g, ' ').toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <button
-        className="btn warn"
-        type="button"
-        onClick={onCancelAnalysis}
-        style={{ display: isAnalyzing ? 'inline-block' : 'none' }}
-      >
-        ✖ Cancel
-      </button>
+        {/* Timeframe pills */}
+        {onTimeframeChange && (
+          <>
+            <div className="ta-toolbar__divider" />
+            <div className="ta-tf-group">
+              {TIMEFRAMES.map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  className={`ta-tf-btn${timeframe === tf ? ' ta-tf-btn--active' : ''}`}
+                  onClick={() => onTimeframeChange(tf)}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
-      <button className="btn primary" type="button" onClick={onRunAnalysis} disabled={isAnalyzing}>
-        🧠 Run AI Analysis
-      </button>
-      <button className="btn success" type="button" onClick={onPlaceTrade} disabled={isAnalyzing}>
-        ▶ Place Trade
-      </button>
-      {isAnalyzing && <span style={{ color: 'var(--accent)', marginLeft: '8px' }}>🔄 Analyzing…</span>}
+        <div className="ta-toolbar__divider" />
 
-      <div style={{ flex: 1 }} />
+        <div className="ta-toolbar__group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--ta-text-secondary)' }}>
+            Size
+            <input
+              className="ta-input ta-input--sm ta-input--mono"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={lotSize}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                onLotSizeChange(Number.isNaN(v) ? 0.01 : Math.max(0.01, v));
+              }}
+              style={{ width: '72px' }}
+            />
+          </label>
+        </div>
 
-      <span className="chip status">
-        <span className={`dot ${feedStatus.status}`}></span>
-        {feedStatus.label}
-      </span>
-      <span className="chip status">
-        <span className={`dot ${llmStatus.status}`}></span>
-        {llmStatus.label}
-      </span>
+        <div className="ta-toolbar__spacer" />
 
-      <button className="btn" type="button" onClick={() => onWatchCurrent?.()}>
-        ➕ Watch current
-      </button>
-      <button className="btn" type="button" onClick={onToggleAgent} disabled={!agentStatus}>
-        {agentStatus?.enabled ? '⏹ Stop Agent' : '▶ Start Agent'}
-      </button>
-      <button className="btn" type="button" onClick={onOpenAgentSettings}>
-        ⚙️ Agent Settings
-      </button>
-      <button className="btn" type="button" onClick={onReloadStrategies}>
-        Reload Strategies
-      </button>
-      <a className="btn" href="/heavyweight-checklist">
-        📋 Checklist
-      </a>
-      <span className="muted">{agentStatusText}</span>
-    </header>
+        {/* Action buttons */}
+        <div className="ta-toolbar__group">
+          <button className="ta-btn ta-btn--sm" type="button" onClick={onWatchCurrent}>
+            + Watch
+          </button>
+          <button className="ta-btn ta-btn--sm" type="button" onClick={onToggleEngine} disabled={!engineStatus}>
+            {engineStatus?.enabled ? '⏹ Stop' : '▶ Start'}
+          </button>
+          <button className="ta-btn ta-btn--sm" type="button" onClick={onRefreshStrategies}>
+            ↻ Reload
+          </button>
+        </div>
+
+        <div className="ta-toolbar__divider" />
+
+        <div className="ta-toolbar__group">
+          {isAnalyzing && (
+            <button className="ta-btn ta-btn--danger ta-btn--sm" type="button" onClick={onCancelAnalysis}>
+              ✕ Cancel
+            </button>
+          )}
+          <button className="ta-btn ta-btn--primary ta-btn--sm" type="button" onClick={onRunAnalysis} disabled={isAnalyzing}>
+            {isAnalyzing ? '⟳ Analyzing…' : '⚡ Analyze'}
+          </button>
+          <button className="ta-btn ta-btn--success ta-btn--sm" type="button" onClick={onPlaceTrade} disabled={isAnalyzing}>
+            ↗ Place Trade
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

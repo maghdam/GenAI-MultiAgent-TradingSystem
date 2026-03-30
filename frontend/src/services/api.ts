@@ -1,12 +1,5 @@
 import type { AgentSignal } from '../types';
-
-const API_KEY = import.meta.env.VITE_API_KEY;
-
-const authFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
-  const headers = new Headers(init.headers || {});
-  if (API_KEY) headers.set('x-api-key', API_KEY as string);
-  return fetch(input, { ...init, headers });
-};
+import { authFetch } from './http';
 
 export interface Candle {
   time: number;
@@ -21,81 +14,205 @@ export interface CandlesResponse {
   indicators: Record<string, any>;
 }
 
-export interface LlmModelsResponse {
-  provider: string;
-  models: string[];
-  default?: string | null;
-  fallback?: string | null;
-  error?: string;
-}
-
 export interface SymbolsResponse {
   symbols: string[];
   default: string | null;
 }
 
-export interface SymbolLimit {
-  symbol: string;
-  min_lots?: number | null;
-  step_lots?: number | null;
-  max_lots?: number | null;
-  min_api?: number | null;
-  step_api?: number | null;
-  max_api?: number | null;
+export interface V2BrokerStatus {
+  connected: boolean;
+  socket_connected: boolean;
+  account_authorized: boolean;
+  auth_error?: string | null;
+  last_auth_attempt_at?: string | null;
+  symbols_loaded: number;
+  open_positions: number;
+  pending_orders: number;
+  ready: boolean;
+  market_data_ready: boolean;
+  broker_mode: string;
+  account_id?: number | null;
+  notes: string[];
 }
 
-export type SymbolLimitsMap = Record<string, SymbolLimit>;
-
-export interface WatchlistEntry {
+export interface V2WatchlistItem {
   symbol: string;
   timeframe: string;
-  lot_size: number;
-  strategy?: string | null;
-  risk_enabled?: boolean | null;
-  risk_mode?: string | null;
-  atr_len?: number | null;
-  atr_mult?: number | null;
-  rr?: number | null;
-  swing_lookback?: number | null;
-  tick_pct?: number | null;
-}
-
-export interface AgentConfig {
-  enabled: boolean;
-  watchlist: WatchlistEntry[];
-  interval_sec: number;
-  min_confidence: number;
-  trading_mode: string;
-  autotrade: boolean;
-  lot_size_lots: number;
   strategy: string;
-  order_type?: string;
-  llm_gate_enabled?: boolean;
-  llm_gate_threshold?: number;
-  risk_mode?: string;
-  atr_len?: number;
-  atr_mult?: number;
-  rr?: number;
-  swing_lookback?: number;
-  tick_pct?: number;
+  enabled: boolean;
+  params: Record<string, unknown>;
 }
 
-export interface AgentStatus extends AgentConfig {
+export interface V2Config {
+  enabled: boolean;
+  paper_autotrade: boolean;
+  allow_live: boolean;
+  kill_switch: boolean;
+  default_symbol: string;
+  default_timeframe: string;
+  default_strategy: string;
+  scan_interval_sec: number;
+  min_confidence: number;
+  paper_trade_size: number;
+  risk_per_trade_pct: number;
+  daily_loss_limit_pct: number;
+  max_daily_trades: number;
+  max_open_positions: number;
+  max_positions_per_symbol: number;
+  cooldown_minutes: number;
+  session_filter_enabled: boolean;
+  session_start_hour_utc: number;
+  session_end_hour_utc: number;
+  require_stops: boolean;
+  operator_note: string;
+  watchlist: V2WatchlistItem[];
+}
+
+export interface V2ReadinessCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface V2StrategyInfo {
+  key: string;
+  label: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface V2DashboardAnalysisRequest {
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  num_bars?: number;
+}
+
+export interface V2ManualOrderRequest {
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  signal: 'long' | 'short';
+  quantity: number;
+  confidence?: number;
+  entry_price?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  reasons?: string[];
+  rationale?: string;
+}
+
+export interface V2ManualOrderResponse {
+  ok: boolean;
+  intent_id: number;
+  status: string;
+  summary: string;
+  position_id?: number | null;
+  mode: string;
+}
+
+export interface V2Incident {
+  id: number;
+  level: 'info' | 'warning' | 'error';
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface V2Analysis {
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  signal: 'long' | 'short' | 'no_trade';
+  confidence: number;
+  entry_price?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  reasons: string[];
+  context: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface V2PaperPosition {
+  id: number;
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  direction: 'long' | 'short';
+  quantity: number;
+  status: 'open' | 'closed';
+  entry_price: number;
+  current_price?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  opened_at: string;
+  closed_at?: string | null;
+  exit_price?: number | null;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  close_reason?: string | null;
+}
+
+export interface V2PaperEvent {
+  id: number;
+  created_at: string;
+  event_type: string;
+  summary: string;
+  details: Record<string, unknown>;
+}
+
+export interface V2OrderIntent {
+  id: number;
+  created_at: string;
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  direction: 'long' | 'short' | 'no_trade';
+  intent_type: 'open' | 'close' | 'update' | 'hold' | 'skip';
+  status: 'pending' | 'accepted' | 'rejected' | 'executed' | 'cancelled';
+  confidence: number;
+  entry_price?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  quantity?: number | null;
+  rationale: string;
+  details: Record<string, unknown>;
+}
+
+export interface V2TradeAudit {
+  id: number;
+  created_at: string;
+  event_type: string;
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  position_id?: number | null;
+  intent_id?: number | null;
+  summary: string;
+  details: Record<string, unknown>;
+}
+
+export interface V2Runtime {
   running: boolean;
-  running_pairs: [string, string][];
-  running_pairs_detail?: Array<{ symbol: string; timeframe: string; strategy?: string | null }>;
-  tasks: Array<Record<string, any>>;
-  available_strategies: string[];
+  loop_active: boolean;
+  ollama_ready: boolean;
+  last_cycle_at?: string | null;
+  last_cycle_summary: string;
+  last_reconcile_at?: string | null;
+  last_reconcile_summary: string;
+  last_error?: string | null;
+  tick_count: number;
+  active_watchlist: string[];
 }
 
-// Auto checklist
-export interface AutoChecklistComponent {
+export interface V2ChecklistComponent {
   symbol: string;
   bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
   change_pct?: number | null;
 }
 
-export interface AutoChecklist {
+export interface V2AutoChecklist {
   ts: number;
   us30_bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
   xau_bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
@@ -103,9 +220,9 @@ export interface AutoChecklist {
   dxy_change_pct?: number | null;
   correlation: 'normal' | 'fear' | 'dollar_crash' | 'weird' | 'unknown';
   scenario: '' | 'A' | 'B' | 'C' | 'D';
-  components: Record<string, AutoChecklistComponent>;
+  components: Record<string, V2ChecklistComponent>;
   component_score?: number | null;
-  top_movers?: AutoChecklistComponent[];
+  top_movers?: V2ChecklistComponent[];
   structure_hint?: 'bullish' | 'bearish' | 'range' | 'unknown';
   volume_hint?: 'rising' | 'falling' | 'flat' | 'unknown';
   structure_tf?: string | null;
@@ -121,175 +238,251 @@ export interface AutoChecklist {
   notes?: string | null;
 }
 
-export interface CalendarEvent {
+export interface V2CalendarEvent {
   ts: number | null;
   title: string | null;
   impact: 'high' | 'medium' | 'low' | 'unknown';
   source?: string | null;
 }
 
-export async function getCandles(
-  symbol: string,
-  timeframe: string,
-  numBars: number = 5000
-): Promise<CandlesResponse> {
-  const response = await authFetch(
-    `/api/candles?symbol=${symbol}&timeframe=${timeframe}&num_bars=${numBars}`
-  );
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch candles: ${response.statusText}`);
-  }
-
-  return response.json();
+export interface V2Status {
+  version: string;
+  mode: 'paper_only' | 'live_enabled';
+  broker: V2BrokerStatus;
+  config: V2Config;
+  runtime: V2Runtime;
+  readiness: V2ReadinessCheck[];
+  strategies: V2StrategyInfo[];
+  recent_incidents: V2Incident[];
+  recent_analyses: V2Analysis[];
+  paper_positions: V2PaperPosition[];
+  recent_events: V2PaperEvent[];
+  recent_order_intents: V2OrderIntent[];
+  recent_trade_audits: V2TradeAudit[];
 }
 
-export const getSymbols = async (): Promise<SymbolsResponse> => {
-  const response = await authFetch("/api/symbols");
+export interface V2ModelsResponse {
+  provider: string;
+  models: string[];
+  default?: string | null;
+  fallback?: string | null;
+  error?: string;
+}
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch symbols: ${response.statusText}`);
-  }
+export interface V2StudioProviderInfo {
+  key: string;
+  label: string;
+  configured: boolean;
+}
 
-  return response.json();
-};
+export interface V2StudioModelsResponse {
+  provider: string;
+  providers: V2StudioProviderInfo[];
+  models: string[];
+  default?: string | null;
+  fallback?: string | null;
+  error?: string;
+}
 
-export const getLlmModels = async (): Promise<LlmModelsResponse> => {
-  const response = await authFetch('/api/llm/models');
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to fetch LLM models: ${response.status} ${response.statusText}`);
-  }
-  return response.json();
-};
-
-export const getSymbolLimits = async (symbol?: string): Promise<SymbolLimitsMap | SymbolLimit> => {
-  const url = symbol ? `/api/symbol_limits?symbol=${encodeURIComponent(symbol)}` : '/api/symbol_limits';
-  const response = await authFetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch symbol limits: ${response.status} ${response.statusText}`);
-  }
-  return response.json();
-};
-
-export const getAgentConfig = async (): Promise<AgentConfig> => {
-  const response = await authFetch("/api/agent/config");
-  if (!response.ok) {
-    throw new Error(`Failed to fetch agent config: ${response.statusText}`);
-  }
-  return response.json();
-};
-
-export const setAgentConfig = async (config: AgentConfig): Promise<{ ok: boolean }> => {
-  const response = await authFetch("/api/agent/config", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Failed to set agent config: ${text || response.statusText}`);
-  }
-  return response.json();
-};
-
-export const getAgentStatus = async (): Promise<AgentStatus> => {
-  const response = await authFetch('/api/agent/status');
-  if (!response.ok) {
-    throw new Error(`Failed to fetch agent status: ${response.statusText}`);
-  }
-  return response.json();
-};
-
-
-
-export const getAgentSignals = async (limit = 50): Promise<AgentSignal[]> => {
-  const response = await authFetch(`/api/agent/signals?n=${limit}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch agent signals: ${response.statusText}`);
-  }
-  return response.json();
-};
-
-export const addToWatchlist = async (
-  symbol: string,
-  timeframe: string,
-  lotSize?: number,
-  strategy?: string
-): Promise<{ ok: boolean }> => {
-  const params = new URLSearchParams({ symbol, timeframe });
-  if (typeof lotSize === 'number' && Number.isFinite(lotSize)) {
-    params.set('lot_size', lotSize.toString());
-  }
-  if (strategy) {
-    params.set('strategy', strategy);
-  }
-  const response = await authFetch(`/api/agent/watchlist/add?${params.toString()}`, {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to add ${symbol}:${timeframe} to watchlist`);
-  }
-  return response.json();
-};
-
-// --- Strategy Studio Tasks ---
-
-export interface TaskRequest {
-  task_type: 'calculate_indicator' | 'backtest_strategy' | 'save_strategy' | 'research_strategy' | 'create_strategy' | 'backtest' | 'optimize' | 'chat';
+export interface V2StudioTaskRequest {
+  task_type:
+    | 'calculate_indicator'
+    | 'backtest_strategy'
+    | 'save_strategy'
+    | 'research_strategy'
+    | 'create_strategy'
+    | 'backtest'
+    | 'optimize'
+    | 'chat';
   goal: string;
   params?: Record<string, any>;
 }
 
-export interface TaskResponse {
+export interface V2StudioTaskResponse {
   status: 'success' | 'error';
   message?: string;
   result?: any;
 }
 
-export const executeTask = async (request: TaskRequest): Promise<TaskResponse> => {
-  const response = await authFetch('/api/agent/execute_task', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
+const STATUS_CACHE_TTL_MS = 1_500;
+const STRATEGIES_CACHE_TTL_MS = 60_000;
+const SYMBOLS_CACHE_TTL_MS = 5 * 60_000;
+
+type CacheEntry<T> = {
+  expiresAt: number;
+  value: T;
+};
+
+let statusCache: CacheEntry<V2Status> | null = null;
+let statusInflight: Promise<V2Status> | null = null;
+let strategiesCache: CacheEntry<V2StrategyInfo[]> | null = null;
+let strategiesInflight: Promise<V2StrategyInfo[]> | null = null;
+let symbolsCache: CacheEntry<SymbolsResponse> | null = null;
+let symbolsInflight: Promise<SymbolsResponse> | null = null;
+
+const invalidateStatusCache = () => {
+  statusCache = null;
+  statusInflight = null;
+};
+
+export const toAgentSignal = (analysis: V2Analysis): AgentSignal => ({
+  ts: Math.floor(new Date(analysis.created_at).getTime() / 1000),
+  symbol: analysis.symbol,
+  timeframe: analysis.timeframe,
+  signal: analysis.signal,
+  confidence: analysis.confidence,
+  rationale: analysis.reasons.join(' '),
+  reasons: analysis.reasons,
+  sl: analysis.stop_loss ?? null,
+  tp: analysis.take_profit ?? null,
+  entry: analysis.entry_price ?? null,
+  strategy: analysis.strategy,
+});
+
+export const getV2Status = async (options: { force?: boolean } = {}): Promise<V2Status> => {
+  const now = Date.now();
+  if (!options.force && statusCache && statusCache.expiresAt > now) {
+    return statusCache.value;
+  }
+  if (!options.force && statusInflight) {
+    return statusInflight;
+  }
+
+  statusInflight = authFetch('/api/status')
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to fetch status: ${response.status} ${response.statusText}`);
+      }
+      const payload = await response.json() as V2Status;
+      statusCache = { value: payload, expiresAt: Date.now() + STATUS_CACHE_TTL_MS };
+      return payload;
+    })
+    .finally(() => {
+      statusInflight = null;
+    });
+
+  return statusInflight;
+};
+
+export const getV2Config = async (): Promise<V2Config> => {
+  const response = await authFetch('/api/config');
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `${response.status} ${response.statusText}`);
+    throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
 
-// --- Strategies management ---
-
-export const reloadStrategies = async (): Promise<{ ok: boolean; loaded: number; available: string[] } | null> => {
-  try {
-    const response = await authFetch('/api/strategies/reload', { method: 'POST' });
-    if (!response.ok) {
-      // Fallback to GET if POST is blocked
-      const r2 = await authFetch('/api/strategies/reload');
-      if (!r2.ok) throw new Error(await r2.text());
-      return r2.json();
-    }
-    return response.json();
-  } catch {
-    return null;
+export const setV2Config = async (config: V2Config): Promise<V2Config> => {
+  const response = await authFetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to save config: ${response.status} ${response.statusText}`);
   }
+  invalidateStatusCache();
+  return response.json();
 };
 
-export const listStrategyFiles = async (): Promise<string[]> => {
-  const response = await authFetch('/api/strategies/files');
+export const getV2Symbols = async (): Promise<SymbolsResponse> => {
+  const now = Date.now();
+  if (symbolsCache && symbolsCache.expiresAt > now) {
+    return symbolsCache.value;
+  }
+  if (symbolsInflight) {
+    return symbolsInflight;
+  }
+
+  symbolsInflight = authFetch('/api/symbols')
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to fetch symbols: ${response.status} ${response.statusText}`);
+      }
+      const payload = await response.json() as SymbolsResponse;
+      symbolsCache = { value: payload, expiresAt: Date.now() + SYMBOLS_CACHE_TTL_MS };
+      return payload;
+    })
+    .finally(() => {
+      symbolsInflight = null;
+    });
+
+  return symbolsInflight;
+};
+
+export const getV2Candles = async (
+  symbol: string,
+  timeframe: string,
+  numBars: number = 5000,
+  signal?: AbortSignal,
+): Promise<CandlesResponse> => {
+  const response = await authFetch(
+    `/api/market/candles?symbol=${symbol}&timeframe=${timeframe}&num_bars=${numBars}`,
+    { signal },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to fetch candles: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const getV2Strategies = async (): Promise<V2StrategyInfo[]> => {
+  const now = Date.now();
+  if (strategiesCache && strategiesCache.expiresAt > now) {
+    return strategiesCache.value;
+  }
+  if (strategiesInflight) {
+    return strategiesInflight;
+  }
+
+  strategiesInflight = authFetch('/api/strategies')
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to fetch strategies: ${response.status} ${response.statusText}`);
+      }
+      const payload = await response.json() as V2StrategyInfo[];
+      strategiesCache = { value: payload, expiresAt: Date.now() + STRATEGIES_CACHE_TTL_MS };
+      return payload;
+    })
+    .finally(() => {
+      strategiesInflight = null;
+    });
+
+  return strategiesInflight;
+};
+
+export const getV2Models = async (): Promise<V2ModelsResponse> => {
+  const response = await authFetch('/api/models');
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to fetch models: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const getV2StudioModels = async (provider?: string): Promise<V2StudioModelsResponse> => {
+  const qs = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+  const response = await authFetch(`/api/studio/models${qs}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to fetch studio models: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const listV2StudioStrategyFiles = async (): Promise<string[]> => {
+  const response = await authFetch('/api/studio/strategy-files');
   if (!response.ok) {
     throw new Error(`Failed to list strategy files: ${response.status} ${response.statusText}`);
   }
   const data = await response.json();
   const files: string[] = Array.isArray(data?.files) ? data.files : [];
-  // Return stems without .py
-  return files.map((f) => (typeof f === 'string' && f.toLowerCase().endsWith('.py') ? f.slice(0, -3) : f));
+  return files.map((file) => (typeof file === 'string' && file.toLowerCase().endsWith('.py') ? file.slice(0, -3) : file));
 };
 
-export const backtestSavedStrategy = async (
+export const backtestV2SavedStrategy = async (
   strategy: string,
   symbol: string,
   timeframe: string,
@@ -309,7 +502,7 @@ export const backtestSavedStrategy = async (
   if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) {
     params.set('slippage_bps', String(slippageBps));
   }
-  const response = await authFetch(`/api/strategies/backtest?${params.toString()}`);
+  const response = await authFetch(`/api/studio/backtest?${params.toString()}`);
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `Backtest failed: ${response.status} ${response.statusText}`);
@@ -317,10 +510,139 @@ export const backtestSavedStrategy = async (
   return response.json();
 };
 
-export const fetchAutoChecklist = async (params?: { tf?: string; structure_tf?: string }): Promise<AutoChecklist> => {
+export const executeV2StudioTask = async (request: V2StudioTaskRequest): Promise<V2StudioTaskResponse> => {
+  const response = await authFetch('/api/studio/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to execute studio task: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const analyzeV2Strategy = async (
+  payload: {
+    symbol: string;
+    timeframe: string;
+    strategy: string;
+    num_bars?: number;
+    params?: Record<string, unknown>;
+  },
+  signal?: AbortSignal,
+): Promise<V2Analysis> => {
+  const response = await authFetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to analyze: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const analyzeV2Dashboard = async (
+  payload: V2DashboardAnalysisRequest,
+  signal?: AbortSignal,
+): Promise<V2Analysis> => analyzeV2Strategy(payload, signal);
+
+export const placeV2ManualOrder = async (payload: V2ManualOrderRequest): Promise<V2ManualOrderResponse> => {
+  const response = await authFetch('/api/orders/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to place manual order: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const startV2Engine = async (): Promise<{ ok: boolean; enabled: boolean }> => {
+  const response = await authFetch('/api/engine/start', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to start engine: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const stopV2Engine = async (): Promise<{ ok: boolean; enabled: boolean }> => {
+  const response = await authFetch('/api/engine/stop', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to stop engine: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const scanV2Engine = async (): Promise<{ ok: boolean; summary: string }> => {
+  const response = await authFetch('/api/engine/scan', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to scan engine: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const reconcileV2Engine = async (): Promise<{ ok: boolean; checked: number; closed: number; skipped: number; reason: string }> => {
+  const response = await authFetch('/api/engine/reconcile', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to reconcile engine: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const recoverV2Engine = async (): Promise<{ ok: boolean; active_watchlist: string[]; enabled: boolean }> => {
+  const response = await authFetch('/api/engine/recover', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to recover engine: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const getV2OrderIntents = async (limit = 20): Promise<V2OrderIntent[]> => {
+  const response = await authFetch(`/api/paper/order-intents?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch order intents: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const getV2TradeAudit = async (limit = 20): Promise<V2TradeAudit[]> => {
+  const response = await authFetch(`/api/paper/audit?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trade audit: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const fetchV2AutoChecklist = async (params?: {
+  tf?: string;
+  structure_tf?: string;
+}): Promise<V2AutoChecklist> => {
   const search = new URLSearchParams();
-  if (params?.tf) search.set('tf', params.tf);
-  if (params?.structure_tf) search.set('structure_tf', params.structure_tf);
+  if (params?.tf) {
+    search.set('tf', params.tf);
+  }
+  if (params?.structure_tf) {
+    search.set('structure_tf', params.structure_tf);
+  }
   const qs = search.toString();
   const response = await authFetch(`/api/checklist/auto${qs ? `?${qs}` : ''}`);
   if (!response.ok) {
@@ -330,7 +652,7 @@ export const fetchAutoChecklist = async (params?: { tf?: string; structure_tf?: 
   return response.json();
 };
 
-export const fetchNextCalendarEvent = async (): Promise<CalendarEvent | null> => {
+export const fetchV2NextCalendarEvent = async (): Promise<V2CalendarEvent | null> => {
   try {
     const response = await authFetch('/api/calendar/next');
     if (!response.ok) {

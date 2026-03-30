@@ -14,16 +14,13 @@
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
         "react-router-dom": "^6.26.2",
-        "recharts": "^2.12.7",
-        "plotly.js-dist-min": "^2.35.2",
-        "react-plotly.js": "^2.6.0"
+        "recharts": "^2.12.7"
     },
     "devDependencies": {
         "@eslint/js": "^9.36.0",
         "@types/node": "^24.6.0",
         "@types/react": "^19.1.16",
         "@types/react-dom": "^19.1.9",
-        "@types/react-plotly.js": "^2.6.3",
         "@types/recharts": "^1.8.29",
         "@vitejs/plugin-react": "^5.0.4",
         "eslint": "^9.36.0",

@@ -9,10 +9,11 @@ import {
   type IPriceLine,
   LineStyle,
 } from 'lightweight-charts';
-import { getCandles, type Candle } from '../services/api';
+import { getV2Candles, type Candle } from '../services/api';
 import type { AnalysisResult } from '../types/analysis';
 
-// Define the props interface for the component
+const CHART_CANDLE_LIMIT = 1500;
+
 interface ChartProps {
   symbol: string;
   timeframe: string;
@@ -29,64 +30,78 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
   const [chartReady, setChartReady] = useState(false);
   const priceLinesRef = useRef<IPriceLine[]>([]);
 
-  // Fetch candle data
+  /* Fetch candle data */
   useEffect(() => {
-    let cancelled = false;
-
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
 
-    getCandles(symbol, timeframe)
-      .then(response => {
-        if (!cancelled) {
-          setCandles(response.candles);
-          setLoading(false);
-        }
+    getV2Candles(symbol, timeframe, CHART_CANDLE_LIMIT, controller.signal)
+      .then((response) => {
+        setCandles(response.candles);
+        setLoading(false);
       })
-      .catch(err => {
-        if (!cancelled) {
-          setError(err.message);
-          setCandles([]);
-          setLoading(false);
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
         }
+        setError(err.message);
+        setCandles([]);
+        setLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [symbol, timeframe]);
 
-  // Initialize chart
+  /* Initialize chart */
   useEffect(() => {
-    if (!chartContainerRef.current || chartRef.current) {
-      return;
-    }
+    if (!chartContainerRef.current || chartRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
-      layout: { background: { color: '#0b0b0f' }, textColor: '#dfe7ff' },
-      grid: { vertLines: { color: '#242b3a' }, horzLines: { color: '#242b3a' } },
-      timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 4 },
-      rightPriceScale: { borderColor: '#2b3350' },
-      crosshair: { mode: 0 },
+      layout: {
+        background: { color: '#080b12' },
+        textColor: '#5a6a8a',
+        fontFamily: "'Inter', system-ui, sans-serif",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(99, 102, 241, 0.04)' },
+        horzLines: { color: 'rgba(99, 102, 241, 0.04)' },
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 6,
+        borderColor: 'rgba(99, 102, 241, 0.08)',
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(99, 102, 241, 0.08)',
+      },
+      crosshair: {
+        mode: 0,
+        vertLine: { color: 'rgba(99, 102, 241, 0.3)', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#6366f1' },
+        horzLine: { color: 'rgba(99, 102, 241, 0.3)', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#6366f1' },
+      },
     });
     chartRef.current = chart;
 
     candleSeriesRef.current = chart.addSeries(CandlestickSeries, {
-      upColor: '#58d68d',
-      downColor: '#ff6b6b',
-      wickUpColor: '#58d68d',
-      wickDownColor: '#ff6b6b',
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      wickUpColor: '#10b981',
+      wickDownColor: '#ef4444',
       borderVisible: false,
     });
     setChartReady(true);
 
-    const resizeObserver = new ResizeObserver(entries => {
+    const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         chart.resize(width, height);
       }
     });
-
     resizeObserver.observe(chartContainerRef.current);
 
     return () => {
@@ -98,18 +113,17 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     };
   }, []);
 
+  /* Set candle data */
   useEffect(() => {
-    if (!chartReady || !candleSeriesRef.current) {
-      return;
-    }
+    if (!chartReady || !candleSeriesRef.current) return;
 
     if (candles.length > 0) {
-      const seriesData: CandlestickData<Time>[] = candles.map(candle => ({
-        time: candle.time as Time,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
+      const seriesData: CandlestickData<Time>[] = candles.map((c) => ({
+        time: c.time as Time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
       }));
       candleSeriesRef.current.setData(seriesData);
       chartRef.current?.timeScale().fitContent();
@@ -118,66 +132,51 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     }
   }, [candles, loading, chartReady]);
 
-  // Draw analysis lines
+  /* Draw analysis lines */
   useEffect(() => {
-    if (!chartReady || !candleSeriesRef.current) {
-      return;
-    }
+    if (!chartReady || !candleSeriesRef.current) return;
 
-    // Clear previous lines
-    priceLinesRef.current.forEach(line => candleSeriesRef.current?.removePriceLine(line));
+    priceLinesRef.current.forEach((line) => candleSeriesRef.current?.removePriceLine(line));
     priceLinesRef.current = [];
 
     if (analysis) {
       const { entry, tp, sl, signal } = analysis;
-      const color = signal === 'long' ? '#58d68d' : '#ff6b6b';
-      const tpPrice = tp;
-      const slPrice = sl;
 
-      const createLine = (price: number, label: string, lineStyle: LineStyle = LineStyle.Dotted) => {
+      const createLine = (price: number, label: string, color: string, style: LineStyle = LineStyle.Dotted) => {
         const line = candleSeriesRef.current?.createPriceLine({
           price,
           color,
           lineWidth: 1,
-          lineStyle,
+          lineStyle: style,
           axisLabelVisible: true,
           title: label,
         });
-        if (line) {
-          priceLinesRef.current.push(line);
-        }
+        if (line) priceLinesRef.current.push(line);
       };
 
-      if (entry) {
-        createLine(entry, 'Entry', LineStyle.Solid);
-      }
-      if (tpPrice) {
-        createLine(tpPrice, 'TP');
-      }
-      if (slPrice) {
-        createLine(slPrice, 'SL');
-      }
+      if (entry) createLine(entry, 'Entry', '#8b5cf6', LineStyle.Solid);
+      if (tp) createLine(tp, 'TP', '#10b981');
+      if (sl) createLine(sl, 'SL', '#ef4444');
     }
   }, [analysis, chartReady]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div ref={chartContainerRef} id="chart" style={{ width: '100%', height: '100%' }} />
+      <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
       {(loading || error || (!loading && candles.length === 0)) && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#0b0b0fcc',
-            color: '#dfe7ff',
-            zIndex: 1,
-            fontSize: '1rem',
-          }}
-        >
-          {loading ? 'Loading…' : error ? `Error: ${error}` : 'No data available'}
+        <div className="ta-chart-loading">
+          {loading ? (
+            <>
+              <div className="ta-spinner" />
+              <div className="ta-chart-loading__text">Loading {symbol} {timeframe}…</div>
+            </>
+          ) : error ? (
+            <div className="ta-chart-loading__text" style={{ color: 'var(--ta-bear)' }}>
+              Error: {error}
+            </div>
+          ) : (
+            <div className="ta-chart-loading__text">No data available</div>
+          )}
         </div>
       )}
     </div>

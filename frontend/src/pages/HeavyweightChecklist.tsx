@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchAutoChecklist, fetchNextCalendarEvent, type AutoChecklist, type CalendarEvent } from '../services/api';
+import {
+  fetchV2AutoChecklist,
+  fetchV2NextCalendarEvent,
+  type V2AutoChecklist as AutoChecklist,
+  type V2CalendarEvent as CalendarEvent,
+} from '../services/api';
 
 type Session = '' | 'London' | 'New York';
 type Strength = 'neutral' | 'strong' | 'weak';
@@ -159,7 +164,7 @@ export default function HeavyweightChecklistPage() {
     let timer: any;
     const poll = async () => {
       try {
-        const res = await fetchAutoChecklist({ tf: biasTf, structure_tf: structureTf });
+        const res = await fetchV2AutoChecklist({ tf: biasTf, structure_tf: structureTf });
         if (!mounted) return;
         setAuto(res);
         setAutoError('');
@@ -180,7 +185,7 @@ export default function HeavyweightChecklistPage() {
   useEffect(() => {
     let mounted = true;
     const poll = async () => {
-      const evt = await fetchNextCalendarEvent();
+      const evt = await fetchV2NextCalendarEvent();
       if (!mounted) return;
       setNextEvent(evt);
       setTimeout(poll, 60000);

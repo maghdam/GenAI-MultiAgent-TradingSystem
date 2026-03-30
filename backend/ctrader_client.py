@@ -6,6 +6,7 @@ from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
     ProtoOAAccountAuthReq,
     ProtoOASymbolsListReq,
+    ProtoOAAssetClassListReq,
     ProtoOAReconcileReq,
     ProtoOAGetTrendbarsReq,
     ProtoOANewOrderReq,
@@ -61,6 +62,9 @@ FALLBACK_SYMBOLS = [s.strip().upper() for s in _fallback_symbols_cfg.split(",") 
 
 # connection state
 CONNECTED = False
+AUTHORIZED = False
+AUTH_ERROR = None
+LAST_AUTH_ATTEMPT_AT = None
 
 _PRICE_FACTOR = 100_000
 _VOLUME_PRECISION = 10_000         # API volume units = 0.0001 lots (1 lot = 10,000 units)
@@ -278,7 +282,10 @@ def pips_to_relative(pips: int, digits: int) -> int:
     return pips * 10 ** (6 - digits)
 
 def on_error(failure):
-    print("[ERROR]", failure)
+    global AUTH_ERROR
+    err_msg = str(failure)
+    AUTH_ERROR = err_msg
+    print("[ERROR]", err_msg)
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
 def _install_fallback_symbols(reason: str | None = None):
@@ -345,16 +352,32 @@ def symbols_response_cb(res):
     if loaded == 0:
         _install_fallback_symbols("empty symbol list")
     else:
-        print(f"[DEBUG] Loaded {loaded} symbols.")
+        # Sort and merge description where possible or just log
+        print(f"[DEBUG] Deep Discovery Loaded {loaded} symbols.")
 
 def account_auth_cb(_):
+    global AUTHORIZED, AUTH_ERROR
+    AUTHORIZED = True
+    AUTH_ERROR = None
+    # Phase 1: Fetch asset classes
+    req = ProtoOAAssetClassListReq(
+        ctidTraderAccountId=ACCOUNT_ID,
+    )
+    client.send(req).addCallbacks(asset_class_response_cb, on_error)
+
+def asset_class_response_cb(res):
+    # We could log or filter here, but for now we just move to Phase 2: Symbols
+    # Some brokers require specific symbols list requests, but global is usually fine.
+    # By fetching assets first, we ensure the account session is synchronized.
     req = ProtoOASymbolsListReq(
         ctidTraderAccountId=ACCOUNT_ID,
-        includeArchivedSymbols=False,
+        includeArchivedSymbols=True, # Attempting maximum coverage
     )
     client.send(req).addCallbacks(symbols_response_cb, on_error)
 
 def app_auth_cb(_):
+    global LAST_AUTH_ATTEMPT_AT
+    LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
     req = ProtoOAAccountAuthReq(
         ctidTraderAccountId=ACCOUNT_ID,
         accessToken=ACCESS_TOKEN,
@@ -362,14 +385,17 @@ def app_auth_cb(_):
     client.send(req).addCallbacks(account_auth_cb, on_error)
 
 def _on_connected(_):
-    global CONNECTED
+    global CONNECTED, AUTHORIZED, AUTH_ERROR
     CONNECTED = True
+    AUTHORIZED = False
+    AUTH_ERROR = None
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
     client.send(req).addCallbacks(app_auth_cb, on_error)
 
 def _on_disconnected(c, reason):
-    global CONNECTED
+    global CONNECTED, AUTHORIZED
     CONNECTED = False
+    AUTHORIZED = False
     print("[INFO] Disconnected:", reason)
 
 
@@ -458,6 +484,15 @@ def init_client():
 def is_connected() -> bool:
     return CONNECTED
 
+def is_authorized() -> bool:
+    return AUTHORIZED
+
+def get_auth_error() -> str | None:
+    return AUTH_ERROR
+
+def get_last_auth_attempt() -> datetime | None:
+    return LAST_AUTH_ATTEMPT_AT
+
 # ── OHLC fetch (local event; handles errors; timeout) ──────────────────────
 # --- replace get_ohlc_data() body with this version ---
 def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
@@ -470,11 +505,18 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
         raise ValueError(f"Unknown symbol '{symbol}'")
 
     now = datetime.utcnow()
+    # Dynamic time-range calculation: fetch exactly (n + buffer) bars based on timeframe
+    tf_min_map = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
+    minutes_needed = (n or 1000) * tf_min_map.get(tf, 5)
+    # Add 20% buffer for missing bars or gap-filling
+    buffer_minutes = int(minutes_needed * 1.2)
+    from_time = now - timedelta(minutes=buffer_minutes)
+
     req = ProtoOAGetTrendbarsReq(
         symbolId=sid,
         ctidTraderAccountId=ACCOUNT_ID,
         period=getattr(ProtoOATrendbarPeriod, tf),
-        fromTimestamp=int(calendar.timegm((now - timedelta(weeks=52)).utctimetuple())) * 1000,
+        fromTimestamp=int(calendar.timegm(from_time.utctimetuple())) * 1000,
         toTimestamp=int(calendar.timegm(now.utctimetuple())) * 1000,
     )
 
@@ -505,72 +547,103 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
         nonlocal err_txt
         err_txt = str(f); ev.set()
 
-    d = client.send(req, timeout=15)   # a bit longer
+    print(f"[DEBUG] OHLC Fetch: {symbol} {tf} | window={buffer_minutes}m")
+    d = client.send(req, timeout=10)
     d.addCallbacks(_ok, _err)
 
-    if not ev.wait(15):
-        err_txt = err_txt or "trendbars timeout"
+    if not ev.wait(12):
+        err_txt = "trendbars timeout (no event set after 12s)"
+        print(f"[WARN] OHLC timeout for {symbol} {tf}")
+
+    # --- FALLBACK ---
+    if not out and not err_txt:
+        print(f"[DEBUG] OHLC tight window empty for {symbol} {tf}. Trying 60-day fallback...")
+        ev = threading.Event()
+        from_time_fb = now - timedelta(days=60)
+        req_fb = ProtoOAGetTrendbarsReq(
+            symbolId=sid,
+            ctidTraderAccountId=ACCOUNT_ID,
+            period=getattr(ProtoOATrendbarPeriod, tf),
+            fromTimestamp=int(calendar.timegm(from_time_fb.utctimetuple())) * 1000,
+            toTimestamp=int(calendar.timegm(now.utctimetuple())) * 1000,
+        )
+        d_fb = client.send(req_fb, timeout=10)
+        d_fb.addCallbacks(_ok, _err)
+        if not ev.wait(12):
+            print(f"[WARN] OHLC fallback timeout for {symbol} {tf}")
 
     if not out:
-        raise RuntimeError(f"trendbars error: {err_txt or 'empty response'}")
+        msg = f"trendbars error for {symbol} {tf}: {err_txt or 'empty response after fallback'}"
+        print(f"[ERROR] {msg}")
+        raise RuntimeError(msg)
 
+    print(f"[DEBUG] OHLC Success for {symbol} {tf}: returned {len(out)} bars")
     return out[-n:] if n else out
 
 
-# --- replace get_pending_orders() and get_open_positions() callbacks similarly ---
-def get_open_positions():
-    ev = threading.Event(); rows=[]; err=None
+# --- reconcile snapshot helpers ---
+def _parse_reconcile_positions(obj):
+    rows = []
+    for p in getattr(obj, "position", []):
+        td = p.tradeData
+        sid = getattr(td, "symbolId", None)
+        md = getattr(p, "moneyDigits", None)
+        try:
+            if md is not None and sid is not None:
+                symbol_money_digits_map[int(sid)] = int(md)
+        except Exception:
+            pass
+
+        rows.append(dict(
+            symbol_name=symbol_map.get(sid, str(sid)),
+            symbol_id=sid,
+            digits=symbol_digits_map.get(sid),
+            money_digits=symbol_money_digits_map.get(int(sid)) if sid is not None else None,
+            position_id=p.positionId,
+            direction="buy" if td.tradeSide == ProtoOATradeSide.BUY else "sell",
+            entry_price=_decode_px(sid, getattr(p, "price", 0)),
+            volume_lots=td.volume / _VOLUME_PRECISION,
+            stop_loss=_decode_px(sid, getattr(p, "stopLoss", None)) if getattr(p, "stopLoss", None) not in (None, 0) else None,
+            take_profit=_decode_px(sid, getattr(p, "takeProfit", None)) if getattr(p, "takeProfit", None) not in (None, 0) else None,
+        ))
+    return rows
+
+
+def get_reconcile_snapshot():
+    ev = threading.Event()
+    positions = []
+    orders = []
+    err = None
+
     def _ok(res):
         nonlocal err
         obj = Protobuf.extract(res)
-        if getattr(obj,"__class__",type("x",(object,),{})).__name__ == "ProtoOAErrorRes" or hasattr(obj,"errorCode"):
-            err = f"{getattr(obj,'errorCode','ERR')} {getattr(obj,'description','')}".strip(); ev.set(); return
-        for p in obj.position:
-            td = p.tradeData
-            sid = getattr(td, "symbolId", None)
-            md = getattr(p, "moneyDigits", None)
-            try:
-                if md is not None:
-                    md_int = int(md)
-                    # Track money digits per symbol
-                    if sid is not None:
-                        symbol_money_digits_map[int(sid)] = md_int
-                    pf = 10 ** md_int
-                else:
-                    pf = _price_factor_for_symbol(sid)
-            except Exception:
-                pf = _price_factor_for_symbol(sid)
-            rows.append(dict(
-                symbol_name=symbol_map.get(sid, str(sid)),
-                symbol_id=sid,
-                digits=symbol_digits_map.get(sid),
-                money_digits=symbol_money_digits_map.get(int(sid)) if sid is not None else None,
-                position_id=p.positionId,
-                direction="buy" if td.tradeSide==ProtoOATradeSide.BUY else "sell",
-                entry_price=_decode_px(sid, getattr(p, "price", 0)),
-                volume_lots=td.volume/_VOLUME_PRECISION,
-                stop_loss=_decode_px(sid, getattr(p, "stopLoss", None)) if getattr(p, "stopLoss", None) not in (None, 0) else None,
-                take_profit=_decode_px(sid, getattr(p, "takeProfit", None)) if getattr(p, "takeProfit", None) not in (None, 0) else None,
-            ))
+        if getattr(obj, "__class__", type("x", (object,), {})).__name__ == "ProtoOAErrorRes" or hasattr(obj, "errorCode"):
+            err = f"{getattr(obj, 'errorCode', 'ERR')} {getattr(obj, 'description', '')}".strip()
+            ev.set()
+            return
+        positions.extend(_parse_reconcile_positions(obj))
+        orders.extend(getattr(obj, "order", []))
         ev.set()
-    def _err(f): nonlocal err; err=str(f); ev.set()
+
+    def _err(f):
+        nonlocal err
+        err = str(f)
+        ev.set()
+
     d = client.send(ProtoOAReconcileReq(ctidTraderAccountId=ACCOUNT_ID), timeout=10)
-    d.addCallbacks(_ok,_err); ev.wait(10)
-    return rows  # (log err if you like)
+    d.addCallbacks(_ok, _err)
+    if not ev.wait(10):
+        err = "reconcile timeout"
+    return {"positions": positions, "orders": orders, "error": err}
+
+
+def get_open_positions():
+    return get_reconcile_snapshot()["positions"]
 
 
 def get_pending_orders():
-    ev = threading.Event(); out=[]; err=None
-    def _ok(res):
-        nonlocal err
-        obj = Protobuf.extract(res)
-        if getattr(obj,"__class__",type("x",(object,),{})).__name__ == "ProtoOAErrorRes" or hasattr(obj,"errorCode"):
-            err = f"{getattr(obj,'errorCode','ERR')} {getattr(obj,'description','')}".strip(); ev.set(); return
-        out.extend(obj.order); ev.set()
-    def _err(f): nonlocal err; err=str(f); ev.set()
-    d = client.send(ProtoOAReconcileReq(ctidTraderAccountId=ACCOUNT_ID), timeout=10)
-    d.addCallbacks(_ok,_err); ev.wait(10)
-    return out
+    return get_reconcile_snapshot()["orders"]
 
 
 # ── place order ───────────────────────────────────────────────────────────-

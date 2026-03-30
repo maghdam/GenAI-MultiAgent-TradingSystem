@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CodeDisplay } from '../../components/CodeDisplay';
 import { BacktestResult } from '../../components/BacktestResult';
-import { BacktestDashboard } from '../../components/BacktestDashboard';
+
+const BacktestDashboard = lazy(() =>
+  import('../../components/BacktestDashboard').then((module) => ({ default: module.BacktestDashboard }))
+);
 
 const RESULT_KEY = 'strategyStudio.backtest.lastResult';
 const META_KEY = 'strategyStudio.backtest.lastMeta';
@@ -77,7 +80,11 @@ function renderResult(lastResult: any, view: ViewMode) {
 
   // New Backtest Data Shape
   if (lastResult.metrics && (lastResult.equity || lastResult.optimization_results)) {
-    return <BacktestDashboard data={lastResult} resizable />;
+    return (
+      <Suspense fallback={<div className="box" style={{ padding: 16 }}><div className="muted">Loading backtest dashboard...</div></div>}>
+        <BacktestDashboard data={lastResult} resizable />
+      </Suspense>
+    );
   }
 
   // Legacy flat metrics

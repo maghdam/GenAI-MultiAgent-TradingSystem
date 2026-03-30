@@ -1,11 +1,8 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import Plotly from 'plotly.js-dist-min';
-import createPlotlyComponent from 'react-plotly.js/factory';
-const Plot = createPlotlyComponent(Plotly);
+import React, { useMemo } from 'react';
 
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    BarChart, Bar, Legend, ComposedChart, Line, Scatter
+    Legend, ComposedChart, Line, LineChart, Scatter
 } from 'recharts';
 import { ResizableBox } from './ResizableBox';
 
@@ -42,6 +39,22 @@ interface Props {
     data: BacktestData;
     resizable?: boolean;
 }
+
+interface PlotTrace {
+    name?: string;
+    type?: string;
+    mode?: string;
+    x?: unknown[];
+    y?: unknown[];
+    line?: { color?: string };
+    marker?: { color?: string };
+}
+
+interface PlotPayload {
+    data?: PlotTrace[];
+}
+
+const TRACE_COLORS = ['#4fc3f7', '#81c784', '#ffb74d', '#ba68c8', '#e57373', '#90a4ae'];
 
 // Custom markers for buy/sell
 const BuyMarker = (props: any) => {
@@ -97,6 +110,58 @@ function valueColor(key: string, value: string | number): string | undefined {
     return undefined;
 }
 
+function formatPlotLabel(value: unknown, index: number): string {
+    if (typeof value === 'string' && value.trim()) {
+        return value;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+    }
+    return `#${index + 1}`;
+}
+
+function buildPlotRows(payload: PlotPayload | null): {
+    rows: Array<Record<string, string | number | null>>;
+    traces: Array<{ key: string; label: string; color: string }>;
+} {
+    if (!payload?.data?.length) {
+        return { rows: [], traces: [] };
+    }
+
+    const plottable = payload.data
+        .filter((trace) => Array.isArray(trace?.y) && trace.y.some((value) => typeof value === 'number' && Number.isFinite(value)))
+        .slice(0, 6);
+
+    if (!plottable.length) {
+        return { rows: [], traces: [] };
+    }
+
+    const maxLength = plottable.reduce((acc, trace) => Math.max(acc, Array.isArray(trace.y) ? trace.y.length : 0), 0);
+    const step = Math.max(1, Math.ceil(maxLength / 300));
+    const traces = plottable.map((trace, index) => ({
+        key: `trace_${index}`,
+        label: trace.name || `Trace ${index + 1}`,
+        color: trace.line?.color || trace.marker?.color || TRACE_COLORS[index % TRACE_COLORS.length],
+    }));
+
+    const rows: Array<Record<string, string | number | null>> = [];
+    for (let rawIndex = 0; rawIndex < maxLength; rawIndex += step) {
+        const firstTrace = plottable[0];
+        const label = formatPlotLabel(firstTrace?.x?.[rawIndex], rawIndex);
+        const row: Record<string, string | number | null> = {
+            label,
+            index: rawIndex + 1,
+        };
+        traces.forEach((traceMeta, traceIndex) => {
+            const source = plottable[traceIndex];
+            const value = source?.y?.[rawIndex];
+            row[traceMeta.key] = typeof value === 'number' && Number.isFinite(value) ? value : null;
+        });
+        rows.push(row);
+    }
+    return { rows, traces };
+}
+
 export function BacktestDashboard({ data, resizable = false }: Props) {
     const { metrics, equity, trades, optimization_results, candles } = data;
 
@@ -143,7 +208,7 @@ export function BacktestDashboard({ data, resizable = false }: Props) {
         });
     }, [candles, equity, trades, hasCandles, hasEquity]);
 
-    const plotData = useMemo(() => {
+    const plotData = useMemo<PlotPayload | null>(() => {
         if (!data.plots) return null;
         try {
             return JSON.parse(data.plots);
@@ -152,61 +217,7 @@ export function BacktestDashboard({ data, resizable = false }: Props) {
             return null;
         }
     }, [data.plots]);
-
-    const plotHostRef = useRef<HTMLDivElement | null>(null);
-
-    const plotLayout = useMemo(() => {
-        if (!plotData?.layout) return null;
-        // VectorBT often sets a fixed pixel width; remove it so Plotly can autosize to the container.
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { width: _width, height: _height, ...layoutRest } = plotData.layout;
-        return {
-            ...layoutRest,
-            autosize: true,
-            paper_bgcolor: 'rgba(0,0,0,0)',
-            plot_bgcolor: 'rgba(0,0,0,0)',
-            font: { color: '#ccc' },
-            xaxis: { ...layoutRest.xaxis, gridcolor: '#333' },
-            yaxis: { ...layoutRest.yaxis, gridcolor: '#333' },
-        };
-    }, [plotData]);
-
-    useEffect(() => {
-        if (!plotData || !plotHostRef.current) return;
-        const host = plotHostRef.current;
-        let raf: number | null = null;
-
-        const schedule = () => {
-            if (raf) cancelAnimationFrame(raf);
-            raf = requestAnimationFrame(() => {
-                try {
-                    const el = host.querySelector('.js-plotly-plot') as any;
-                    const p = Plotly as any;
-                    if (el && p?.Plots?.resize) p.Plots.resize(el);
-                } catch {
-                    // ignore
-                }
-            });
-        };
-
-        schedule();
-
-        if (typeof ResizeObserver !== 'undefined') {
-            const ro = new ResizeObserver(() => schedule());
-            ro.observe(host);
-            return () => {
-                if (raf) cancelAnimationFrame(raf);
-                ro.disconnect();
-            };
-        }
-
-        const onWin = () => schedule();
-        window.addEventListener('resize', onWin);
-        return () => {
-            if (raf) cancelAnimationFrame(raf);
-            window.removeEventListener('resize', onWin);
-        };
-    }, [plotData]);
+    const plotSeries = useMemo(() => buildPlotRows(plotData), [plotData]);
 
     const metricGroups = useMemo(() => {
         const used = new Set<string>();
@@ -286,7 +297,6 @@ export function BacktestDashboard({ data, resizable = false }: Props) {
         return parts.join(' · ');
     }, [metrics]);
 
-
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
@@ -332,29 +342,75 @@ export function BacktestDashboard({ data, resizable = false }: Props) {
                 </div>
             </ResizableBox>
 
-            {/* 2. VectorBT Native Plotly Chart */}
-            {plotData ? (
+            {/* 2. Simplified VectorBT Trace View */}
+            {plotSeries.rows.length ? (
                 <ResizableBox
                     className="box"
                     storageKey={resizable ? 'strategyStudio.bt.vbtChart' : undefined}
-                    defaultHeight={800}
-                    minHeight={360}
+                    defaultHeight={420}
+                    minHeight={280}
                     enable={resizable ? ['e', 's', 'se'] : []}
                     style={{ padding: '10px' }}
                 >
-                    <div ref={plotHostRef} style={{ width: '100%', height: '100%' }}>
-                        <Plot
-                            data={plotData.data}
-                            layout={plotLayout ?? undefined}
-                            style={{ width: '100%', height: '100%' }}
-                            useResizeHandler={true}
-                            config={{ responsive: true }}
-                        />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                            <h3 style={{ margin: 0 }}>VectorBT Trace View</h3>
+                            <div className="muted" style={{ fontSize: '12px' }}>
+                                Simplified renderer using the first {plotSeries.traces.length} numeric traces.
+                            </div>
+                        </div>
+                        <div style={{ flex: 1, minHeight: 0 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={plotSeries.rows}>
+                                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                                    <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={30} />
+                                    <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10 }} />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: '#1e1e1e', border: '1px solid #333' }}
+                                        itemStyle={{ color: '#ccc' }}
+                                        labelStyle={{ color: '#888' }}
+                                    />
+                                    <Legend />
+                                    {plotSeries.traces.map((trace) => (
+                                        <Line
+                                            key={trace.key}
+                                            type="monotone"
+                                            dataKey={trace.key}
+                                            name={trace.label}
+                                            stroke={trace.color}
+                                            dot={false}
+                                            strokeWidth={2}
+                                            connectNulls
+                                        />
+                                    ))}
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
                 </ResizableBox>
+            ) : plotData ? (
+                <div className="box" style={{ padding: '20px', display: 'grid', gap: '12px' }}>
+                    <div>
+                        <h3 style={{ margin: 0 }}>VectorBT Trace View</h3>
+                    </div>
+                    <div className="muted">
+                        Plot data was present, but it did not contain numeric traces that the lightweight renderer could plot.
+                    </div>
+                    <div className="muted" style={{ fontSize: '12px' }}>
+                        The metrics, price chart, equity curve, optimization table, and trades list below remain available.
+                    </div>
+                </div>
             ) : (
-                <div className="box" style={{ padding: '20px', textAlign: 'center' }}>
-                    Loading Charts...
+                <div className="box" style={{ padding: '20px', display: 'grid', gap: '12px' }}>
+                    <div>
+                        <h3 style={{ margin: 0 }}>VectorBT Trace View</h3>
+                    </div>
+                    <div className="muted">
+                        No advanced trace payload was returned for this result.
+                    </div>
+                    <div className="muted" style={{ fontSize: '12px' }}>
+                        The rest of the backtest report still renders from the structured result data.
+                    </div>
                 </div>
             )}
 

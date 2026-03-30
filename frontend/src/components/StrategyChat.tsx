@@ -32,7 +32,7 @@ export default function StrategyChat({ messages, isLoading, placeholder, onSendM
       </div>
       <div style={{ flex: 1, minHeight: 280, overflow: 'auto', background: '#0b0b0f', padding: 8, borderRadius: 6 }}>
         {messages.length === 0 ? (
-          <div className="muted">Ask a question (e.g. "what can you do?") or run tasks like "backtest RSI on XAUUSD" / "optimize SMA on XAUUSD".</div>
+          <div className="muted">Chat naturally to create or refine a strategy draft, then run a backtest or save it when ready.</div>
         ) : (
           messages.map((m, i) => (
             <div key={i} style={{ marginBottom: 10, display:'flex', justifyContent: m.role==='user'?'flex-end':'flex-start' }}>
