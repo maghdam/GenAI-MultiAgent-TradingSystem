@@ -29,9 +29,12 @@ backend/data/agent_state.json
 
 # Docker artifacts (if mounted)
 *.log
+.codex-run/
+backend/tests/_tmp/
 
 
 # Developer notes
 NOTES.md
 docker_usage_guide.md
+
 
