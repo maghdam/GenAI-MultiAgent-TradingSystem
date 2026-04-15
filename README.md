@@ -69,6 +69,35 @@ The project is intended to show AI product engineering rather than prompt-only e
   </p>
 </details>
 
+### Supplemental Prototype Views
+
+<details>
+  <summary>Earlier dashboard and assistant flow</summary>
+  <p align="center">
+    <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/Dashboard1.png" alt="Earlier TradeAgent dashboard continuation showing assistant analysis, decision summary, and rationale panels" width="100%" />
+  </p>
+</details>
+
+<details>
+  <summary>Earlier Strategy Studio generation and backtest flow</summary>
+  <p align="center">
+    <img src="docs/images/Dashboard2.png" alt="Earlier Strategy Studio view showing prompt-driven strategy generation and code output" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/Dashboard3.png" alt="Earlier Strategy Studio view showing saved strategy output and backtest metrics" width="100%" />
+  </p>
+</details>
+
+<details>
+  <summary>FastAPI API surface snapshot</summary>
+  <p align="center">
+    <img src="docs/images/FastAPI.png" alt="TradeAgent FastAPI documentation snapshot" width="100%" />
+  </p>
+</details>
+
 ## Main Capabilities
 
 ### Dashboard
