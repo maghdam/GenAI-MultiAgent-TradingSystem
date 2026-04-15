@@ -1,91 +1,204 @@
 # TradeAgent
 
-TradeAgent is a local-first trading workstation with a single consolidated backend and a React frontend.
+TradeAgent is a local-first AI trading workstation prototype. It combines a FastAPI backend, a React frontend, broker-connected market data, a deterministic paper-trading engine, SQLite-backed audit trails, and an LLM-assisted Strategy Studio for creating and backtesting trading ideas.
 
-The repo now runs on one active backend package: [`backend/`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend). The old parallel `backend_v2` package and the legacy agent API layer have been removed from the active code path.
+The project is intended to show AI product engineering rather than prompt-only experimentation: operator controls, explicit risk boundaries, persistent state, testing, research workflows, and a UI that supports the full operating loop.
 
-## What It Does
+## What It Demonstrates
 
-- deterministic strategy analysis for manual and automated paper workflows
-- persistent operator config, incidents, analyses, order intents, and paper-trade audit
-- cTrader-backed market data and broker status
-- Strategy Studio for research, code generation, saved strategies, and backtests
-- checklist and operator workbench pages in the frontend
+- multi-surface product, not a single demo screen
+- deterministic paper execution with explicit guardrails
+- LLM-assisted strategy drafting, editing, and backtesting
+- persistent runtime, incidents, intents, positions, and audit history
+- broker-connected market data and trading context
+- architecture that separates operator workflows, runtime execution, and research tooling
 
-## Current Execution Boundary
+## Product Gallery
 
-- autonomous execution is paper-only
-- live mode requests are persisted and surfaced, but live execution is still intentionally disabled
-- risk checks now include confidence thresholds, stale-bar guards, malformed-bar rejection, stop/target geometry checks, sizing limits, cooldowns, and daily loss controls
+### Main Dashboard
 
-## Repo Shape
+<p align="center">
+  <img src="docs/images/dashboard-main.png" alt="TradeAgent main dashboard" width="100%" />
+</p>
+<p align="center">
+  <sub>Execution-facing dashboard with live charting, AI analysis, signal panels, and trade journal context.</sub>
+</p>
 
-- [`backend/app.py`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend/app.py)
-  - FastAPI composition root
-- [`backend/api/router.py`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend/api/router.py)
-  - main `/api/*` surface
-- [`backend/services/`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend/services)
-  - engine, execution, reconciliation, broker/model/checklist/studio services
-- [`backend/storage/`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend/storage)
-  - SQLite-backed persistence
-- [`backend/strategies/`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend/strategies)
-  - deterministic strategy registry
-- [`backend/strategies_generated/`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/backend/strategies_generated)
-  - saved research strategies used by Strategy Studio
-- [`frontend/src/`](C:/Users/mohag/My%20Drive/Github/GenAI-MultiAgent-TradingSystem%20-%202/frontend/src)
-  - dashboard, workbench, checklist, and Strategy Studio
+### Additional Views
 
-## Main API Surface
+| Operator Workbench | Strategy Studio |
+| --- | --- |
+| <img src="docs/images/workbench-operator.png" alt="TradeAgent operator workbench" width="100%" /><br /><sub>Control plane for engine state, guardrails, watchlists, and audit visibility.</sub> | <img src="docs/images/strategy-studio-results.png" alt="TradeAgent Strategy Studio backtest results" width="100%" /><br /><sub>Strategy Studio result view with a real seeded backtest payload, report metrics, and trade visualization.</sub> |
 
-All active endpoints are under `/api`.
+<p align="center">
+  <img src="docs/images/heavyweight-checklist.png" alt="TradeAgent heavyweight checklist" width="78%" />
+</p>
+<p align="center">
+  <sub>Structured checklist flow for US30/XAUUSD macro context, scenario framing, and execution discipline.</sub>
+</p>
 
-- `GET /api/health`
-- `GET /api/llm_status`
-- `GET /api/status`
-- `GET|POST /api/config`
-- `GET /api/symbols`
-- `GET /api/market/candles`
-- `POST /api/analyze`
-- `POST /api/orders/manual`
-- `POST /api/engine/start`
-- `POST /api/engine/stop`
-- `POST /api/engine/scan`
-- `POST /api/engine/reconcile`
-- `POST /api/engine/recover`
-- `GET /api/studio/strategy-files`
-- `GET /api/studio/backtest`
-- `POST /api/studio/tasks`
+### Expanded Workflow Views
 
-## Frontend Routes
+<details>
+  <summary>Workbench continuation</summary>
+  <p align="center">
+    <img src="docs/images/workbench-operator-2.png" alt="TradeAgent workbench continuation showing readiness and broker notes" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/workbench-operator-3.png" alt="TradeAgent workbench continuation showing operator guardrails and watchlist configuration" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/workbench-operator-4.png" alt="TradeAgent workbench continuation showing trade audit and engine event history" width="100%" />
+  </p>
+</details>
 
-- `/`
-  - main dashboard
-- `/workbench`
-  - operator workbench
-- `/heavyweight-checklist`
-  - checklist view
-- `/strategy-studio`
-  - Strategy Studio
+<details>
+  <summary>Strategy Studio continuation</summary>
+  <p align="center">
+    <img src="docs/images/strategy-studio-results-2.png" alt="TradeAgent Strategy Studio continuation showing equity curve and trade list" width="100%" />
+  </p>
+</details>
 
-`/v2` is kept as a compatibility route to the same workbench page.
+<details>
+  <summary>Heavyweight Checklist continuation</summary>
+  <p align="center">
+    <img src="docs/images/heavyweight-checklist-2.png" alt="TradeAgent checklist continuation showing go-no-go logic and execution planning" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/heavyweight-checklist-3.png" alt="TradeAgent checklist continuation showing live summary and weighted component table" width="100%" />
+  </p>
+</details>
 
-## Local Verification
+## Main Capabilities
 
-The current consolidated repo was validated with:
+### Dashboard
+
+- live market charting
+- strategy selection and symbol/timeframe controls
+- AI analysis output and manual trade actions
+- signals, incidents, intents, and trade journal panels
+- broker, engine, and model readiness indicators
+
+### Operator Workbench
+
+- engine start/stop, manual scan, reconcile, and recovery
+- readiness checks and broker notes
+- watchlist management
+- persistent config for confidence, daily loss, cooldowns, session filter, and position limits
+- paper positions, order intents, audit records, and incident feeds
+
+### Strategy Studio
+
+- natural-language strategy chat
+- provider/model selection
+- draft strategy generation and refinement
+- save-to-disk strategy workflow
+- saved and draft backtesting
+- formatted backtest dashboards and raw result inspection
+
+### Heavyweight Checklist
+
+- macro checklist and scenario framework
+- US30/XAUUSD decision support
+- component confirmation flow
+- auto-snapshot integration from backend checklist and calendar endpoints
+
+## How The Agent System Works
+
+TradeAgent currently has two AI-related execution surfaces:
+
+- Runtime trading engine:
+  one orchestrated paper-trading loop scans a watchlist, fetches bars, runs a deterministic strategy, passes the result through risk and sizing checks, and records intents and paper-trade audit history.
+- Strategy Studio:
+  an LLM-assisted research workflow can chat, draft strategy code, backtest drafts or saved files, and save strategies into `backend/strategies_generated/`.
+
+The repo is best described as an agent-inspired, service-oriented design rather than a swarm of independently deployed worker agents. The agent roles still exist conceptually, but the active implementation is a consolidated V2 engine plus a separate Strategy Studio task pipeline.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the current diagrams, agent-role mapping, runtime flow, and documentation of what is active versus legacy.
+
+## Architecture At A Glance
+
+<p align="center">
+  <img src="docs/images/architecture-overview.svg" alt="TradeAgent architecture overview" width="100%" />
+</p>
+<p align="center">
+  <sub>Current-state architecture: frontend surfaces, FastAPI layer, paper-trading runtime engine, Strategy Studio research flow, and SQLite-backed memory.</sub>
+</p>
+
+## Tech Stack
+
+- FastAPI
+- React 19 + Vite + TypeScript
+- SQLite
+- cTrader Open API integration
+- Ollama and Gemini-ready model routing for Strategy Studio
+- Recharts and lightweight-charts
+
+## Quick Start
+
+### One-command local startup
 
 ```powershell
-python -m compileall backend
-C:\Users\mohag\miniconda3\python.exe -m pytest backend\tests -q -p no:cacheprovider
+cmd /c call start-local.cmd
+```
+
+This starts:
+
+- backend on `http://127.0.0.1:4000`
+- frontend on `http://127.0.0.1:5173`
+
+### Manual startup
+
+Backend:
+
+```powershell
+set APP_START_CTRADER_ON_BOOT=1
+set APP_WARM_OLLAMA_ON_BOOT=1
+set OLLAMA_URL=http://127.0.0.1:11434
+set PYTHONPATH=%CD%
+C:\Users\mohag\miniconda3\python.exe -m uvicorn backend.app:app --host 127.0.0.1 --port 4000
+```
+
+Frontend:
+
+```powershell
+cd frontend
+set VITE_API_BASE=http://127.0.0.1:4000
+npm.cmd run dev -- --host 127.0.0.1 --port 5173
+```
+
+## Verification
+
+Verified locally on April 15, 2026:
+
+```powershell
+python -m pytest backend\tests -q
+cd frontend
 npm.cmd run build
 ```
 
 Result:
 
-- backend compile passed
-- `40` backend tests passed
+- `52` backend tests passed
 - frontend production build passed
 
-## Notes
+## Documentation
 
-- The remaining root `pytest-cache-files-*` directories are OS-protected temp folders that could not be removed from this session even with elevated deletion attempts.
-- Some older planning docs still exist in the repo for historical context, but the active implementation is the consolidated backend and frontend described above.
+- [ARCHITECTURE.md](ARCHITECTURE.md): current system architecture, runtime flow, agent-role mapping, diagrams, and active boundaries
+- [docs/operations/local-run.md](docs/operations/local-run.md): local startup, environment flags, verification commands, and troubleshooting
+- [docs/TRADEAGENT.md](docs/TRADEAGENT.md): lightweight documentation index and migration note
+
+## Current Constraints
+
+- autonomous execution is paper-only
+- live mode can be requested in config, but live execution remains intentionally blocked
+- broker connectivity and market data depend on the local cTrader/Open API environment
+- Strategy Studio quality depends on the configured local or remote model
+
+## Why It Works As A Portfolio Project
+
+This repo shows more than model integration. It shows how AI features can be placed inside a product with operational boundaries, state, observability, recovery paths, and a clear separation between research tooling and execution logic.
+
+## License
+
+[MIT](LICENSE)

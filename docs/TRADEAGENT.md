@@ -1,56 +1,27 @@
-# TradeAgent
+# TradeAgent Docs
 
-TradeAgent now uses a single consolidated backend. The old parallel `backend_v2` package and the legacy execution stack have been removed from the active repo shape.
+This file is kept as a lightweight documentation index for older links and bookmarks.
 
-## Goals
+For the current documentation structure, use:
 
-- deterministic live-path strategies
-- explicit risk and operator controls
-- persistent config, incidents, and analysis history
-- cleaner API boundaries
-- paper-first rollout
+- [README.md](../README.md)
+  public-facing project overview, screenshots, quick start, verification, and high-level agent summary
+- [ARCHITECTURE.md](../ARCHITECTURE.md)
+  current system architecture, runtime flow, Strategy Studio flow, diagrams, and active boundaries
+- [operations/local-run.md](operations/local-run.md)
+  local startup, environment flags, verification commands, and troubleshooting
 
-## Current Scope
+## Current Documentation Policy
 
-TradeAgent is exposed under `/api/*` and currently provides:
+- `README.md` is the front door for GitHub visitors and employers.
+- `ARCHITECTURE.md` is the technical source of truth.
+- historical or overlapping architecture notes should be merged into `ARCHITECTURE.md` rather than duplicated here.
 
-- health and engine status
-- persistent operator config
-- incident log
-- deterministic strategy analysis
-- recent analysis history
-- broker status and position snapshots
-- a background paper-trading loop
-- persistent paper positions and engine events
-- operator actions for start, stop, and manual scans
-- startup runtime recovery and manual reconciliation
+## Current Repo Shape
 
-## Structure
+TradeAgent now runs on one active consolidated stack:
 
-- `backend/domain`
-  - typed request/response and engine models
-- `backend/storage`
-  - SQLite-backed config, incidents, analyses, paper positions, intents, and audit records
-- `backend/services`
-  - broker, market data, readiness, engine, reconciliation, studio, and execution helpers
-- `backend/strategies`
-  - deterministic strategy implementations and registry
-- `backend/api`
-  - primary FastAPI router for the app
+- `backend/`
+- `frontend/`
 
-## Deterministic Strategies
-
-The initial deterministic strategies are:
-
-- `sma_cross`
-- `rsi_reversal`
-- `breakout`
-
-These are intended as clean, testable building blocks. Strategy Studio and saved generated strategies still exist as research tooling, but autonomous paper execution is now built around the deterministic engine path.
-
-## Current Boundaries
-
-1. The repo now has one active backend package: `backend/`.
-2. The main app surface, Strategy Studio flow, checklist flow, and operator controls all run through the consolidated API.
-3. Execution remains paper-only by design.
-4. Live trading should only be enabled after a separate broker-intent and reconciliation hardening pass.
+The autonomous runtime is the paper-only V2 engine. Strategy Studio remains a separate research workflow for drafting and backtesting strategies.
