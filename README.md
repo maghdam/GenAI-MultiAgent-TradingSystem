@@ -24,67 +24,69 @@ The project is intended to show AI product engineering rather than prompt-only e
   <sub>Execution-facing dashboard with live charting, AI analysis, signal panels, and trade journal context.</sub>
 </p>
 
-### Additional Views
-
-| Operator Workbench | Strategy Studio |
-| --- | --- |
-| <img src="docs/images/workbench-operator.png" alt="TradeAgent operator workbench" width="100%" /><br /><sub>Control plane for engine state, guardrails, watchlists, and audit visibility.</sub> | <img src="docs/images/strategy-studio-results.png" alt="TradeAgent Strategy Studio backtest results" width="100%" /><br /><sub>Strategy Studio result view with a real seeded backtest payload, report metrics, and trade visualization.</sub> |
+### Operator Workbench
 
 <p align="center">
-  <img src="docs/images/heavyweight-checklist.png" alt="TradeAgent heavyweight checklist" width="78%" />
+  <img src="docs/images/workbench-operator.png" alt="TradeAgent operator workbench overview" width="100%" />
 </p>
 <p align="center">
-  <sub>Structured checklist flow for US30/XAUUSD macro context, scenario framing, and execution discipline.</sub>
+  <img src="docs/images/workbench-operator-2.png" alt="TradeAgent operator workbench continuation showing readiness and broker notes" width="100%" />
+</p>
+<p align="center">
+  <img src="docs/images/workbench-operator-3.png" alt="TradeAgent operator workbench continuation showing operator guardrails and watchlist configuration" width="100%" />
+</p>
+<p align="center">
+  <img src="docs/images/workbench-operator-4.png" alt="TradeAgent operator workbench continuation showing trade audit and engine event history" width="100%" />
+</p>
+<p align="center">
+  <sub>Control plane for engine state, readiness, guardrails, watchlists, audit records, and runtime visibility.</sub>
 </p>
 
-### Expanded Workflow Views
+### Strategy Studio
+
+<p align="center">
+  <img src="docs/images/strategy-studio-results.png" alt="TradeAgent Strategy Studio backtest results overview" width="100%" />
+</p>
+<p align="center">
+  <img src="docs/images/strategy-studio-results-2.png" alt="TradeAgent Strategy Studio continuation showing equity curve and trade list" width="100%" />
+</p>
+<p align="center">
+  <sub>LLM-assisted research workflow with strategy drafting, saved strategies, formatted metrics, equity curve, and trade-level backtest output.</sub>
+</p>
+
+### Heavyweight Checklist
+
+<p align="center">
+  <img src="docs/images/heavyweight-checklist.png" alt="TradeAgent heavyweight checklist overview" width="88%" />
+</p>
+<p align="center">
+  <img src="docs/images/heavyweight-checklist-2.png" alt="TradeAgent heavyweight checklist continuation showing go-no-go logic and execution planning" width="88%" />
+</p>
+<p align="center">
+  <img src="docs/images/heavyweight-checklist-3.png" alt="TradeAgent heavyweight checklist continuation showing live summary and weighted component table" width="88%" />
+</p>
+<p align="center">
+  <sub>Structured US30/XAUUSD checklist workflow for macro context, go/no-go logic, execution planning, and weighted decision support.</sub>
+</p>
 
 <details>
-  <summary>Workbench continuation</summary>
+  <summary>Earlier prototype snapshots</summary>
   <p align="center">
-    <img src="docs/images/workbench-operator-2.png" alt="TradeAgent workbench continuation showing readiness and broker notes" width="100%" />
+    <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" />
   </p>
   <p align="center">
-    <img src="docs/images/workbench-operator-3.png" alt="TradeAgent workbench continuation showing operator guardrails and watchlist configuration" width="100%" />
+    <img src="docs/images/Dashboard1.png" alt="Earlier TradeAgent dashboard continuation showing assistant analysis, decision summary, and rationale panels" width="100%" />
   </p>
   <p align="center">
-    <img src="docs/images/workbench-operator-4.png" alt="TradeAgent workbench continuation showing trade audit and engine event history" width="100%" />
-  </p>
-</details>
-
-<details>
-  <summary>Strategy Studio continuation</summary>
-  <p align="center">
-    <img src="docs/images/strategy-studio-results-2.png" alt="TradeAgent Strategy Studio continuation showing equity curve and trade list" width="100%" />
-  </p>
-</details>
-
-<details>
-  <summary>Heavyweight Checklist continuation</summary>
-  <p align="center">
-    <img src="docs/images/heavyweight-checklist-2.png" alt="TradeAgent checklist continuation showing go-no-go logic and execution planning" width="100%" />
+    <img src="docs/images/Dashboard2.png" alt="Earlier Strategy Studio view showing prompt-driven strategy generation and code output" width="100%" />
   </p>
   <p align="center">
-    <img src="docs/images/heavyweight-checklist-3.png" alt="TradeAgent checklist continuation showing live summary and weighted component table" width="100%" />
+    <img src="docs/images/Dashboard3.png" alt="Earlier Strategy Studio view showing saved strategy output and backtest metrics" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/FastAPI.png" alt="TradeAgent FastAPI documentation snapshot from the earlier prototype stage" width="92%" />
   </p>
 </details>
-
-### Supplemental Prototype Views
-
-| Earlier Dashboard | Dashboard Continuation |
-| --- | --- |
-| <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" /><br /><sub>Earlier execution dashboard snapshot with chart, signal feed, open positions, and agent tasks.</sub> | <img src="docs/images/Dashboard1.png" alt="Earlier TradeAgent dashboard continuation showing assistant analysis, decision summary, and rationale panels" width="100%" /><br /><sub>Assistant analysis panel, decision summary, and rationale detail from the earlier dashboard flow.</sub> |
-
-| Earlier Strategy Generation | Earlier Backtest Result |
-| --- | --- |
-| <img src="docs/images/Dashboard2.png" alt="Earlier Strategy Studio view showing prompt-driven strategy generation and code output" width="100%" /><br /><sub>Prompt-driven strategy generation with code output in the earlier Strategy Studio workflow.</sub> | <img src="docs/images/Dashboard3.png" alt="Earlier Strategy Studio view showing saved strategy output and backtest metrics" width="100%" /><br /><sub>Saved-strategy backtest result view from the earlier prototype workflow.</sub> |
-
-<p align="center">
-  <img src="docs/images/FastAPI.png" alt="TradeAgent FastAPI documentation snapshot" width="92%" />
-</p>
-<p align="center">
-  <sub>FastAPI surface snapshot from the earlier prototype stage.</sub>
-</p>
 
 ## Main Capabilities
 
