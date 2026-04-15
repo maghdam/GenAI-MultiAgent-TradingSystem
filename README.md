@@ -71,32 +71,20 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 ### Supplemental Prototype Views
 
-<details>
-  <summary>Earlier dashboard and assistant flow</summary>
-  <p align="center">
-    <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/Dashboard1.png" alt="Earlier TradeAgent dashboard continuation showing assistant analysis, decision summary, and rationale panels" width="100%" />
-  </p>
-</details>
+| Earlier Dashboard | Dashboard Continuation |
+| --- | --- |
+| <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" /><br /><sub>Earlier execution dashboard snapshot with chart, signal feed, open positions, and agent tasks.</sub> | <img src="docs/images/Dashboard1.png" alt="Earlier TradeAgent dashboard continuation showing assistant analysis, decision summary, and rationale panels" width="100%" /><br /><sub>Assistant analysis panel, decision summary, and rationale detail from the earlier dashboard flow.</sub> |
 
-<details>
-  <summary>Earlier Strategy Studio generation and backtest flow</summary>
-  <p align="center">
-    <img src="docs/images/Dashboard2.png" alt="Earlier Strategy Studio view showing prompt-driven strategy generation and code output" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/Dashboard3.png" alt="Earlier Strategy Studio view showing saved strategy output and backtest metrics" width="100%" />
-  </p>
-</details>
+| Earlier Strategy Generation | Earlier Backtest Result |
+| --- | --- |
+| <img src="docs/images/Dashboard2.png" alt="Earlier Strategy Studio view showing prompt-driven strategy generation and code output" width="100%" /><br /><sub>Prompt-driven strategy generation with code output in the earlier Strategy Studio workflow.</sub> | <img src="docs/images/Dashboard3.png" alt="Earlier Strategy Studio view showing saved strategy output and backtest metrics" width="100%" /><br /><sub>Saved-strategy backtest result view from the earlier prototype workflow.</sub> |
 
-<details>
-  <summary>FastAPI API surface snapshot</summary>
-  <p align="center">
-    <img src="docs/images/FastAPI.png" alt="TradeAgent FastAPI documentation snapshot" width="100%" />
-  </p>
-</details>
+<p align="center">
+  <img src="docs/images/FastAPI.png" alt="TradeAgent FastAPI documentation snapshot" width="92%" />
+</p>
+<p align="center">
+  <sub>FastAPI surface snapshot from the earlier prototype stage.</sub>
+</p>
 
 ## Main Capabilities
 
