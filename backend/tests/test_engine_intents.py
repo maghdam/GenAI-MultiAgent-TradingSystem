@@ -312,6 +312,27 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
 
     calls = []
     monkeypatch.setattr(engine_module, "get_bars", lambda *args, **kwargs: bars)
+    monkeypatch.setattr(engine_module, "recover_demo_broker_trackers", lambda config: {"ready": True})
+    monkeypatch.setattr(
+        engine_module,
+        "get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "list_positions",
+        lambda: [
+            {
+                "symbol": "XAUUSD",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 100.0,
+                "stop_loss": None,
+                "take_profit": None,
+                "position_id": 456,
+            }
+        ],
+    )
     monkeypatch.setattr(
         engine_module,
         "sync_demo_position_targets",
