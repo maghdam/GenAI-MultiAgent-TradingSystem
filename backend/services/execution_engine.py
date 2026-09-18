@@ -5,12 +5,14 @@ from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
+    get_broker_status,
     get_demo_symbol_execution_readiness,
     get_instrument_spec,
+    list_positions,
     place_demo_market_order,
     sync_demo_position_targets,
 )
-from backend.services.paper_book import reconcile_position
+from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
@@ -38,11 +40,39 @@ class ExecutionResult:
     retryable: bool = False
 
 
-def _refresh_open_position(item: WatchlistItem, mark_price: float) -> PaperPosition | None:
+def _refresh_open_position(
+    item: WatchlistItem,
+    mark_price: float,
+    *,
+    demo_execution: bool = False,
+) -> PaperPosition | None:
     position = get_open_position(item.symbol.upper(), item.timeframe.upper())
     if not position:
         return None
-    reconcile_position(position, mark_price)
+
+    if not demo_execution:
+        reconcile_position(position, mark_price)
+        return get_open_position(item.symbol.upper(), item.timeframe.upper())
+
+    # In demo mode the broker is the execution source of truth. Never simulate
+    # a local-only SL/TP exit while the broker position is still open.
+    apply_mark(position, mark_price)
+    status = get_broker_status()
+    if status.execution_ready:
+        expected_side = "buy" if position.direction == "long" else "sell"
+        broker_match = next(
+            (
+                row
+                for row in list_positions()
+                if str(row.get("symbol") or "").upper() == position.symbol.upper()
+                and str(row.get("direction") or "").lower() == expected_side
+            ),
+            None,
+        )
+        if broker_match is None:
+            close_paper_position(position.id, mark_price, "broker_position_closed")
+            return None
+
     return get_open_position(item.symbol.upper(), item.timeframe.upper())
 
 
@@ -57,8 +87,8 @@ def execute_paper_signal(
     quantity: float | None = None,
     source: str = "auto",
 ) -> ExecutionResult:
-    position = _refresh_open_position(watch_item, mark_price)
     demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
+    position = _refresh_open_position(watch_item, mark_price, demo_execution=demo_execution)
 
     # Keep an already-open demo position protected at the broker even when the
     # current strategy result is no_trade or later fails a new-entry risk gate.
