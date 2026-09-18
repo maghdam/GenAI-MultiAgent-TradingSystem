@@ -4,7 +4,13 @@ from datetime import UTC, datetime
 from typing import Any, Dict
 
 from backend.domain.models import EngineConfig
-from backend.services.broker import get_broker_status, get_instrument_spec, list_positions, sync_demo_position_targets
+from backend.services.broker import (
+    close_demo_position,
+    get_broker_status,
+    get_instrument_spec,
+    list_positions,
+    sync_demo_position_targets,
+)
 from backend.services.market_data import MarketDataError, get_bars
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.storage.repositories import (
@@ -104,21 +110,9 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             summary="Recovered local tracking position from an existing cTrader demo position.",
             details={"broker_position_id": broker_position_id},
         )
-        try:
-            sync_demo_position_targets(
-                symbol=symbol,
-                direction=direction,
-                stop_loss=created.stop_loss,
-                take_profit=created.take_profit,
-                position_id=broker_position_id,
-            )
-        except Exception as exc:
-            log_incident(
-                "error",
-                "ctrader_demo_recovered_position_unprotected",
-                f"Recovered {symbol} tracker but broker protection could not be synchronized.",
-                {"broker_position_id": broker_position_id, "position_id": created.id, "error": str(exc)},
-            )
+        # Market-aware protection repair happens in normal reconciliation,
+        # where a fresh reference price is available. Recovery only restores
+        # the missing local tracker and never moves stale protective targets.
 
     return {
         "checked": len(broker_rows),
@@ -215,13 +209,40 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 closed += 1
                 continue
             try:
-                sync_demo_position_targets(
+                protection = sync_demo_position_targets(
                     symbol=position.symbol,
                     direction=position.direction,
                     stop_loss=position.stop_loss,
                     take_profit=position.take_profit,
                     position_id=int(broker_match.get("position_id") or 0) or None,
+                    reference_price=last_price,
                 )
+                if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
+                    broker_close = close_demo_position(
+                        symbol=position.symbol,
+                        position_id=int(broker_match.get("position_id") or 0),
+                        quantity_lots=float(broker_match.get("volume_lots") or position.quantity),
+                    )
+                    close_reason = (
+                        "broker_stop_loss"
+                        if protection.get("status") == "exit_due_stop_loss"
+                        else "broker_take_profit"
+                    )
+                    close_paper_position(position.id, last_price, close_reason)
+                    closed += 1
+                    add_trade_audit(
+                        event_type="ctrader_demo_protective_exit",
+                        symbol=position.symbol,
+                        timeframe=position.timeframe,
+                        strategy=position.strategy,
+                        position_id=position.id,
+                        summary="Closed cTrader demo position because the intended protective target was already crossed.",
+                        details={
+                            "protection": protection,
+                            "broker_close": broker_close,
+                            "reference_price": last_price,
+                        },
+                    )
             except Exception as exc:
                 skipped += 1
                 log_incident(
