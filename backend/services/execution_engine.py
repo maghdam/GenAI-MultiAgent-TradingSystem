@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
-from backend.services.broker import get_instrument_spec, place_demo_market_order
+from backend.services.broker import get_demo_symbol_execution_readiness, get_instrument_spec, place_demo_market_order
 from backend.services.paper_book import reconcile_position
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
@@ -24,12 +24,13 @@ from backend.storage.repositories import (
 @dataclass
 class ExecutionResult:
     action_taken: bool
-    intent_id: int
+    intent_id: int | None
     status: str
     summary: str
     position_id: int | None = None
     mode: str = "paper_only"
     broker_position_id: int | None = None
+    retryable: bool = False
 
 
 def _refresh_open_position(item: WatchlistItem, mark_price: float) -> PaperPosition | None:
@@ -52,6 +53,38 @@ def execute_paper_signal(
     source: str = "auto",
 ) -> ExecutionResult:
     position = _refresh_open_position(watch_item, mark_price)
+    demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
+
+    # Broker symbol metadata arrives asynchronously after account authorization.
+    # If demo execution is enabled, never attempt an order until the exact
+    # symbol contract is loaded. Mark this as retryable so the engine can
+    # revisit the same bar without risking a duplicate order.
+    if demo_execution and analysis.signal != "no_trade":
+        broker_ready, broker_reason = get_demo_symbol_execution_readiness(analysis.symbol)
+        if not broker_ready:
+            log_incident(
+                "warning",
+                "ctrader_demo_symbol_not_ready",
+                f"Deferred cTrader demo execution for {analysis.symbol}:{analysis.timeframe}",
+                {"reason": broker_reason, "retryable": True},
+            )
+            add_trade_audit(
+                event_type="ctrader_demo_order_deferred",
+                symbol=analysis.symbol,
+                timeframe=analysis.timeframe,
+                strategy=analysis.strategy,
+                summary="Demo order deferred until broker symbol metadata is ready.",
+                details={"reason": broker_reason},
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=None,
+                status="deferred",
+                summary=broker_reason,
+                mode="demo_enabled",
+                retryable=True,
+            )
+
     instrument = get_instrument_spec(analysis.symbol, config.account_currency)
     configured_quantity = watch_item.lot_size if source != "manual" else None
     sizing = (
@@ -269,7 +302,6 @@ def execute_paper_signal(
             summary=risk.reasons[0] if risk.reasons else "signal rejected",
         )
 
-    demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
     if demo_execution and position and position.direction != analysis.signal:
         update_order_intent_status(
             intent.id,
