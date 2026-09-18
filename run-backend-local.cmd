@@ -17,6 +17,16 @@ set STUDIO_OLLAMA_THINK=low
 set STUDIO_OLLAMA_MODEL=muse-glimmer:latest
 set PYTHONPATH=%ROOT%
 
+rem Keep the live SQLite runtime outside Google Drive / other sync folders.
+rem Callers may override TRADEAGENT_DB_PATH before launching.
+if not defined TRADEAGENT_DB_PATH (
+    if defined LOCALAPPDATA (
+        set "TRADEAGENT_DB_PATH=%LOCALAPPDATA%\TradeAgent\data\tradeagent.db"
+    ) else (
+        set "TRADEAGENT_DB_PATH=%ROOT%backend\data\tradeagent.db"
+    )
+)
+
 set "PYTHON=C:\Users\mohag\miniconda3\envs\tradeagent-v2\python.exe"
 
 if not exist "%PYTHON%" (
