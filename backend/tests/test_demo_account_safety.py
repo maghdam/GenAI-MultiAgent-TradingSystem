@@ -208,3 +208,86 @@ def test_sync_demo_position_targets_skips_amend_when_already_synced(monkeypatch)
     assert result["verified"] is True
     assert result["status"] == "already_synced"
     assert result["position_id"] == 456
+
+
+def test_sync_demo_position_targets_surfaces_ctrader_reject_reason(monkeypatch) -> None:
+    state = {
+        "symbol_name": "NAS100",
+        "symbol_id": 116,
+        "position_id": 56980461,
+        "direction": "buy",
+        "entry_price": 29486.2,
+        "stop_loss": None,
+        "take_profit": None,
+    }
+    event = SimpleNamespace(
+        errorCode="TRADING_BAD_STOPS",
+        description="Protection price is invalid",
+        rejectReason=0,
+        executionType=None,
+    )
+
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"NAS100": 116})
+    monkeypatch.setattr(ctd, "symbol_digits_map", {116: 2})
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "get_open_positions", lambda: [dict(state)])
+    monkeypatch.setattr(ctd, "modify_position_sltp", lambda **kwargs: object())
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: object())
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda raw: event)
+    monkeypatch.setattr(
+        ctd,
+        "MessageToDict",
+        lambda event, preserving_proto_field_name=True: {
+            "errorCode": "TRADING_BAD_STOPS",
+            "description": "Protection price is invalid",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="TRADING_BAD_STOPS"):
+        CTraderBrokerAdapter().sync_demo_position_targets(
+            symbol="NAS100",
+            direction="long",
+            stop_loss=29476.48,
+            take_profit=29511.75,
+            position_id=56980461,
+        )
+
+
+def test_sync_demo_position_targets_verification_error_includes_observed_values(monkeypatch) -> None:
+    state = {
+        "symbol_name": "US30",
+        "symbol_id": 117,
+        "position_id": 56980462,
+        "direction": "buy",
+        "entry_price": 51686.0,
+        "stop_loss": None,
+        "take_profit": None,
+    }
+    event = SimpleNamespace(errorCode=None, description=None, rejectReason=0, executionType=4)
+
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"US30": 117})
+    monkeypatch.setattr(ctd, "symbol_digits_map", {117: 2})
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "get_open_positions", lambda: [dict(state)])
+    monkeypatch.setattr(ctd, "modify_position_sltp", lambda **kwargs: object())
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: object())
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda raw: event)
+    monkeypatch.setattr(
+        ctd,
+        "MessageToDict",
+        lambda event, preserving_proto_field_name=True: {"executionType": "ORDER_REPLACED"},
+    )
+    monkeypatch.setattr("backend.adapters.ctrader.time.sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="observed_sl=None observed_tp=None"):
+        CTraderBrokerAdapter().sync_demo_position_targets(
+            symbol="US30",
+            direction="long",
+            stop_loss=51692.65,
+            take_profit=51771.85,
+            position_id=56980462,
+        )
