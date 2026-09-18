@@ -422,6 +422,10 @@ def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypat
         raise RuntimeError("broker amend rejected")
 
     monkeypatch.setattr("backend.services.execution_engine.sync_demo_position_targets", _sync)
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        lambda symbol: (True, "Broker symbol contract metadata is ready."),
+    )
 
     result = execute_paper_signal(
         config=_config(paper_autotrade=False, demo_autotrade=True),
