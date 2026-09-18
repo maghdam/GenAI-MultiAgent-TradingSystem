@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
-from backend.services.broker import get_demo_symbol_execution_readiness, get_instrument_spec, place_demo_market_order
+from backend.services.broker import (
+    get_demo_symbol_execution_readiness,
+    get_instrument_spec,
+    place_demo_market_order,
+    sync_demo_position_targets,
+)
 from backend.services.paper_book import reconcile_position
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
@@ -54,6 +59,53 @@ def execute_paper_signal(
 ) -> ExecutionResult:
     position = _refresh_open_position(watch_item, mark_price)
     demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
+
+    # Keep an already-open demo position protected at the broker even when the
+    # current strategy result is no_trade or later fails a new-entry risk gate.
+    # The local ledger is not allowed to drift silently from broker SL/TP.
+    if demo_execution and position:
+        try:
+            protection = sync_demo_position_targets(
+                symbol=position.symbol,
+                direction=position.direction,
+                stop_loss=position.stop_loss,
+                take_profit=position.take_profit,
+            )
+            if protection.get("status") == "synced":
+                add_trade_audit(
+                    event_type="ctrader_demo_protection_repaired",
+                    symbol=position.symbol,
+                    timeframe=position.timeframe,
+                    strategy=position.strategy,
+                    position_id=position.id,
+                    summary="Repaired broker SL/TP from the local tracking position.",
+                    details=protection,
+                )
+        except Exception as exc:
+            log_incident(
+                "error",
+                "ctrader_demo_protection_sync_failed",
+                f"Could not synchronize broker protection for {position.symbol}:{position.timeframe}",
+                {"position_id": position.id, "error": str(exc)},
+            )
+            add_trade_audit(
+                event_type="ctrader_demo_protection_sync_failed",
+                symbol=position.symbol,
+                timeframe=position.timeframe,
+                strategy=position.strategy,
+                position_id=position.id,
+                summary="Broker SL/TP synchronization failed; execution paused for this symbol.",
+                details={"error": str(exc)},
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=None,
+                status="failed",
+                summary=str(exc),
+                position_id=position.id,
+                mode="demo_enabled",
+                retryable=True,
+            )
 
     # Broker symbol metadata arrives asynchronously after account authorization.
     # If demo execution is enabled, never attempt an order until the exact
@@ -356,11 +408,52 @@ def execute_paper_signal(
         position = None
 
     if position and position.direction == analysis.signal:
+        broker_protection = None
+        if demo_execution:
+            try:
+                broker_protection = sync_demo_position_targets(
+                    symbol=position.symbol,
+                    direction=position.direction,
+                    stop_loss=analysis.stop_loss,
+                    take_profit=analysis.take_profit,
+                )
+            except Exception as exc:
+                update_order_intent_status(
+                    intent.id,
+                    "failed",
+                    {"broker": "ctrader", "error": str(exc)},
+                    reason="ctrader_demo_target_update_failed",
+                )
+                log_incident(
+                    "error",
+                    "ctrader_demo_target_update_failed",
+                    f"Could not update broker targets for {analysis.symbol}:{analysis.timeframe}",
+                    {"intent_id": intent.id, "position_id": position.id, "error": str(exc)},
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_target_update_failed",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    position_id=position.id,
+                    summary="Kept previous local targets because broker target update failed.",
+                    details={"error": str(exc)},
+                )
+                return ExecutionResult(
+                    action_taken=False,
+                    intent_id=intent.id,
+                    status="failed",
+                    summary=str(exc),
+                    position_id=position.id,
+                    mode="demo_enabled",
+                )
+
         update_paper_position_targets(position.id, analysis.stop_loss, analysis.take_profit)
         update_order_intent_status(
             intent.id,
             "executed",
-            {"updated_position_id": position.id},
+            {"updated_position_id": position.id, "broker_protection": broker_protection or {}},
             reason="position_targets_updated",
         )
         add_trade_audit(
@@ -420,6 +513,45 @@ def execute_paper_signal(
                 status="failed",
                 summary=str(exc),
                 mode="demo_enabled",
+            )
+
+    if broker_order:
+        try:
+            broker_protection = sync_demo_position_targets(
+                symbol=analysis.symbol,
+                direction=analysis.signal,
+                stop_loss=analysis.stop_loss,
+                take_profit=analysis.take_profit,
+                position_id=broker_order.get("position_id"),
+            )
+            broker_order["protection"] = broker_protection
+            broker_order["protection_verified"] = True
+        except Exception as exc:
+            broker_order["protection_verified"] = False
+            broker_order["protection_error"] = str(exc)
+            log_incident(
+                "error",
+                "ctrader_demo_order_unprotected",
+                f"Demo order opened but broker SL/TP could not be verified for {analysis.symbol}:{analysis.timeframe}",
+                {
+                    "intent_id": intent.id,
+                    "broker_position_id": broker_order.get("position_id"),
+                    "error": str(exc),
+                },
+            )
+            add_trade_audit(
+                event_type="ctrader_demo_order_unprotected",
+                symbol=analysis.symbol,
+                timeframe=analysis.timeframe,
+                strategy=analysis.strategy,
+                intent_id=intent.id,
+                summary="Demo order opened; broker protection verification failed and will be retried.",
+                details={
+                    "broker_position_id": broker_order.get("position_id"),
+                    "error": str(exc),
+                    "stop_loss": analysis.stop_loss,
+                    "take_profit": analysis.take_profit,
+                },
             )
 
     created = open_paper_position(
