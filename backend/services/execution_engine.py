@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
+    close_demo_position,
     get_broker_status,
     get_demo_symbol_execution_readiness,
     get_instrument_spec,
@@ -100,7 +101,38 @@ def execute_paper_signal(
                 direction=position.direction,
                 stop_loss=position.stop_loss,
                 take_profit=position.take_profit,
+                reference_price=mark_price,
             )
+            if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
+                broker_close = close_demo_position(
+                    symbol=position.symbol,
+                    position_id=int(protection.get("position_id") or 0),
+                    quantity_lots=float(protection.get("quantity_lots") or position.quantity),
+                )
+                reason = (
+                    "broker_stop_loss"
+                    if protection.get("status") == "exit_due_stop_loss"
+                    else "broker_take_profit"
+                )
+                closed = close_paper_position(position.id, mark_price, reason)
+                add_trade_audit(
+                    event_type="ctrader_demo_protective_exit",
+                    symbol=position.symbol,
+                    timeframe=position.timeframe,
+                    strategy=position.strategy,
+                    position_id=closed.id,
+                    summary="Closed cTrader demo position because an intended protective target was already crossed.",
+                    details={"protection": protection, "broker_close": broker_close},
+                )
+                return ExecutionResult(
+                    action_taken=True,
+                    intent_id=None,
+                    status="executed",
+                    summary=reason,
+                    position_id=closed.id,
+                    mode="demo_enabled",
+                    broker_position_id=int(protection.get("position_id") or 0) or None,
+                )
             if protection.get("status") == "synced":
                 add_trade_audit(
                     event_type="ctrader_demo_protection_repaired",
@@ -446,7 +478,49 @@ def execute_paper_signal(
                     direction=position.direction,
                     stop_loss=analysis.stop_loss,
                     take_profit=analysis.take_profit,
+                    reference_price=mark_price,
                 )
+                if broker_protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
+                    broker_close = close_demo_position(
+                        symbol=position.symbol,
+                        position_id=int(broker_protection.get("position_id") or 0),
+                        quantity_lots=float(broker_protection.get("quantity_lots") or position.quantity),
+                    )
+                    reason = (
+                        "broker_stop_loss"
+                        if broker_protection.get("status") == "exit_due_stop_loss"
+                        else "broker_take_profit"
+                    )
+                    closed = close_paper_position(position.id, mark_price, reason)
+                    update_order_intent_status(
+                        intent.id,
+                        "executed",
+                        {
+                            "closed_position_id": closed.id,
+                            "broker_protection": broker_protection,
+                            "broker_close": broker_close,
+                        },
+                        reason="protective_exit_before_target_update",
+                    )
+                    add_trade_audit(
+                        event_type="ctrader_demo_protective_exit",
+                        symbol=analysis.symbol,
+                        timeframe=analysis.timeframe,
+                        strategy=analysis.strategy,
+                        intent_id=intent.id,
+                        position_id=closed.id,
+                        summary="Closed cTrader demo position because the refreshed target was already crossed.",
+                        details={"protection": broker_protection, "broker_close": broker_close},
+                    )
+                    return ExecutionResult(
+                        action_taken=True,
+                        intent_id=intent.id,
+                        status="executed",
+                        summary=reason,
+                        position_id=closed.id,
+                        mode="demo_enabled",
+                        broker_position_id=int(broker_protection.get("position_id") or 0) or None,
+                    )
             except Exception as exc:
                 update_order_intent_status(
                     intent.id,
@@ -553,8 +627,40 @@ def execute_paper_signal(
                 stop_loss=analysis.stop_loss,
                 take_profit=analysis.take_profit,
                 position_id=broker_order.get("position_id"),
+                reference_price=mark_price,
             )
             broker_order["protection"] = broker_protection
+            if broker_protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
+                broker_close = close_demo_position(
+                    symbol=analysis.symbol,
+                    position_id=int(broker_order.get("position_id") or 0),
+                    quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
+                )
+                broker_order["protective_close"] = broker_close
+                broker_order["protection_verified"] = False
+                update_order_intent_status(
+                    intent.id,
+                    "executed",
+                    {"broker_order": broker_order},
+                    reason="ctrader_demo_immediate_protective_exit",
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_protective_exit",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    summary="Closed newly opened demo position because its protective target was already crossed.",
+                    details={"protection": broker_protection, "broker_close": broker_close},
+                )
+                return ExecutionResult(
+                    action_taken=True,
+                    intent_id=intent.id,
+                    status="executed",
+                    summary=broker_protection.get("status") or "protective exit",
+                    mode="demo_enabled",
+                    broker_position_id=int(broker_order.get("position_id") or 0) or None,
+                )
             broker_order["protection_verified"] = True
         except Exception as exc:
             broker_order["protection_verified"] = False
