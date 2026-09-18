@@ -49,6 +49,32 @@ class CTraderBrokerAdapter:
     def transport_started(self) -> bool:
         return self._thread_started
 
+    def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
+        """Return whether broker metadata is ready to safely size a demo order."""
+        if not ctd.is_demo_account_confirmed():
+            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+            return False, reason
+
+        sym = (symbol or "").strip().upper()
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
+        if symbol_id is None:
+            return False, f"Broker symbol {sym!r} is not loaded yet."
+
+        try:
+            lot_size = float((ctd.symbol_lot_size_map or {}).get(symbol_id) or 0.0)
+        except (TypeError, ValueError):
+            lot_size = 0.0
+        if lot_size <= 0:
+            return False, f"Broker lotSize metadata is not loaded yet for {sym}."
+
+        min_volume = (ctd.symbol_min_volume_map or {}).get(symbol_id)
+        step_volume = (ctd.symbol_step_volume_map or {}).get(symbol_id)
+        max_volume = (ctd.symbol_max_volume_map or {}).get(symbol_id)
+        if min_volume is None or step_volume is None or max_volume is None:
+            return False, f"Broker volume limits are not loaded yet for {sym}."
+
+        return True, "Broker symbol contract metadata is ready."
+
     @staticmethod
     def connected() -> bool:
         try:
