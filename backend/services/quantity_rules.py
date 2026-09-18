@@ -205,7 +205,7 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
                 reasons=[f"Requested quantity exceeds the symbol maximum of {limits.max_lots:.4f} lots."],
                 details=details,
             )
-        if requested_api_units % step_api_units:
+        if (requested_api_units - min_api_units) % step_api_units:
             return QuantityDecision(
                 accepted=False,
                 requested_quantity=requested_quantity,
@@ -224,12 +224,12 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
     final_api_units = requested_api_units
     if final_api_units < min_api_units:
         final_api_units = min_api_units
-    if final_api_units % step_api_units:
-        final_api_units += step_api_units - (final_api_units % step_api_units)
+    if (final_api_units - min_api_units) % step_api_units:
+        final_api_units += step_api_units - ((final_api_units - min_api_units) % step_api_units)
     if final_api_units > max_api_units:
         final_api_units = max_api_units
-        if final_api_units % step_api_units:
-            final_api_units -= final_api_units % step_api_units
+        if (final_api_units - min_api_units) % step_api_units:
+            final_api_units -= (final_api_units - min_api_units) % step_api_units
             final_api_units = max(final_api_units, min_api_units)
     final_quantity = final_api_units / protocol_per_lot
     details = _decision_details(
@@ -238,6 +238,7 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
         requested_api_units=requested_api_units,
         final_api_units=final_api_units,
         mode=mode,
+        protocol_per_lot=protocol_per_lot,
     )
     reasons = ["Quantity fits the symbol limits."]
     if final_api_units != requested_api_units:
