@@ -6,7 +6,7 @@ from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
-from backend.services.broker import get_broker_status, list_positions, sync_demo_position_targets
+from backend.services.broker import close_demo_position, get_broker_status, list_positions, sync_demo_position_targets
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars
 from backend.services.paper_book import apply_mark, reconcile_position
@@ -149,8 +149,9 @@ class V2Engine:
         last_ts = int(last_dt.timestamp())
         key = f"{item.symbol.upper()}|{item.timeframe.upper()}"
         if bar_state.get(key) == last_ts:
-            self._mark_positions(config, item, float(df["close"].iloc[-1]))
-            self._sync_existing_demo_protection(config, item)
+            last_price = float(df["close"].iloc[-1])
+            self._mark_positions(config, item, last_price)
+            self._sync_existing_demo_protection(config, item, last_price)
             return False, False
         strategy = get_strategy(item.strategy)
         analysis = strategy.analyze(
@@ -187,19 +188,62 @@ class V2Engine:
             bar_state[key] = last_ts
         return True, result.action_taken
 
-    def _sync_existing_demo_protection(self, config: EngineConfig, item: WatchlistItem) -> None:
+    def _sync_existing_demo_protection(
+        self,
+        config: EngineConfig,
+        item: WatchlistItem,
+        last_price: float,
+    ) -> None:
         if not (config.demo_autotrade and item.trading_enabled):
             return
         position = get_open_position(item.symbol.upper(), item.timeframe.upper())
         if not position:
             return
+
+        expected_side = "buy" if position.direction == "long" else "sell"
+        broker_match = next(
+            (
+                row
+                for row in list_positions()
+                if str(row.get("symbol") or "").upper() == position.symbol.upper()
+                and str(row.get("direction") or "").lower() == expected_side
+            ),
+            None,
+        )
+        if broker_match is None:
+            return
+
         try:
             protection = sync_demo_position_targets(
                 symbol=position.symbol,
                 direction=position.direction,
                 stop_loss=position.stop_loss,
                 take_profit=position.take_profit,
+                position_id=int(broker_match.get("position_id") or 0) or None,
+                reference_price=last_price,
             )
+            if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
+                broker_close = close_demo_position(
+                    symbol=position.symbol,
+                    position_id=int(broker_match.get("position_id") or 0),
+                    quantity_lots=float(broker_match.get("volume_lots") or position.quantity),
+                )
+                reason = (
+                    "broker_stop_loss"
+                    if protection.get("status") == "exit_due_stop_loss"
+                    else "broker_take_profit"
+                )
+                close_paper_position(position.id, last_price, reason)
+                add_trade_audit(
+                    event_type="ctrader_demo_protective_exit",
+                    symbol=position.symbol,
+                    timeframe=position.timeframe,
+                    strategy=position.strategy,
+                    position_id=position.id,
+                    summary="Closed cTrader demo position after its intended protective target was crossed.",
+                    details={"protection": protection, "broker_close": broker_close},
+                )
+                return
             if protection.get("status") == "synced":
                 add_trade_audit(
                     event_type="ctrader_demo_protection_repaired",
