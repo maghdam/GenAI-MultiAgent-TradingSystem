@@ -220,3 +220,25 @@ def test_symbol_details_preserve_protocol_volume_metadata(monkeypatch) -> None:
     assert ctd.symbol_step_volume_map[7] == 100
     assert ctd.symbol_max_volume_map[7] == 1_000_000
     assert ctd.volume_lots_to_units(7, 0.01) == 100
+
+
+def test_demo_symbol_execution_readiness_waits_for_full_contract(monkeypatch) -> None:
+    from backend import ctrader_client as ctd
+
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
+    monkeypatch.setattr(ctd, "symbol_lot_size_map", {})
+    monkeypatch.setattr(ctd, "symbol_min_volume_map", {7: 100})
+    monkeypatch.setattr(ctd, "symbol_step_volume_map", {7: 100})
+    monkeypatch.setattr(ctd, "symbol_max_volume_map", {7: 500_000})
+
+    adapter = CTraderBrokerAdapter()
+    ready, reason = adapter.demo_symbol_execution_readiness("XAUUSD")
+    assert ready is False
+    assert "lotSize" in reason
+
+    monkeypatch.setattr(ctd, "symbol_lot_size_map", {7: 100.0})
+    ready, reason = adapter.demo_symbol_execution_readiness("XAUUSD")
+    assert ready is True
+    assert "ready" in reason.lower()
