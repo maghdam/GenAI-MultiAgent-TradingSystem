@@ -150,6 +150,16 @@ def recover_runtime_state(config: EngineConfig | None = None) -> Dict[str, Any]:
 
 def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
     cfg = load_engine_config(EngineConfig())
+    if cfg.demo_autotrade:
+        try:
+            recover_demo_broker_trackers(cfg)
+        except Exception as exc:
+            log_incident(
+                "error",
+                "ctrader_demo_tracker_recovery_failed",
+                "Could not reconcile cTrader demo positions with local trackers.",
+                {"reason": reason, "error": str(exc)},
+            )
     positions = list_paper_positions("open")
     checked = 0
     closed = 0
