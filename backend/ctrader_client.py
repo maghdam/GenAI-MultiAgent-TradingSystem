@@ -85,15 +85,16 @@ def _px(x):
         return None
 
 def _px_sym(symbol_id: int | None, x):
-    """Return a float price rounded to per-symbol money digits (no integer scaling)."""
+    """Return an absolute trading price rounded to ProtoOASymbol.digits.
+
+    ProtoOAPosition.moneyDigits applies only to monetary fields (swap,
+    commission, margin, etc.) and must never be used as price precision.
+    """
     if x is None:
         return None
     try:
         sid = int(symbol_id) if symbol_id is not None else None
-        if sid is not None and sid in symbol_money_digits_map:
-            digits = int(symbol_money_digits_map[sid])
-        else:
-            digits = int(symbol_digits_map.get(sid, 5)) if sid is not None else 5
+        digits = int(symbol_digits_map.get(sid, 5)) if sid is not None else 5
     except Exception:
         digits = 5
     try:
@@ -870,7 +871,7 @@ def place_order(
                     try:
                         md = getattr(pos, "moneyDigits", None)
                         if md is not None:
-                            symbol_digits_map[int(sid_hint)] = int(md)
+                            symbol_money_digits_map[int(sid_hint)] = int(md)
                     except Exception:
                         pass
                     try:
@@ -1074,15 +1075,14 @@ def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_p
     return client.send(req, timeout=20)
 
 
-def close_position(*, client, account_id, position_id, volume_lots=None):
+def close_position(*, client, account_id, position_id, symbol_id, volume_lots):
     req = ProtoOAClosePositionReq(
         ctidTraderAccountId=account_id,
         positionId=position_id,
     )
-    # Volume is specified in 0.0001 lots for the API.
-    vol_units = _lots_to_units(volume_lots, -1) if volume_lots is not None else None
-    if vol_units is not None:
-        req.volume = vol_units
+    # ProtoOAClosePositionReq.volume is required and uses the same protocol
+    # volume representation (0.01 of a measurement unit) as order volume.
+    req.volume = volume_lots_to_units(int(symbol_id), volume_lots)
     return client.send(req, timeout=20)
 
 def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=None, take_profit=None, symbol_id=None):
