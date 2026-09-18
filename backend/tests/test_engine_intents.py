@@ -3,14 +3,18 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-from backend.domain.models import EngineConfig, StrategyAnalysis, SymbolLimits, WatchlistItem
+import pytest
+
+from backend.domain.models import EngineConfig, InstrumentSpec, StrategyAnalysis, SymbolLimits, WatchlistItem
 from backend.services import engine as engine_module
 from backend.services.engine import V2Engine
 from backend.services.market_data import MarketDataError
 from backend.services.execution_engine import execute_paper_signal
 from backend.storage.repositories import (
     list_incidents,
+    list_decision_records,
     list_order_intents,
+    list_order_intent_transitions,
     list_paper_positions,
     list_trade_audits,
     load_bar_state,
@@ -54,6 +58,25 @@ def _analysis(signal: str = "long", confidence: float = 0.82) -> StrategyAnalysi
     )
 
 
+@pytest.fixture(autouse=True)
+def valued_xau_contract(monkeypatch):
+    spec = InstrumentSpec(
+        symbol="XAUUSD",
+        source="test_contract",
+        account_currency="USD",
+        quote_currency="USD",
+        lot_size_units=100.0,
+        tick_size=0.01,
+        tick_value_per_lot=1.0,
+        cash_per_price_unit_per_lot=100.0,
+        conversion_rate_to_account=1.0,
+        valuation_ready=True,
+        verified=True,
+    )
+    monkeypatch.setattr("backend.services.quantity_rules.get_instrument_spec", lambda symbol, currency: spec)
+    monkeypatch.setattr("backend.services.execution_engine.get_instrument_spec", lambda symbol, currency: spec)
+
+
 def test_apply_paper_logic_opens_position_and_records_execution() -> None:
     result = execute_paper_signal(
         config=_config(),
@@ -71,12 +94,22 @@ def test_apply_paper_logic_opens_position_and_records_execution() -> None:
     assert len(positions) == 1
     assert positions[0].symbol == "XAUUSD"
     assert positions[0].direction == "long"
-    assert positions[0].quantity == 0.5
+    assert positions[0].quantity == 5.0
 
     intents = list_order_intents(5)
     assert len(intents) == 1
     assert intents[0].intent_type == "open"
     assert intents[0].status == "executed"
+    assert intents[0].decision_id is not None
+
+    decisions = list_decision_records(5)
+    assert len(decisions) == 1
+    assert decisions[0].outcome == "accepted_open"
+    assert decisions[0].evidence["risk_amount"] == 500.0
+
+    transitions = list_order_intent_transitions(intents[0].id)
+    assert [transition.to_status for transition in transitions] == ["accepted", "executed"]
+    assert transitions[-1].reason == "paper_position_opened"
 
     audits = list_trade_audits(10)
     assert any(record.event_type == "paper_signal_open" for record in audits)
@@ -394,14 +427,46 @@ def test_execute_paper_signal_uses_risk_based_auto_quantity(monkeypatch) -> None
     assert result.action_taken is True
     positions = list_paper_positions("open")
     assert len(positions) == 1
-    assert positions[0].quantity == 0.5
+    assert positions[0].quantity == 5.0
 
     intents = list_order_intents(5)
     assert len(intents) == 1
     assert "Auto quantity derived from 0.50% risk" in intents[0].rationale
     assert intents[0].details["sizing_mode"] == "risk_based"
-    assert intents[0].details["raw_risk_quantity"] == 0.5
+    assert intents[0].details["raw_risk_quantity"] == 5.0
+    assert intents[0].details["risk_amount"] == 500.0
+    assert intents[0].details["loss_per_lot_at_stop"] == 100.0
     assert intents[0].details["stop_pct"] == 1.0
+
+
+def test_execute_paper_signal_blocks_auto_trade_when_contract_cannot_be_valued(monkeypatch) -> None:
+    unvalued = InstrumentSpec(
+        symbol="XAUUSD",
+        source="fallback",
+        account_currency="USD",
+        quote_currency="USD",
+        valuation_ready=False,
+        verified=False,
+        notes=["lotSize missing"],
+    )
+    monkeypatch.setattr("backend.services.quantity_rules.get_instrument_spec", lambda symbol, currency: unvalued)
+    monkeypatch.setattr("backend.services.execution_engine.get_instrument_spec", lambda symbol, currency: unvalued)
+
+    result = execute_paper_signal(
+        config=_config(risk_per_trade_pct=0.5),
+        watch_item=_watch_item(),
+        analysis=_analysis(signal="long"),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is False
+    assert result.status == "rejected"
+    assert "contract valuation is unavailable" in result.summary
+    assert list_paper_positions("open") == []
+    decisions = list_decision_records(5)
+    assert decisions[0].outcome == "rejected_sizing"
 
 
 def test_execute_paper_signal_rejects_manual_quantity_outside_symbol_step(monkeypatch) -> None:

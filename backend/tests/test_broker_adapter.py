@@ -138,3 +138,30 @@ def test_get_symbol_limits_falls_back_when_symbol_is_unknown(monkeypatch) -> Non
     assert limits.min_lots == 0.01
     assert limits.step_lots == 0.01
     assert limits.max_lots == 100.0
+
+
+def test_get_instrument_spec_uses_broker_contract_for_usd_account(monkeypatch) -> None:
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_name_to_id", {"US100": 7})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_lot_size_map", {7: 1.0})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_digits_map", {7: 2})
+
+    spec = CTraderBrokerAdapter().get_instrument_spec("us100", "USD")
+
+    assert spec.valuation_ready is True
+    assert spec.verified is True
+    assert spec.quote_currency == "USD"
+    assert spec.cash_per_price_unit_per_lot == 1.0
+    assert spec.tick_size == 0.01
+    assert spec.tick_value_per_lot == 0.01
+
+
+def test_get_instrument_spec_blocks_unavailable_currency_conversion(monkeypatch) -> None:
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_name_to_id", {"EURJPY": 9})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_lot_size_map", {9: 100_000.0})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_digits_map", {9: 3})
+
+    spec = CTraderBrokerAdapter().get_instrument_spec("EURJPY", "USD")
+
+    assert spec.valuation_ready is False
+    assert spec.cash_per_price_unit_per_lot is None
+    assert any("JPY/USD" in note for note in spec.notes)

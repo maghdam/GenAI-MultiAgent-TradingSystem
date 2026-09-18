@@ -57,7 +57,7 @@ export default function StrategyStudioResultsPage() {
           <div className="stack">
             <button className="btn" type="button" onClick={() => setView('auto')} disabled={view === 'auto'}>Formatted</button>
             <button className="btn" type="button" onClick={() => setView('raw')} disabled={view === 'raw'}>Raw JSON</button>
-            <button className="btn" type="button" onClick={() => navigate('/strategy-studio')}>Back to Studio</button>
+            <button className="btn" type="button" onClick={() => navigate('/build-test')}>Back to Build & Test</button>
           </div>
         </div>
       </div>

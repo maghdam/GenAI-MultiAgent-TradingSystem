@@ -6,10 +6,7 @@ from backend.domain.models import EngineConfig, ReadinessCheck
 from backend.services.broker import get_broker_status
 from backend.services.runtime_state import market_data_dependency_state
 from backend.storage.repositories import daily_realized_pnl
-
-
-def _daily_loss_cap(config: EngineConfig) -> float:
-    return abs(float(config.daily_loss_limit_pct or 0.0))
+from backend.services.financial_units import daily_loss_budget
 
 
 def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
@@ -30,7 +27,7 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         market_detail = f"Market data has not been probed yet for {probe_symbol}:{probe_timeframe}."
     else:
         market_detail = market_data_dependency_state.last_reason or f"Last market-data probe for {probe_symbol}:{probe_timeframe}."
-    daily_loss_cap = _daily_loss_cap(config)
+    loss_budget = daily_loss_budget(config, realized_today)
     checks = [
         ReadinessCheck(
             name="engine_enabled",
@@ -46,6 +43,19 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
             name="broker_transport",
             ok=broker.connected,
             detail="cTrader transport connected." if broker.connected else "cTrader transport disconnected.",
+        ),
+        ReadinessCheck(
+            name="demo_execution",
+            ok=not config.demo_autotrade or broker.execution_ready,
+            detail=(
+                "cTrader demo account is confirmed and eligible for execution."
+                if broker.execution_ready
+                else (
+                    "Demo execution is off."
+                    if not config.demo_autotrade
+                    else "Demo execution is blocked until cTrader confirms the connected account is demo."
+                )
+            ),
         ),
         ReadinessCheck(
             name="symbol_metadata",
@@ -64,8 +74,12 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         ),
         ReadinessCheck(
             name="daily_loss_limit",
-            ok=realized_today > -daily_loss_cap,
-            detail=f"Daily realized PnL = {realized_today:.2f} / cap {daily_loss_cap:.2f}.",
+            ok=not loss_budget.breached,
+            detail=(
+                f"Daily realized P&L = {loss_budget.realized_pnl_amount:.2f} {loss_budget.currency}; "
+                f"loss limit = {loss_budget.limit_amount:.2f} {loss_budget.currency} "
+                f"({loss_budget.limit_percent:.2f}% of {loss_budget.starting_equity_amount:.2f})."
+            ),
         ),
     ]
     return checks

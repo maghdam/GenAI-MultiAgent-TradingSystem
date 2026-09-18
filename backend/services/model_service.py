@@ -21,6 +21,12 @@ def fallback_model() -> str:
 def ollama_url() -> str:
     return OLLAMA_URL
 
+def is_model_available(models: List[str], model: str | None = None) -> bool:
+    required = (model or MODEL_DEFAULT).strip().lower()
+    available = {(name or "").strip().lower() for name in models}
+    return bool(required) and required in available
+
+
 
 def dispatch_warmup() -> str:
     warm_ollama(MODEL_DEFAULT)
@@ -81,18 +87,27 @@ async def fetch_tags(timeout: float = 10.0, force_refresh: bool = False) -> Dict
 async def status_payload(timeout: float = 10.0) -> Dict[str, Any]:
     result = await fetch_tags(timeout=timeout)
     if result["ok"]:
-        return {
+        models = result.get("models") if isinstance(result.get("models"), list) else []
+        model_available = is_model_available(models)
+        payload = {
             "ollama": result["status_code"],
             "model": MODEL_DEFAULT,
             "fallback": FALLBACK_MODEL,
             "reachable": True,
+            "model_available": model_available,
+            "ready": model_available,
         }
+        if not model_available:
+            payload["error"] = f"Configured model '{MODEL_DEFAULT}' is not installed."
+        return payload
     if result["status_code"] is not None:
         return {
             "ollama": result["status_code"],
             "model": MODEL_DEFAULT,
             "fallback": FALLBACK_MODEL,
             "reachable": False,
+            "model_available": False,
+            "ready": False,
             "error": result["error"],
         }
     return {
@@ -100,6 +115,8 @@ async def status_payload(timeout: float = 10.0) -> Dict[str, Any]:
         "model": MODEL_DEFAULT,
         "fallback": FALLBACK_MODEL,
         "reachable": False,
+        "model_available": False,
+        "ready": False,
         "error": result["error"],
     }
 

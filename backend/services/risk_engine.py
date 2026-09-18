@@ -6,6 +6,8 @@ from typing import Dict, List
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.storage.repositories import daily_realized_pnl, daily_trade_count, list_paper_positions
+from backend.services.financial_units import daily_loss_budget
+from backend.services.strategy_lifecycle import paper_execution_gate
 
 
 @dataclass
@@ -158,9 +160,6 @@ def _same_symbol_positions(open_positions: List[PaperPosition], symbol: str) -> 
     return [position for position in open_positions if position.symbol.upper() == symbol.upper()]
 
 
-def _daily_loss_cap(config: EngineConfig) -> float:
-    return abs(float(config.daily_loss_limit_pct or 0.0))
-
 
 def _in_symbol_cooldown(config: EngineConfig, open_positions: List[PaperPosition], symbol: str, timeframe: str) -> bool:
     if config.cooldown_minutes <= 0:
@@ -192,6 +191,13 @@ def evaluate_risk(
 
     if analysis.signal == "no_trade":
         decision.reasons.append("Strategy returned no_trade.")
+        return decision
+
+    lifecycle_ok, lifecycle_details, lifecycle_error = paper_execution_gate(analysis.strategy)
+    if lifecycle_details.get("governed"):
+        decision.details["strategy_lifecycle"] = lifecycle_details
+    if not lifecycle_ok:
+        decision.reasons.append(lifecycle_error or "Strategy lifecycle gate rejected execution.")
         return decision
 
     if config.kill_switch:
@@ -242,11 +248,10 @@ def evaluate_risk(
         return decision
 
     pnl_today = daily_realized_pnl()
-    daily_loss_cap = _daily_loss_cap(config)
-    if pnl_today <= -daily_loss_cap:
+    loss_budget = daily_loss_budget(config, pnl_today)
+    decision.details.update(loss_budget.as_details())
+    if loss_budget.breached:
         decision.reasons.append("Daily loss cap reached.")
-        decision.details["daily_realized_pnl"] = pnl_today
-        decision.details["daily_loss_cap"] = daily_loss_cap
         return decision
 
     trades_today = daily_trade_count()
@@ -284,9 +289,16 @@ def evaluate_risk(
         decision.details["cooldown_minutes"] = config.cooldown_minutes
         return decision
 
-    if source != "manual" and not config.paper_autotrade:
-        decision.reasons.append("Paper autotrade is disabled.")
-        return decision
+    if source != "manual":
+        paper_enabled = bool(config.paper_autotrade)
+        demo_enabled = bool(config.demo_autotrade and watch_item.trading_enabled)
+        if not paper_enabled and not demo_enabled:
+            decision.reasons.append(
+                "Paper autotrade is disabled."
+                if not config.demo_autotrade
+                else "Automatic execution is disabled for this symbol."
+            )
+            return decision
 
     decision.accepted = True
     decision.intent_type = "open"

@@ -7,11 +7,13 @@ from typing import Any, Dict, List
 import backend.ctrader_client as ctd
 import pandas as pd
 
-from backend.domain.models import BrokerStatus, SymbolLimits
+from backend.domain.models import BrokerStatus, InstrumentSpec, SymbolLimits
 from backend.services.runtime_state import external_dependency_state, market_data_dependency_state
 
 
 class CTraderBrokerAdapter:
+    _USD_INDEX_ALIASES = ("US100", "NAS100", "USTEC", "NAS", "US500", "SPX", "US30", "DJ30")
+
     @staticmethod
     def _default_symbol_limits(symbol: str) -> SymbolLimits:
         min_api = 100
@@ -91,6 +93,12 @@ class CTraderBrokerAdapter:
         notes: List[str] = []
         connected = self.connected()
         authorized = bool(ctd.is_authorized())
+        auth_error = ctd.get_auth_error()
+        market_reason = str(market_data_dependency_state.last_reason or "")
+        if authorized and "not authorized" in market_reason.lower():
+            authorized = False
+            auth_error = market_reason
+            notes.append(market_reason)
         symbols_loaded = len(ctd.symbol_name_to_id or {})
 
         positions = []
@@ -105,23 +113,39 @@ class CTraderBrokerAdapter:
             except Exception as exc:
                 notes.append(f"reconcile_unavailable: {exc}")
 
-        ready = connected and symbols_loaded > 0 and authorized
-        market_data_ready = bool(market_data_dependency_state.market_data_ready and ready)
-
         if not connected:
             notes.append("cTrader transport is not connected.")
         if not authorized:
             notes.append("cTrader account is not authorized.")
         if symbols_loaded == 0:
             notes.append("No broker symbols are loaded.")
+        demo_confirmed = bool(ctd.is_demo_account_confirmed())
+        account_type = (
+            "demo"
+            if ctd.ACCOUNT_IS_DEMO is True
+            else ("live" if ctd.ACCOUNT_IS_DEMO is False else "unknown")
+        )
+        verification_error = ctd.get_account_verification_error()
+        if verification_error and verification_error not in notes:
+            notes.append(verification_error)
+        if connected and not demo_confirmed:
+            notes.append("Order execution is blocked until the connected account is confirmed as demo.")
         
         notes.extend(external_dependency_state.snapshot_notes())
+        auth_note = next((note for note in notes if "not authorized" in note.lower()), "")
+        if authorized and auth_note:
+            authorized = False
+            auth_error = auth_note
+
+        ready = connected and symbols_loaded > 0 and authorized
+        market_data_ready = bool(market_data_dependency_state.market_data_ready and ready)
+        execution_ready = bool(ready and demo_confirmed)
 
         return BrokerStatus(
             connected=connected,
             socket_connected=connected,
             account_authorized=authorized,
-            auth_error=ctd.get_auth_error(),
+            auth_error=auth_error,
             last_auth_attempt_at=ctd.get_last_auth_attempt(),
             symbols_loaded=symbols_loaded,
             open_positions=len(positions),
@@ -130,8 +154,65 @@ class CTraderBrokerAdapter:
             market_data_ready=market_data_ready,
             broker_mode=str(getattr(ctd, "HOST_TYPE", "unknown")),
             account_id=self._account_id_value(),
+            account_type=account_type,
+            demo_account_confirmed=demo_confirmed,
+            execution_ready=execution_ready,
             notes=notes,
         )
+
+    def place_demo_market_order(
+        self,
+        *,
+        symbol: str,
+        direction: str,
+        quantity_lots: float,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+        client_msg_id: str | None = None,
+    ) -> Dict[str, Any]:
+        if not ctd.is_demo_account_confirmed():
+            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+            raise RuntimeError(f"Demo order blocked: {reason}")
+
+        sym = (symbol or "").strip().upper()
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
+        if symbol_id is None:
+            raise RuntimeError(f"Demo order blocked: broker symbol {sym!r} is unavailable.")
+
+        side = "BUY" if direction == "long" else ("SELL" if direction == "short" else "")
+        if not side:
+            raise RuntimeError(f"Demo order blocked: unsupported direction {direction!r}.")
+
+        volume = ctd.volume_lots_to_units(symbol_id, quantity_lots)
+        deferred = ctd.place_order(
+            client=ctd.client,
+            account_id=ctd.ACCOUNT_ID,
+            symbol_id=symbol_id,
+            order_type="MARKET",
+            side=side,
+            volume=volume,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            client_msg_id=client_msg_id,
+        )
+        result = ctd.wait_for_deferred(deferred, timeout=20)
+        if isinstance(result, dict) and result.get("status") in {"failed", "order_rejected"}:
+            reason = result.get("error") or result.get("reject_reason") or result["status"]
+            raise RuntimeError(f"cTrader demo order failed: {reason}")
+        if not isinstance(result, dict):
+            raise RuntimeError("cTrader demo order returned an unrecognized acknowledgement.")
+        return {
+            "status": "executed",
+            "account_id": self._account_id_value(),
+            "account_type": "demo",
+            "symbol": sym,
+            "symbol_id": symbol_id,
+            "direction": direction,
+            "quantity_lots": float(quantity_lots),
+            "volume_api_units": volume,
+            "position_id": result.get("position_id"),
+            "ack": result.get("ack", {}),
+        }
 
     def list_positions(self) -> List[Dict[str, Any]]:
         rows = ctd.get_open_positions() or []
@@ -194,6 +275,57 @@ class CTraderBrokerAdapter:
             max_api_units=max_api,
             hard_min=bool(ctd.symbol_min_verified.get(symbol_id)),
             hard_step=bool(ctd.symbol_step_verified.get(symbol_id)),
+        )
+
+    @classmethod
+    def _quote_currency(cls, symbol: str) -> str | None:
+        sym = symbol.upper().replace("/", "")
+        if any(alias in sym for alias in cls._USD_INDEX_ALIASES):
+            return "USD"
+        for currency in ("USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"):
+            if sym.endswith(currency):
+                return currency
+        return None
+
+    def get_instrument_spec(self, symbol: str, account_currency: str = "USD") -> InstrumentSpec:
+        sym = (symbol or "").strip().upper()
+        account_ccy = (account_currency or "USD").strip().upper()
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
+        quote_ccy = self._quote_currency(sym)
+        if symbol_id is None:
+            return InstrumentSpec(
+                symbol=sym,
+                account_currency=account_ccy,
+                quote_currency=quote_ccy,
+                notes=["Symbol contract is not loaded from the broker."],
+            )
+
+        lot_size = ctd.symbol_lot_size_map.get(symbol_id)
+        digits = ctd.symbol_digits_map.get(symbol_id)
+        tick_size = (10.0 ** -int(digits)) if digits is not None else None
+        conversion = 1.0 if quote_ccy == account_ccy else None
+        cash_per_unit = float(lot_size) * conversion if lot_size and conversion else None
+        notes: List[str] = []
+        if not lot_size:
+            notes.append("Broker lotSize metadata is unavailable.")
+        if quote_ccy is None:
+            notes.append("Quote currency could not be inferred from the broker symbol name.")
+        elif conversion is None:
+            notes.append(f"{quote_ccy}/{account_ccy} P&L conversion is not available yet.")
+        ready = cash_per_unit is not None and cash_per_unit > 0
+        return InstrumentSpec(
+            symbol=sym,
+            source="ctrader_contract" if lot_size else "fallback",
+            account_currency=account_ccy,
+            quote_currency=quote_ccy,
+            lot_size_units=float(lot_size) if lot_size else None,
+            tick_size=tick_size,
+            tick_value_per_lot=(tick_size * cash_per_unit) if tick_size and cash_per_unit else None,
+            cash_per_price_unit_per_lot=cash_per_unit,
+            conversion_rate_to_account=conversion,
+            valuation_ready=ready,
+            verified=bool(ready and lot_size),
+            notes=notes,
         )
 
     def _generate_mock_bars(self, symbol: str, timeframe: str, num_bars: int):

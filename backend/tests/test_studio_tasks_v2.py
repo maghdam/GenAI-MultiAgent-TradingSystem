@@ -133,6 +133,75 @@ def test_v2_studio_chat_falls_back_to_template_when_create_times_out(monkeypatch
     assert "FVG" in stdout
 
 
+
+def test_v2_studio_chat_routes_natural_backtest_requests_without_llm(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    def _fake_run_backtest(params, extra_params=None):
+        assert params.symbol == "US30"
+        assert params.timeframe == "M1"
+        assert params.strategy_name == "smc_new"
+        return {"strategy": "smc_new", "symbol": "US30", "timeframe": "M1", "Total Return [%]": 9.7441}
+
+    async def _fail_if_called(**kwargs):
+        raise AssertionError("LLM path should not be used for a natural-language backtest command")
+
+    monkeypatch.setattr("backend.services.studio_tasks.run_backtest", _fake_run_backtest)
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _fail_if_called)
+
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal="back test the smc_new strategy for us30 M1",
+                params={"strategy_name": "smc_new", "symbol": "US30", "timeframe": "M1", "num_bars": 5100},
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert (result.result or {}).get("strategy") == "smc_new"
+    assert (result.result or {}).get("symbol") == "US30"
+    assert (result.result or {}).get("timeframe") == "M1"
+
+def test_v2_studio_chat_backtest_uses_current_draft_by_default(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    def _fail_saved(*args, **kwargs):
+        raise AssertionError("Saved-strategy backtest path should not be used when current draft code is present")
+
+    def _fake_draft_backtest(**kwargs):
+        assert "def signals" in kwargs["code"]
+        assert kwargs["symbol"] == "US30"
+        assert kwargs["timeframe"] == "M1"
+        assert kwargs["num_bars"] == 5600
+        assert kwargs["strategy_name"] == "smc_new"
+        return {"strategy": "smc_new", "symbol": "US30", "timeframe": "M1", "draft": True, "Total Return [%]": 11.8303}
+
+    monkeypatch.setattr("backend.services.studio_tasks.run_backtest", _fail_saved)
+    monkeypatch.setattr("backend.services.studio_tasks.run_strategy_code_backtest", _fake_draft_backtest)
+
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal="back test the smc_new strategy for us30 M1",
+                params={
+                    "strategy_name": "smc_new",
+                    "symbol": "US30",
+                    "timeframe": "M1",
+                    "num_bars": 5600,
+                    "current_code": "import pandas as pd\n\ndef signals(df: pd.DataFrame) -> pd.Series:\n    return pd.Series(0.0, index=df.index)\n",
+                },
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert (result.result or {}).get("draft") is True
+    assert (result.result or {}).get("strategy") == "smc_new"
 def test_v2_studio_chat_can_save_current_draft(monkeypatch) -> None:
     from backend.domain.models import StudioTaskRequest
     from backend.domain.models import StudioTaskResponse
@@ -159,3 +228,6 @@ def test_v2_studio_chat_can_save_current_draft(monkeypatch) -> None:
 
     assert result.status == "success"
     assert "chat_saved_strategy.py" in result.message
+
+
+

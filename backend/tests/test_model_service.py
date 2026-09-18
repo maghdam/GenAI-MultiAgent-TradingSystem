@@ -11,7 +11,7 @@ def test_model_service_status_payload_success(monkeypatch) -> None:
         return {
             "ok": True,
             "status_code": 200,
-            "models": ["phi3:mini", "llama3.2:3b-instruct-fp16"],
+            "models": [model_service.default_model(), "phi3:mini"],
             "error": None,
         }
 
@@ -21,6 +21,19 @@ def test_model_service_status_payload_success(monkeypatch) -> None:
 
     assert payload["ollama"] == 200
     assert payload["reachable"] is True
+    assert payload["model_available"] is True
+    assert payload["ready"] is True
+
+
+def test_model_service_requires_configured_model_to_be_installed(monkeypatch) -> None:
+    async def _fake_fetch_tags(timeout: float = 10.0):
+        return {"ok": True, "status_code": 200, "models": ["some-other-model"], "error": None}
+
+    monkeypatch.setattr(model_service, "fetch_tags", _fake_fetch_tags)
+    payload = asyncio.run(model_service.status_payload())
+    assert payload["reachable"] is True
+    assert payload["ready"] is False
+    assert "not installed" in payload["error"]
     assert payload["model"] == model_service.default_model()
 
 

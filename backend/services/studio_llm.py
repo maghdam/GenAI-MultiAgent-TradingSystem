@@ -14,6 +14,8 @@ SUPPORTED_PROVIDERS = ("ollama", "gemini")
 _GEMINI_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 _GEMINI_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 _GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-pro").strip()
+_OLLAMA_STUDIO_MODEL = os.getenv("STUDIO_OLLAMA_MODEL", "muse-glimmer:latest").strip()
+_OLLAMA_STUDIO_THINK = os.getenv("STUDIO_OLLAMA_THINK", "low").strip().lower() or None
 _GEMINI_MODELS = [
     item.strip()
     for item in os.getenv("GEMINI_MODELS", "gemini-2.5-flash,gemini-2.5-pro").split(",")
@@ -41,7 +43,7 @@ def default_model(provider: str | None) -> str:
     provider_key = normalize_provider(provider)
     if provider_key == "gemini":
         return _GEMINI_DEFAULT_MODEL
-    return MODEL_DEFAULT
+    return _OLLAMA_STUDIO_MODEL or MODEL_DEFAULT
 
 
 async def models_payload(provider: str | None = None, timeout: float = 10.0) -> Dict[str, Any]:
@@ -87,6 +89,7 @@ async def _generate_with_ollama(prompt: str, model: str, timeout: float, num_pre
             model=model,
             timeout=timeout,
             json_only=False,
+            think=_OLLAMA_STUDIO_THINK,
             options_overrides={"num_predict": num_predict},
         ),
     )

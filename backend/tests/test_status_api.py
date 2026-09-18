@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from backend.domain.models import SymbolLimits
+from backend.domain.models import ConfluenceReplayMetrics, ConfluenceReplayResponse, SymbolLimits
 
 
 def test_v2_status_exposes_new_risk_and_audit_fields(monkeypatch) -> None:
@@ -20,6 +20,7 @@ def test_v2_status_exposes_new_risk_and_audit_fields(monkeypatch) -> None:
 
     assert "recent_order_intents" in payload
     assert "recent_trade_audits" in payload
+    assert "recent_confluence_shadows" in payload
 
     config = payload["config"]
     readiness_names = {item["name"] for item in payload["readiness"]}
@@ -63,7 +64,7 @@ def test_v2_symbols_and_candles_endpoints(monkeypatch) -> None:
         ],
         index=pd.to_datetime(["2026-03-19T10:00:00Z", "2026-03-19T10:05:00Z"], utc=True),
     )
-    monkeypatch.setattr("backend.api.router.get_bars", lambda symbol, timeframe, num_bars: df)
+    monkeypatch.setattr("backend.api.router.get_bars", lambda symbol, timeframe, num_bars, prefer_live=False: df)
 
     from backend.app import app
 
@@ -79,6 +80,32 @@ def test_v2_symbols_and_candles_endpoints(monkeypatch) -> None:
     assert len(payload["candles"]) == 2
     assert payload["candles"][0]["open"] == 1.0
     assert payload["indicators"] == {}
+
+
+def test_v2_confluence_replay_endpoint_is_research_only(monkeypatch) -> None:
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
+    monkeypatch.setattr(
+        "backend.api.router.run_confluence_replay",
+        lambda **kwargs: ConfluenceReplayResponse(
+            methodology="test",
+            total_records=4,
+            priced_records=3,
+            original=ConfluenceReplayMetrics(trades=2),
+            shadow=ConfluenceReplayMetrics(trades=1),
+            verdict_reason="test gate",
+        ),
+    )
+    from backend.app import app
+
+    with TestClient(app) as client:
+        response = client.get("/api/market/confluence-shadow/replay?limit=50&fee_bps_per_side=2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["research_only"] is True
+    assert payload["original"]["trades"] == 2
 
 
 def test_v2_symbol_limits_endpoint(monkeypatch) -> None:
@@ -211,3 +238,4 @@ def test_v2_manual_order_rejects_invalid_quantity(monkeypatch) -> None:
     assert payload["ok"] is True
     assert payload["status"] == "rejected"
     assert "step size of 0.0500 lots" in payload["summary"]
+

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import types
 import math
 from pathlib import Path
 
 import backend.data_fetcher as data_fetcher
 import pandas as pd
 from fastapi import HTTPException
+from backend.services.strategy_sandbox import StrategySandboxError, run_strategy_source
+from backend.services.strategy_lifecycle import record_backtest
 
 
 def list_saved_strategy_files() -> dict:
@@ -17,6 +18,27 @@ def list_saved_strategy_files() -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+def _validation_window(df: pd.DataFrame, validation_kind: str) -> tuple[pd.DataFrame, str]:
+    kind = str(validation_kind or "development_backtest").strip().lower()
+    allowed = {"development_backtest", "out_of_sample", "regime"}
+    if kind not in allowed:
+        raise HTTPException(400, f"validation_kind must be one of: {', '.join(sorted(allowed))}")
+    if kind == "regime":
+        return df.copy(), kind
+    split = max(1, min(len(df) - 1, int(len(df) * 0.70)))
+    selected = df.iloc[:split].copy() if kind == "development_backtest" else df.iloc[split:].copy()
+    if len(selected) < 50:
+        raise HTTPException(400, f"{kind} window contains only {len(selected)} bars; request more data.")
+    return selected, kind
+
+
+def _timestamp(value: object) -> str:
+    try:
+        return pd.Timestamp(value).isoformat()
+    except Exception:
+        return str(value)
+
+
 
 def run_saved_strategy_backtest(
     *,
@@ -26,6 +48,7 @@ def run_saved_strategy_backtest(
     num_bars: int = 1500,
     fee_bps: float = 0.0,
     slippage_bps: float = 0.0,
+    validation_kind: str = "development_backtest",
 ):
     root = Path("backend/strategies_generated")
     path = root / f"{strategy.lower()}.py"
@@ -36,20 +59,14 @@ def run_saved_strategy_backtest(
     if df is None or df.empty:
         raise HTTPException(404, "No data fetched for backtest")
 
-    try:
-        src = path.read_text(encoding="utf-8")
-        mod_globals = {}
-        exec(src, mod_globals)
-        signals_fn = mod_globals.get("signals")
-    except Exception as exc:
-        raise HTTPException(400, f"Unable to load strategy module: {exc}") from exc
-    if not callable(signals_fn):
-        raise HTTPException(400, "This strategy does not define a callable signals(df) for backtesting.")
+    original_bars = len(df)
+    df, validation_kind = _validation_window(df, validation_kind)
 
     try:
-        sig = signals_fn(df)
-    except Exception as exc:
-        raise HTTPException(400, f"signals(df) execution failed: {exc}") from exc
+        src = path.read_text(encoding="utf-8")
+        sig = run_strategy_source(src, df)
+    except (OSError, StrategySandboxError, ValueError) as exc:
+        raise HTTPException(400, f"Isolated strategy execution failed: {exc}") from exc
 
     if "pandas" not in str(type(sig)):
         raise HTTPException(400, "signals(df) must return a pandas Series aligned to df index.")
@@ -147,7 +164,7 @@ def run_saved_strategy_backtest(
     drawdown = (equity / peak) - 1.0
     max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
 
-    return {
+    result = {
         "strategy": strategy,
         "symbol": symbol,
         "timeframe": timeframe,
@@ -165,7 +182,27 @@ def run_saved_strategy_backtest(
         "SQN": round(sqn, 3),
         "Trades/Day": round(trades_per_day, 3),
         "Avg Hold [bars]": round(avg_hold_bars, 2),
+        "Validation Kind": validation_kind,
+        "Data Start": _timestamp(df.index[0]),
+        "Data End": _timestamp(df.index[-1]),
+        "Selected Bars": len(df),
+        "Fetched Bars": original_bars,
     }
+    lifecycle = record_backtest(
+        strategy=strategy,
+        source=src,
+        metrics=result,
+        validation_kind=validation_kind,
+        context={
+            "symbol": symbol.upper(),
+            "timeframe": timeframe.upper(),
+            "data_start": result["Data Start"],
+            "data_end": result["Data End"],
+            "selected_bars": len(df),
+        },
+    )
+    result["Lifecycle"] = lifecycle.model_dump(mode="json")
+    return result
 
 
 def run_strategy_code_backtest(
@@ -177,24 +214,19 @@ def run_strategy_code_backtest(
     fee_bps: float = 0.0,
     slippage_bps: float = 0.0,
     strategy_name: str = "draft",
+    validation_kind: str = "development_backtest",
 ):
     df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
     if df is None or df.empty:
         raise HTTPException(404, "No data fetched for backtest")
 
-    try:
-        mod = types.ModuleType("studio_draft_strategy")
-        exec(str(code), mod.__dict__)
-        signals_fn = getattr(mod, "signals", None)
-    except Exception as exc:
-        raise HTTPException(400, f"Unable to load draft strategy: {exc}") from exc
-    if not callable(signals_fn):
-        raise HTTPException(400, "Draft strategy does not define a callable signals(df) for backtesting.")
+    original_bars = len(df)
+    df, validation_kind = _validation_window(df, validation_kind)
 
     try:
-        sig = signals_fn(df)
-    except Exception as exc:
-        raise HTTPException(400, f"signals(df) execution failed: {exc}") from exc
+        sig = run_strategy_source(str(code), df)
+    except (StrategySandboxError, ValueError) as exc:
+        raise HTTPException(400, f"Isolated draft strategy execution failed: {exc}") from exc
 
     if "pandas" not in str(type(sig)):
         raise HTTPException(400, "signals(df) must return a pandas Series aligned to df index.")
@@ -234,5 +266,10 @@ def run_strategy_code_backtest(
         "Max Drawdown [%]": round(max_drawdown * 100.0, 2),
         "Fees [bps]": round(float(fee_bps), 3),
         "Slippage [bps]": round(float(slippage_bps), 3),
+        "Validation Kind": validation_kind,
+        "Data Start": _timestamp(df.index[0]),
+        "Data End": _timestamp(df.index[-1]),
+        "Selected Bars": len(df),
+        "Fetched Bars": original_bars,
         "draft": True,
     }

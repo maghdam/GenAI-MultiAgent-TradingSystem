@@ -1,12 +1,12 @@
 # TradeAgent
 
-TradeAgent is a local-first AI trading workstation prototype. It combines a FastAPI backend, a React frontend, broker-connected market data, a deterministic paper-trading engine, SQLite-backed audit trails, and an LLM-assisted Strategy Studio for creating and backtesting trading ideas.
+TradeAgent is a local-first trading workstation organized into three connected areas: Trade, Build & Test, and System. It combines a FastAPI backend, React frontend, broker-connected market data, deterministic paper execution, SQLite-backed audit trails, and LLM-assisted research.
 
 The project is intended to show AI product engineering rather than prompt-only experimentation: operator controls, explicit risk boundaries, persistent state, testing, research workflows, and a UI that supports the full operating loop.
 
 ## What It Demonstrates
 
-- multi-surface product, not a single demo screen
+- one methodological workflow across Trade, Build & Test, and System
 - deterministic paper execution with explicit guardrails
 - LLM-assisted strategy drafting, editing, and backtesting
 - persistent runtime, incidents, intents, positions, and audit history
@@ -15,34 +15,16 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 ## Product Gallery
 
-### Main Dashboard
+### Trade
 
 <p align="center">
   <img src="docs/images/dashboard-main.png" alt="TradeAgent main dashboard" width="100%" />
 </p>
 <p align="center">
-  <sub>Execution-facing dashboard with live charting, AI analysis, signal panels, and trade journal context.</sub>
+  <sub>Daily trading workspace with live charting, selected-market context, explicit strategy analysis, signals, positions, and journal context.</sub>
 </p>
 
-### Operator Workbench
-
-<p align="center">
-  <img src="docs/images/workbench-operator.png" alt="TradeAgent operator workbench overview" width="100%" />
-</p>
-<p align="center">
-  <img src="docs/images/workbench-operator-2.png" alt="TradeAgent operator workbench continuation showing readiness and broker notes" width="100%" />
-</p>
-<p align="center">
-  <img src="docs/images/workbench-operator-3.png" alt="TradeAgent operator workbench continuation showing operator guardrails and watchlist configuration" width="100%" />
-</p>
-<p align="center">
-  <img src="docs/images/workbench-operator-4.png" alt="TradeAgent operator workbench continuation showing trade audit and engine event history" width="100%" />
-</p>
-<p align="center">
-  <sub>Control plane for engine state, readiness, guardrails, watchlists, audit records, and runtime visibility.</sub>
-</p>
-
-### Strategy Studio
+### Build & Test
 
 <p align="center">
   <img src="docs/images/strategy-studio-results.png" alt="TradeAgent Strategy Studio backtest results overview" width="100%" />
@@ -52,21 +34,6 @@ The project is intended to show AI product engineering rather than prompt-only e
 </p>
 <p align="center">
   <sub>LLM-assisted research workflow with strategy drafting, saved strategies, formatted metrics, equity curve, and trade-level backtest output.</sub>
-</p>
-
-### Heavyweight Checklist
-
-<p align="center">
-  <img src="docs/images/heavyweight-checklist.png" alt="TradeAgent heavyweight checklist overview" width="88%" />
-</p>
-<p align="center">
-  <img src="docs/images/heavyweight-checklist-2.png" alt="TradeAgent heavyweight checklist continuation showing go-no-go logic and execution planning" width="88%" />
-</p>
-<p align="center">
-  <img src="docs/images/heavyweight-checklist-3.png" alt="TradeAgent heavyweight checklist continuation showing live summary and weighted component table" width="88%" />
-</p>
-<p align="center">
-  <sub>Structured US30/XAUUSD checklist workflow for macro context, go/no-go logic, execution planning, and weighted decision support.</sub>
 </p>
 
 <details>
@@ -90,48 +57,38 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 ## Main Capabilities
 
-### Dashboard
+### Trade
 
-- live market charting
-- strategy selection and symbol/timeframe controls
-- AI analysis output and manual trade actions
-- signals, incidents, intents, and trade journal panels
-- broker, engine, and model readiness indicators
+- live charting, selected-market context, and explicit strategy rules
+- watchlist, symbol, timeframe, and strategy selection
+- signal review, paper orders, positions, and trade journal
+- broker, market-data, engine, and model status
 
-### Operator Workbench
+### Build & Test
 
-- engine start/stop, manual scan, reconcile, and recovery
-- readiness checks and broker notes
-- watchlist management
-- persistent config for confidence, daily loss, cooldowns, session filter, and position limits
-- paper positions, order intents, audit records, and incident feeds
+- measurable hypothesis and strategy lifecycle
+- natural-language research assistance with visible generated rules
+- saved and draft backtesting with fees and slippage
+- event-outcome calibration and original-versus-shadow replay
+- paper evidence and controlled promotion decisions
 
-### Strategy Studio
+### System
 
-- natural-language strategy chat
-- provider/model selection
-- draft strategy generation and refinement
-- save-to-disk strategy workflow
-- saved and draft backtesting
-- formatted backtest dashboards and raw result inspection
-
-### Heavyweight Checklist
-
-- macro checklist and scenario framework
-- US30/XAUUSD decision support
-- component confirmation flow
-- auto-snapshot integration from backend checklist and calendar endpoints
+- engine start/stop, one-shot scan, reconciliation, and recovery
+- readiness and connection diagnostics
+- risk, session, stop, cooldown, and loss controls
+- decision, trade, engine-event, and incident audit trails
 
 ## How The Agent System Works
 
-TradeAgent currently has two AI-related execution surfaces:
+TradeAgent has one trading runtime and one separate research assistant:
 
 - Runtime trading engine:
   one orchestrated paper-trading loop scans a watchlist, fetches bars, runs a deterministic strategy, passes the result through risk and sizing checks, and records intents and paper-trade audit history.
-- Strategy Studio:
+- Build & Test research pipeline:
   an LLM-assisted research workflow can chat, draft strategy code, backtest drafts or saved files, and save strategies into `backend/strategies_generated/`.
 
-The repo is best described as an agent-inspired, service-oriented design rather than a swarm of independently deployed worker agents. The agent roles still exist conceptually, but the active implementation is a consolidated V2 engine plus a separate Strategy Studio task pipeline.
+The repo is best described as an agent-inspired, service-oriented design rather than a swarm of independently deployed worker agents. The product workflow is consolidated into Trade, Build & Test, and System, while the backend retains explicit runtime and research boundaries.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current diagrams, agent-role mapping, runtime flow, and documentation of what is active versus legacy.
 
@@ -141,7 +98,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the current diagrams, agent-role mapp
   <img src="docs/images/architecture-overview.svg" alt="TradeAgent architecture overview" width="100%" />
 </p>
 <p align="center">
-  <sub>Current-state architecture: frontend surfaces, FastAPI layer, paper-trading runtime engine, Strategy Studio research flow, and SQLite-backed memory.</sub>
+  <sub>Current-state architecture: Trade, Build & Test, System, FastAPI services, deterministic paper runtime, and SQLite-backed audit memory.</sub>
 </p>
 
 ## Tech Stack
@@ -209,8 +166,8 @@ Result:
 
 ## Current Constraints
 
-- autonomous execution is paper-only
-- live mode can be requested in config, but live execution remains intentionally blocked
+- autonomous execution supports local paper positions and explicitly enabled cTrader demo-account orders
+- cTrader execution stays blocked until the API confirms the configured account has `isLive = false`; live-account execution remains intentionally blocked
 - broker connectivity and market data depend on the local cTrader/Open API environment
 - Strategy Studio quality depends on the configured local or remote model
 

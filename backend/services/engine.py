@@ -6,6 +6,7 @@ from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
+from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars
 from backend.services.paper_book import reconcile_position
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
@@ -146,6 +147,15 @@ class V2Engine:
         )
         analysis.context["engine_source"] = "auto_loop"
         add_analysis(analysis)
+        try:
+            record_confluence_shadow(analysis, config.min_confidence)
+        except Exception as exc:
+            log_incident(
+                "warning",
+                "confluence_shadow_failed",
+                f"Shadow confluence failed for {analysis.symbol}:{analysis.timeframe}",
+                {"error": str(exc), "execution_unchanged": True},
+            )
         result = execute_paper_signal(
             config=config,
             watch_item=item,

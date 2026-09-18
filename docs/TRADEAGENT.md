@@ -24,4 +24,4 @@ TradeAgent now runs on one active consolidated stack:
 - `backend/`
 - `frontend/`
 
-The autonomous runtime is the paper-only V2 engine. Strategy Studio remains a separate research workflow for drafting and backtesting strategies.
+The autonomous runtime supports local paper execution and explicitly enabled cTrader demo-account orders. Broker execution remains blocked unless cTrader confirms the connected account is demo. Strategy Studio remains a separate research workflow for drafting and backtesting strategies.

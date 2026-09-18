@@ -15,7 +15,8 @@ class MarketDataError(RuntimeError):
     pass
 
 
-_BARS_CACHE_TTL_SEC = 8.0
+_DEFAULT_BARS_CACHE_TTL_SEC = 8.0
+_LIVE_BARS_CACHE_TTL_SEC = 1.0
 _bars_cache_lock = Lock()
 _bars_cache: dict[tuple[str, str], tuple[float, pd.DataFrame]] = {}
 _TIMEFRAME_SECONDS = {
@@ -29,16 +30,19 @@ _TIMEFRAME_SECONDS = {
 }
 
 
-def _get_cached_bars(symbol: str, timeframe: str, num_bars: int) -> pd.DataFrame | None:
+def _cache_ttl_for_request(prefer_live: bool) -> float:
+    return _LIVE_BARS_CACHE_TTL_SEC if prefer_live else _DEFAULT_BARS_CACHE_TTL_SEC
+
+
+def _get_cached_bars(symbol: str, timeframe: str, num_bars: int, *, ttl_sec: float) -> pd.DataFrame | None:
     key = (symbol.upper(), timeframe.upper())
     now = monotonic()
     with _bars_cache_lock:
         cached = _bars_cache.get(key)
         if not cached:
             return None
-        expires_at, df = cached
-        if now >= expires_at:
-            _bars_cache.pop(key, None)
+        stored_at, df = cached
+        if now - stored_at >= ttl_sec:
             return None
         if len(df) < num_bars:
             return None
@@ -48,7 +52,7 @@ def _get_cached_bars(symbol: str, timeframe: str, num_bars: int) -> pd.DataFrame
 def _store_cached_bars(symbol: str, timeframe: str, df: pd.DataFrame) -> None:
     key = (symbol.upper(), timeframe.upper())
     with _bars_cache_lock:
-        _bars_cache[key] = (monotonic() + _BARS_CACHE_TTL_SEC, df.copy())
+        _bars_cache[key] = (monotonic(), df.copy())
 
 
 def _persistent_cache_fresh_enough(fetched_at: datetime | None, timeframe: str) -> bool:
@@ -60,8 +64,8 @@ def _persistent_cache_fresh_enough(fetched_at: datetime | None, timeframe: str) 
     return age_seconds <= max_age
 
 
-def get_bars(symbol: str, timeframe: str, num_bars: int) -> pd.DataFrame:
-    cached = _get_cached_bars(symbol, timeframe, num_bars)
+def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = False) -> pd.DataFrame:
+    cached = _get_cached_bars(symbol, timeframe, num_bars, ttl_sec=_cache_ttl_for_request(prefer_live))
     market_data_dependency_state.last_symbol = symbol.upper()
     market_data_dependency_state.last_timeframe = timeframe.upper()
     market_data_dependency_state.last_checked_at = datetime.now(UTC).replace(tzinfo=None)
@@ -73,14 +77,15 @@ def get_bars(symbol: str, timeframe: str, num_bars: int) -> pd.DataFrame:
         market_data_dependency_state.last_reason = f"Served {len(cached)} cached bars for {symbol.upper()}:{timeframe.upper()}"
         return cached
 
-    persisted, fetched_at = load_cached_market_bars(symbol, timeframe, num_bars)
-    if len(persisted) >= num_bars and _persistent_cache_fresh_enough(fetched_at, timeframe):
-        _store_cached_bars(symbol, timeframe, persisted)
-        market_data_dependency_state.last_success = True
-        market_data_dependency_state.last_success_at = datetime.now(UTC).replace(tzinfo=None)
-        market_data_dependency_state.market_data_ready = True
-        market_data_dependency_state.last_reason = f"Served {len(persisted)} persisted bars for {symbol.upper()}:{timeframe.upper()}"
-        return persisted.tail(num_bars).copy()
+    if not prefer_live:
+        persisted, fetched_at = load_cached_market_bars(symbol, timeframe, num_bars)
+        if len(persisted) >= num_bars and _persistent_cache_fresh_enough(fetched_at, timeframe):
+            _store_cached_bars(symbol, timeframe, persisted)
+            market_data_dependency_state.last_success = True
+            market_data_dependency_state.last_success_at = datetime.now(UTC).replace(tzinfo=None)
+            market_data_dependency_state.market_data_ready = True
+            market_data_dependency_state.last_reason = f"Served {len(persisted)} persisted bars for {symbol.upper()}:{timeframe.upper()}"
+            return persisted.tail(num_bars).copy()
 
     try:
         df, _ = adapter.get_bars(symbol=symbol, timeframe=timeframe, num_bars=num_bars)

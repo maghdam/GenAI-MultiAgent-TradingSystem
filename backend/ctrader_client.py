@@ -5,7 +5,9 @@ from ctrader_open_api import Client, Protobuf, TcpProtocol, EndPoints
 from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
     ProtoOAAccountAuthReq,
+    ProtoOAGetAccountListByAccessTokenReq,
     ProtoOASymbolsListReq,
+    ProtoOASymbolByIdReq,
     ProtoOAAssetClassListReq,
     ProtoOAReconcileReq,
     ProtoOAGetTrendbarsReq,
@@ -52,7 +54,7 @@ symbol_money_digits_map: dict[int, int] = {}  # {id: moneyDigits}
 symbol_min_volume_map : dict[int, int] = {}   # {id: minimum volume in API units}
 symbol_step_volume_map: dict[int, int] = {}   # {id: step volume in API units}
 symbol_max_volume_map: dict[int, int] = {}   # {id: maximum volume in units}
-symbol_lot_size_map: dict[int, int] = {}   # {id: lot size in units}
+symbol_lot_size_map: dict[int, float] = {}   # {id: one lot's underlying units}
 symbol_min_verified: dict[int, bool] = {}     # {id: True if learned from broker error}
 symbol_step_verified: dict[int, bool] = {}    # {id: True if learned from broker error}
 
@@ -65,6 +67,8 @@ CONNECTED = False
 AUTHORIZED = False
 AUTH_ERROR = None
 LAST_AUTH_ATTEMPT_AT = None
+ACCOUNT_IS_DEMO: bool | None = None
+ACCOUNT_VERIFICATION_ERROR: str | None = None
 
 _PRICE_FACTOR = 100_000
 _VOLUME_PRECISION = 10_000         # API volume units = 0.0001 lots (1 lot = 10,000 units)
@@ -352,8 +356,43 @@ def symbols_response_cb(res):
     if loaded == 0:
         _install_fallback_symbols("empty symbol list")
     else:
-        # Sort and merge description where possible or just log
         print(f"[DEBUG] Deep Discovery Loaded {loaded} symbols.")
+        # The list response contains light symbols. Request full contracts so
+        # sizing/P&L can use lotSize rather than assuming every instrument is FX.
+        req = ProtoOASymbolByIdReq(
+            ctidTraderAccountId=ACCOUNT_ID,
+            symbolId=list(symbol_map.keys()),
+        )
+        client.send(req).addCallbacks(symbol_details_response_cb, on_error)
+
+
+def symbol_details_response_cb(res):
+    payload = Protobuf.extract(res)
+    detailed = 0
+    for item in getattr(payload, "symbol", []):
+        sid = int(item.symbolId)
+        digits = getattr(item, "digits", None)
+        lot_size_raw = getattr(item, "lotSize", None)
+        min_volume_raw = getattr(item, "minVolume", None)
+        step_volume_raw = getattr(item, "stepVolume", None)
+        max_volume_raw = getattr(item, "maxVolume", None)
+        if digits is not None:
+            symbol_digits_map[sid] = int(digits)
+        # cTrader encodes lotSize in cents of an underlying unit.
+        if lot_size_raw:
+            symbol_lot_size_map[sid] = float(lot_size_raw) / 100.0
+        # Preserve the existing internal volume precision until broker routing
+        # is migrated separately; these fields still improve verified limits.
+        if min_volume_raw is not None:
+            symbol_min_volume_map[sid] = int(min_volume_raw) * 100
+            symbol_min_verified[sid] = True
+        if step_volume_raw is not None:
+            symbol_step_volume_map[sid] = int(step_volume_raw) * 100
+            symbol_step_verified[sid] = True
+        if max_volume_raw is not None:
+            symbol_max_volume_map[sid] = int(max_volume_raw) * 100
+        detailed += 1
+    print(f"[DEBUG] Loaded full contract metadata for {detailed} symbols.")
 
 def account_auth_cb(_):
     global AUTHORIZED, AUTH_ERROR
@@ -375,36 +414,118 @@ def asset_class_response_cb(res):
     )
     client.send(req).addCallbacks(symbols_response_cb, on_error)
 
-def app_auth_cb(_):
-    global LAST_AUTH_ATTEMPT_AT
-    LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
+def account_list_response_cb(res):
+    global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
+    payload = Protobuf.extract(res)
+    accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
+    selected = next(
+        (
+            account
+            for account in accounts
+            if int(getattr(account, "ctidTraderAccountId", 0) or 0) == int(ACCOUNT_ID)
+        ),
+        None,
+    )
+    if selected is None:
+        ACCOUNT_IS_DEMO = None
+        ACCOUNT_VERIFICATION_ERROR = "Configured cTrader account was not returned for the access token."
+        AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
+        print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
+        return None
+
+    is_live = bool(getattr(selected, "isLive", True))
+    ACCOUNT_IS_DEMO = not is_live
+    if HOST_TYPE != "demo":
+        ACCOUNT_VERIFICATION_ERROR = "cTrader execution host is not configured for demo."
+    elif is_live:
+        ACCOUNT_VERIFICATION_ERROR = "Connected cTrader account is live; authorization and execution are blocked."
+    else:
+        ACCOUNT_VERIFICATION_ERROR = None
+
+    if ACCOUNT_VERIFICATION_ERROR:
+        AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
+        print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
+        return None
+
     req = ProtoOAAccountAuthReq(
         ctidTraderAccountId=ACCOUNT_ID,
         accessToken=ACCESS_TOKEN,
     )
-    client.send(req).addCallbacks(account_auth_cb, on_error)
+    return client.send(req).addCallbacks(account_auth_cb, on_error)
+
+
+def account_list_error_cb(failure):
+    global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
+    ACCOUNT_IS_DEMO = None
+    ACCOUNT_VERIFICATION_ERROR = f"Unable to verify cTrader account type: {failure}"
+    AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
+    print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
+    return failure
+
+
+def app_auth_cb(_):
+    global LAST_AUTH_ATTEMPT_AT, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
+    LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
+    ACCOUNT_IS_DEMO = None
+    ACCOUNT_VERIFICATION_ERROR = None
+    req = ProtoOAGetAccountListByAccessTokenReq(
+        accessToken=ACCESS_TOKEN,
+    )
+    client.send(req).addCallbacks(account_list_response_cb, account_list_error_cb)
 
 def _on_connected(_):
-    global CONNECTED, AUTHORIZED, AUTH_ERROR
+    global CONNECTED, AUTHORIZED, AUTH_ERROR, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
     CONNECTED = True
     AUTHORIZED = False
     AUTH_ERROR = None
+    ACCOUNT_IS_DEMO = None
+    ACCOUNT_VERIFICATION_ERROR = None
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
     client.send(req).addCallbacks(app_auth_cb, on_error)
 
 def _on_disconnected(c, reason):
-    global CONNECTED, AUTHORIZED
+    global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
     CONNECTED = False
     AUTHORIZED = False
+    ACCOUNT_IS_DEMO = None
     print("[INFO] Disconnected:", reason)
 
 
 def _log_event(event) -> None:
+    name = getattr(event, "__class__", type("x", (), {})).__name__
+
+    large_collection_attrs = {
+        "ProtoOASymbolsListRes": "symbol",
+        "ProtoOASymbolByIdRes": "symbol",
+        "ProtoOAAssetClassListRes": "assetClass",
+    }
+    if name in large_collection_attrs:
+        attr_name = large_collection_attrs[name]
+        items = getattr(event, attr_name, []) or []
+        print(f"[CTRADER EVENT] {name}: count={len(items)}")
+        return
+
+    if name == "ProtoOAGetTrendbarsRes":
+        bars = getattr(event, "trendbar", []) or []
+        first = bars[0] if bars else None
+        last = bars[-1] if bars else None
+        first_ts = (
+            getattr(first, "utcTimestampInMinutes", None)
+            if first is not None
+            else None
+        )
+        last_ts = (
+            getattr(last, "utcTimestampInMinutes", None)
+            if last is not None
+            else None
+        )
+        print(f"[CTRADER TREND] bars={len(bars)} ts_range={first_ts}->{last_ts}")
+        return
+
     try:
         payload = MessageToDict(event, preserving_proto_field_name=True)
     except Exception as e:
         payload = {"decode_error": str(e)}
-    name = getattr(event, "__class__", type("x", (), {})).__name__
     summary = _format_payload(payload)
 
     if name == "ProtoOAExecutionEvent":
@@ -493,6 +614,28 @@ def get_auth_error() -> str | None:
 def get_last_auth_attempt() -> datetime | None:
     return LAST_AUTH_ATTEMPT_AT
 
+
+def is_demo_account_confirmed() -> bool:
+    return bool(
+        CONNECTED
+        and AUTHORIZED
+        and HOST_TYPE == "demo"
+        and ACCOUNT_IS_DEMO is True
+    )
+
+
+def get_account_verification_error() -> str | None:
+    return ACCOUNT_VERIFICATION_ERROR
+
+def _trendbar_lookback_minutes(tf: str, n: int | None) -> int:
+    tf_min_map = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
+    minutes_needed = (n or 1000) * tf_min_map.get(tf.upper(), 5)
+    # A short request made on a weekend/holiday otherwise returns no bars and
+    # forces a second 12-second request. One week covers the latest session.
+    return max(int(minutes_needed * 1.2), 7 * 24 * 60)
+
+
+
 # ── OHLC fetch (local event; handles errors; timeout) ──────────────────────
 # --- replace get_ohlc_data() body with this version ---
 def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
@@ -505,11 +648,7 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
         raise ValueError(f"Unknown symbol '{symbol}'")
 
     now = datetime.utcnow()
-    # Dynamic time-range calculation: fetch exactly (n + buffer) bars based on timeframe
-    tf_min_map = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
-    minutes_needed = (n or 1000) * tf_min_map.get(tf, 5)
-    # Add 20% buffer for missing bars or gap-filling
-    buffer_minutes = int(minutes_needed * 1.2)
+    buffer_minutes = _trendbar_lookback_minutes(tf, n)
     from_time = now - timedelta(minutes=buffer_minutes)
 
     req = ProtoOAGetTrendbarsReq(
@@ -718,6 +857,7 @@ def place_order(
                 if pos is not None:
                     try:
                         pos_id = int(getattr(pos, "positionId", 0) or 0)
+                        info["position_id"] = pos_id or None
                     except Exception:
                         pos_id = None
                     try:

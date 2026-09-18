@@ -12,6 +12,7 @@ import textwrap
 
 import pandas as pd
 from backend.llm_analyzer import TradeDecision
+from backend.services.strategy_policy import validate_strategy_source
 
 _STRATEGY_REGISTRY: Dict[str, Type["Strategy"]] = {}
 _GENERATED_LOADED: bool = False
@@ -156,64 +157,23 @@ def _register_generated_module(name: str, module: types.ModuleType) -> None:
 
 
 def load_generated_strategies(root: str | Path = "backend/strategies_generated") -> int:
-    """Load user-saved strategy modules from disk and register them.
+    """Validate saved research files without importing them into this process.
 
-    A file is considered a strategy if it defines a callable `signals(df, ...)`.
-    Returns the number of strategies registered.
+    Kept as a compatibility diagnostic. Generated strategies are never
+    registered into the trusted runtime; backtests use strategy_sandbox.
     """
-    global _GENERATED_LOADED
-    count = 0
+    global _GENERATED_LOADED, _LAST_LOAD_ERRORS
     errors: list[dict[str, str]] = []
-    try:
-        p = Path(root)
-        if not p.exists():
-            return 0
-        for path in p.glob("*.py"):
-            name = path.stem
-            key = name.lower()
-            if key in _STRATEGY_REGISTRY:
-                continue
-            # Normalize + compile from source, then register directly without importlib
-            txt: str = ""
-            norm: str = ""
+    path_root = Path(root)
+    if path_root.exists():
+        for path in path_root.glob("*.py"):
             try:
-                txt = path.read_text(encoding="utf-8")
-                norm = textwrap.dedent(txt).lstrip("\n").replace("\r\n", "\n")
-                # If still not compilable, aggressively strip leading spaces on all lines
-                try:
-                    compile(norm, str(path.name), 'exec')
-                except SyntaxError:
-                    norm2 = "\n".join([ln.lstrip() for ln in norm.splitlines()]) + "\n"
-                    compile(norm2, str(path.name), 'exec')
-                    norm = norm2
-                # Persist normalized source back to disk for transparency
-                if norm and norm != txt:
-                    try:
-                        path.write_text(norm, encoding="utf-8")
-                    except Exception:
-                        pass
-                # Create a module from normalized source and register
-                mod = types.ModuleType(f"strategies_generated.{name}")
-                exec(norm, mod.__dict__)
-                _register_generated_module(key, mod)
-                count += 1
-            except Exception as e:
-                errors.append({"file": str(path), "error": str(e)})
-                try:
-                    print(f"[strategy-load] Failed to load {path}: {e}")
-                except Exception:
-                    pass
-                continue
-    finally:
-        _GENERATED_LOADED = True
-        # expose last errors for diagnostics
-        try:
-            global _LAST_LOAD_ERRORS
-            _LAST_LOAD_ERRORS = errors
-        except Exception:
-            pass
-    return count
-
+                validate_strategy_source(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                errors.append({"file": str(path), "error": str(exc)})
+    _LAST_LOAD_ERRORS = errors
+    _GENERATED_LOADED = True
+    return 0
 
 def get_last_strategy_load_errors() -> list[dict[str, str]]:
     """Return errors captured during the last load_generated_strategies() call."""

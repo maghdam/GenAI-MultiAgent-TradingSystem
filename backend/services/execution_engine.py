@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
+from backend.services.broker import get_instrument_spec, place_demo_market_order
 from backend.services.paper_book import reconcile_position
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
     add_trade_audit,
     close_paper_position,
+    create_decision_record,
     create_order_intent,
     get_open_position,
     log_incident,
@@ -25,6 +28,8 @@ class ExecutionResult:
     status: str
     summary: str
     position_id: int | None = None
+    mode: str = "paper_only"
+    broker_position_id: int | None = None
 
 
 def _refresh_open_position(item: WatchlistItem, mark_price: float) -> PaperPosition | None:
@@ -47,19 +52,102 @@ def execute_paper_signal(
     source: str = "auto",
 ) -> ExecutionResult:
     position = _refresh_open_position(watch_item, mark_price)
+    instrument = get_instrument_spec(analysis.symbol, config.account_currency)
+    configured_quantity = watch_item.lot_size if source != "manual" else None
     sizing = (
         derive_auto_quantity(config, analysis, mark_price)
-        if source != "manual"
+        if source != "manual" and configured_quantity is None and quantity is None
         else None
     )
+    if sizing is not None and not sizing.accepted:
+        evidence = {
+            **sizing.details,
+            "analysis": analysis.model_dump(mode="json"),
+            "source": source,
+            "instrument_spec": instrument.model_dump(mode="json"),
+            "sizing_reasons": sizing.reasons,
+        }
+        decision = create_decision_record(
+            correlation_id=str(uuid4()),
+            decision_type="paper_execution_gate",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            outcome="rejected_sizing",
+            summary=sizing.reasons[0] if sizing.reasons else "Sizing rejected.",
+            evidence=evidence,
+        )
+        intent = create_order_intent(
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            direction=analysis.signal,
+            intent_type="skip",
+            status="rejected",
+            confidence=analysis.confidence,
+            entry_price=analysis.entry_price or mark_price,
+            stop_loss=analysis.stop_loss,
+            take_profit=analysis.take_profit,
+            quantity=None,
+            rationale="; ".join(sizing.reasons),
+            details=evidence,
+            decision_id=decision.id,
+        )
+        log_incident(
+            "warning",
+            "sizing_rejected",
+            f"Blocked automatic sizing for {analysis.symbol}:{analysis.timeframe}",
+            {"reasons": sizing.reasons, "intent_id": intent.id, "decision_id": decision.id},
+        )
+        add_trade_audit(
+            event_type="paper_sizing_rejected",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            intent_id=intent.id,
+            summary="Automatic execution blocked by monetary sizing requirements.",
+            details={"reasons": sizing.reasons, **sizing.details},
+        )
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=intent.id,
+            status="rejected",
+            summary=sizing.reasons[0] if sizing.reasons else "sizing rejected",
+        )
     requested_quantity = (
         float(quantity if quantity is not None else (config.paper_trade_size or 1.0))
         if source == "manual"
-        else float((sizing.requested_quantity if sizing else None) or (config.paper_trade_size or 1.0))
+        else float(
+            quantity
+            if quantity is not None
+            else (
+                configured_quantity
+                if configured_quantity is not None
+                else ((sizing.requested_quantity if sizing else None) or (config.paper_trade_size or 1.0))
+            )
+        )
     )
     quantity_decision = evaluate_order_quantity(analysis.symbol, requested_quantity, source)
 
     if not quantity_decision.accepted:
+        evidence = {
+            **(sizing.details if sizing else {}),
+            **quantity_decision.details,
+            "analysis": analysis.model_dump(mode="json"),
+            "source": source,
+            "instrument_spec": instrument.model_dump(mode="json"),
+            "quantity_reasons": quantity_decision.reasons,
+        }
+        decision = create_decision_record(
+            correlation_id=str(uuid4()),
+            decision_type="paper_execution_gate",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            outcome="rejected_quantity",
+            summary=quantity_decision.reasons[0] if quantity_decision.reasons else "Quantity rejected.",
+            evidence=evidence,
+        )
         intent = create_order_intent(
             symbol=analysis.symbol,
             timeframe=analysis.timeframe,
@@ -73,12 +161,8 @@ def execute_paper_signal(
             take_profit=analysis.take_profit,
             quantity=requested_quantity,
             rationale="; ".join(quantity_decision.reasons),
-            details={
-                **(sizing.details if sizing else {}),
-                **quantity_decision.details,
-                "analysis": analysis.model_dump(mode="json"),
-                "source": source,
-            },
+            details=evidence,
+            decision_id=decision.id,
         )
         log_incident(
             "info",
@@ -125,6 +209,26 @@ def execute_paper_signal(
     if quantity_decision.details.get("quantity_normalized"):
         intent_reasons = [*quantity_decision.reasons, *intent_reasons]
 
+    decision_evidence = {
+        **(sizing.details if sizing else {}),
+        **quantity_decision.details,
+        **risk.details,
+        "analysis": analysis.model_dump(mode="json"),
+        "source": source,
+        "instrument_spec": instrument.model_dump(mode="json"),
+        "risk_reasons": risk.reasons,
+    }
+    decision_outcome = f"accepted_{risk.intent_type}" if risk.accepted else "rejected_risk"
+    decision = create_decision_record(
+        correlation_id=str(uuid4()),
+        decision_type="paper_execution_gate",
+        symbol=analysis.symbol,
+        timeframe=analysis.timeframe,
+        strategy=analysis.strategy,
+        outcome=decision_outcome,
+        summary=(risk.reasons[0] if risk.reasons else decision_outcome),
+        evidence=decision_evidence,
+    )
     intent = create_order_intent(
         symbol=analysis.symbol,
         timeframe=analysis.timeframe,
@@ -138,13 +242,8 @@ def execute_paper_signal(
         take_profit=analysis.take_profit,
         quantity=intent_quantity,
         rationale="; ".join(intent_reasons),
-        details={
-            **(sizing.details if sizing else {}),
-            **quantity_decision.details,
-            **risk.details,
-            "analysis": analysis.model_dump(mode="json"),
-            "source": source,
-        },
+        details=decision_evidence,
+        decision_id=decision.id,
     )
 
     if not risk.accepted:
@@ -170,9 +269,47 @@ def execute_paper_signal(
             summary=risk.reasons[0] if risk.reasons else "signal rejected",
         )
 
+    demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
+    if demo_execution and position and position.direction != analysis.signal:
+        update_order_intent_status(
+            intent.id,
+            "failed",
+            {"reason": "demo_signal_flip_requires_reconciliation"},
+            reason="demo_signal_flip_blocked",
+        )
+        log_incident(
+            "warning",
+            "demo_signal_flip_blocked",
+            f"Blocked cTrader demo signal flip for {analysis.symbol}:{analysis.timeframe}",
+            {"intent_id": intent.id, "position_id": position.id},
+        )
+        add_trade_audit(
+            event_type="ctrader_demo_order_blocked",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            intent_id=intent.id,
+            position_id=position.id,
+            summary="Demo order blocked because the opposite broker position must be reconciled first.",
+            details={"direction": analysis.signal},
+        )
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=intent.id,
+            status="failed",
+            summary="Demo signal flip blocked pending broker reconciliation.",
+            position_id=position.id,
+            mode="demo_enabled",
+        )
+
     if position and position.direction != analysis.signal:
         closed = close_paper_position(position.id, mark_price, "signal_flip")
-        update_order_intent_status(intent.id, "accepted", {"closed_position_id": closed.id, "flip": True})
+        update_order_intent_status(
+            intent.id,
+            "accepted",
+            {"closed_position_id": closed.id, "flip": True},
+            reason="conflicting_position_closed",
+        )
         flipped = True
         add_trade_audit(
             event_type="paper_signal_flip",
@@ -188,7 +325,12 @@ def execute_paper_signal(
 
     if position and position.direction == analysis.signal:
         update_paper_position_targets(position.id, analysis.stop_loss, analysis.take_profit)
-        update_order_intent_status(intent.id, "executed", {"updated_position_id": position.id})
+        update_order_intent_status(
+            intent.id,
+            "executed",
+            {"updated_position_id": position.id},
+            reason="position_targets_updated",
+        )
         add_trade_audit(
             event_type="paper_signal_update",
             symbol=analysis.symbol,
@@ -207,6 +349,47 @@ def execute_paper_signal(
             position_id=position.id,
         )
 
+    broker_order = None
+    if demo_execution:
+        try:
+            broker_order = place_demo_market_order(
+                symbol=analysis.symbol,
+                direction=analysis.signal,
+                quantity_lots=trade_quantity,
+                stop_loss=analysis.stop_loss,
+                take_profit=analysis.take_profit,
+                client_msg_id=f"tradeagent-intent-{intent.id}",
+            )
+        except Exception as exc:
+            update_order_intent_status(
+                intent.id,
+                "failed",
+                {"broker": "ctrader", "account_type": "demo", "error": str(exc)},
+                reason="ctrader_demo_order_failed",
+            )
+            log_incident(
+                "error",
+                "ctrader_demo_order_failed",
+                f"cTrader demo order failed for {analysis.symbol}:{analysis.timeframe}",
+                {"intent_id": intent.id, "error": str(exc)},
+            )
+            add_trade_audit(
+                event_type="ctrader_demo_order_failed",
+                symbol=analysis.symbol,
+                timeframe=analysis.timeframe,
+                strategy=analysis.strategy,
+                intent_id=intent.id,
+                summary="cTrader demo order was not executed.",
+                details={"error": str(exc), "quantity": trade_quantity},
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=intent.id,
+                status="failed",
+                summary=str(exc),
+                mode="demo_enabled",
+            )
+
     created = open_paper_position(
         symbol=analysis.symbol,
         timeframe=analysis.timeframe,
@@ -216,17 +399,33 @@ def execute_paper_signal(
         entry_price=analysis.entry_price or mark_price,
         stop_loss=analysis.stop_loss,
         take_profit=analysis.take_profit,
+        account_currency=config.account_currency,
+        cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
+        instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
     )
-    update_order_intent_status(intent.id, "executed", {"opened_position_id": created.id})
+    update_order_intent_status(
+        intent.id,
+        "executed",
+        {
+            "opened_position_id": created.id,
+            "execution_mode": "ctrader_demo" if broker_order else "paper",
+            "broker_order": broker_order or {},
+        },
+        reason="ctrader_demo_order_executed" if broker_order else "paper_position_opened",
+    )
     add_trade_audit(
-        event_type="paper_signal_open",
+        event_type="ctrader_demo_order_executed" if broker_order else "paper_signal_open",
         symbol=analysis.symbol,
         timeframe=analysis.timeframe,
         strategy=analysis.strategy,
         intent_id=intent.id,
         position_id=created.id,
-        summary="Opened new paper position from accepted signal.",
-        details={"entry_price": created.entry_price, "quantity": created.quantity},
+        summary=(
+            "Executed cTrader demo order and opened the local tracking position."
+            if broker_order
+            else "Opened new paper position from accepted signal."
+        ),
+        details={"entry_price": created.entry_price, "quantity": created.quantity, "broker_order": broker_order or {}},
     )
     return ExecutionResult(
         action_taken=True,
@@ -234,4 +433,6 @@ def execute_paper_signal(
         status="executed",
         summary="position flipped and opened" if flipped else "position opened",
         position_id=created.id,
+        mode="demo_enabled" if broker_order else "paper_only",
+        broker_position_id=(broker_order or {}).get("position_id"),
     )

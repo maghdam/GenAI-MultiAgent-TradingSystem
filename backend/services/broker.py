@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from backend.adapters.ctrader import adapter
-from backend.domain.models import BrokerStatus, SymbolLimits
+from backend.domain.models import BrokerStatus, InstrumentSpec, SymbolLimits
 
 
 def get_broker_status() -> BrokerStatus:
@@ -20,3 +20,11 @@ def list_symbols() -> List[str]:
 
 def get_symbol_limits(symbol: str) -> SymbolLimits:
     return adapter.get_symbol_limits(symbol)
+
+
+def get_instrument_spec(symbol: str, account_currency: str = "USD") -> InstrumentSpec:
+    return adapter.get_instrument_spec(symbol, account_currency)
+
+
+def place_demo_market_order(**kwargs) -> Dict[str, Any]:
+    return adapter.place_demo_market_order(**kwargs)

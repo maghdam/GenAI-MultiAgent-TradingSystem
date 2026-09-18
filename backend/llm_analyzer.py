@@ -21,9 +21,16 @@ MAX_TOK_DEFAULT   = int(os.getenv("LLM_NUM_PREDICT", "64"))      # cap tokens (l
 ATTEMPT_TIMEOUT_DEFAULT = float(os.getenv("OLLAMA_TIMEOUT", "45"))
 # Prefer small, fast defaults suitable for exec-style JSON decisions
 MODEL_DEFAULT     = os.getenv("OLLAMA_MODEL", "phi3:mini").strip()
-FALLBACK_MODEL    = os.getenv("OLLAMA_FALLBACK_MODEL", "llama3.2:3b-instruct-fp16").strip()
-OLLAMA_URL        = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
+FALLBACK_MODEL    = os.getenv("OLLAMA_FALLBACK_MODEL", "muse-glimmer:latest").strip()
+OLLAMA_URL        = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 KEEP_ALIVE        = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
+_THINK_RAW        = os.getenv("OLLAMA_THINK", "off").strip().lower()
+if _THINK_RAW in {"0", "false", "no", "off"}:
+    THINK_DEFAULT: bool | str | None = None
+elif _THINK_RAW in {"1", "true", "yes", "on"}:
+    THINK_DEFAULT = True
+else:
+    THINK_DEFAULT = _THINK_RAW
 # overall time budget for the whole function (to avoid FastAPI/proxy hard limits)
 OVERALL_BUDGET_S  = float(os.getenv("LLM_OVERALL_BUDGET", "110"))
 GUARDRAIL_MODE    = os.getenv("LLM_GUARDRAIL_MODE", "loose").strip().lower()  # off|loose|strict
@@ -157,6 +164,7 @@ def _ollama_generate(
     timeout: float,
     json_only: bool,
     options_overrides: Optional[Dict[str, Any]] = None,
+    think: bool | str | None = None,
 ) -> str:
     # Clamp attempt timeout to avoid infra 60s read timeouts
     per_attempt_timeout = max(5.0, min(timeout, ATTEMPT_TIMEOUT_DEFAULT))
@@ -176,6 +184,10 @@ def _ollama_generate(
     }
     if json_only:
         payload["format"] = "json"  # compact JSON mode (supported by Llama/LLaVA in Ollama)
+
+    think_value = THINK_DEFAULT if think is None else think
+    if think_value is not None:
+        payload["think"] = think_value
 
     if options_overrides:
         payload["options"].update(options_overrides)
@@ -231,7 +243,7 @@ def _warm_ollama_sync(model: Optional[str] = None) -> None:
     mdl = (model or MODEL_DEFAULT).strip()
     print(f"[LLM Warmup] Starting model load for '{mdl}'...")
     try:
-        requests.post(
+        response = requests.post(
             f"{OLLAMA_URL}/api/generate",
             headers={"Content-Type": "application/json", "Accept": "application/json"},
             json={
@@ -244,6 +256,7 @@ def _warm_ollama_sync(model: Optional[str] = None) -> None:
             },
             timeout=(5, 120),  # Increased read timeout to 120 seconds
         )
+        response.raise_for_status()
         print(f"[LLM Warmup] Model '{mdl}' is ready.")
     except Exception as e:
         print(f"[LLM Warmup] Failed to warm up model '{mdl}': {e}")

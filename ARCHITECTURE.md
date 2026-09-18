@@ -49,13 +49,13 @@ The system is best described as an agent-inspired, service-oriented architecture
 ### Frontend
 
 - `frontend/src/pages/DashboardPage.tsx`
-  execution-facing dashboard
-- `frontend/src/pages/Workbench.tsx`
-  operator control surface
+  Trade workspace
+- `frontend/src/pages/BuildTestPage.tsx`
+  strategy research, validation, and lifecycle workspace
+- `frontend/src/pages/SystemPage.tsx`
+  runtime health, safety configuration, recovery, and audit
 - `frontend/src/pages/StrategyStudio/`
-  chat, drafting, and result workflow
-- `frontend/src/pages/HeavyweightChecklist.tsx`
-  structured operator checklist
+  underlying chat, drafting, and result components used by Build & Test
 
 ## Multi-Agent Model
 
@@ -121,7 +121,7 @@ The runtime flow is paper-first and operator-controlled.
 
 ```mermaid
 graph TD
-  UI[Dashboard or Workbench] --> API[FastAPI router /api]
+  UI[Trade or System] --> API[FastAPI router /api]
   API --> CFG[Load config and runtime state]
   CFG --> ENG[V2 engine loop]
   ENG --> MD[Market data and broker services]
@@ -146,9 +146,9 @@ graph TD
   - `rsi_reversal`
   - `breakout`
 - Generated strategies are useful in Strategy Studio research, but autonomous paper execution is built around the deterministic runtime path.
-- Live execution remains intentionally disabled even if a config flag requests it.
+- cTrader execution is limited to accounts positively identified by the API as demo accounts; live execution remains disabled.
 
-## Strategy Studio Flow
+## Build & Test Research Flow
 
 Strategy Studio is separate from the paper-trading loop. It is a research workflow, not the autonomous execution path.
 
@@ -164,7 +164,7 @@ Strategy Studio is separate from the paper-trading loop. It is a research workfl
    - code is written to `backend/strategies_generated/`
    - generated strategy modules can be loaded on startup for research access
 
-### Strategy Studio flow diagram
+### Build & Test flow diagram
 
 ```mermaid
 graph TD
@@ -182,7 +182,7 @@ graph TD
   ROUTER --> UI
 ```
 
-### Strategy Studio boundaries
+### Build & Test boundaries
 
 - It is a research tool, not the live runtime engine.
 - Saved strategy files are not the same thing as the deterministic runtime strategy registry.
@@ -228,30 +228,28 @@ Main groups:
 - analysis and manual orders
 - engine control and recovery
 - paper trade history
-- checklist and calendar support
-- Strategy Studio routes
+- calendar and market-event support
+- Build & Test research routes
 
 The older `/api/agent/*` routes referenced by historical docs are not the active surface anymore.
 
 ## Frontend Surface
 
-The frontend exposes four major product surfaces:
+The frontend exposes three connected product surfaces:
 
 - `/`
-  dashboard
-- `/workbench`
-  operator controls and paper-engine observability
-- `/strategy-studio`
-  strategy drafting and backtesting
-- `/heavyweight-checklist`
-  structured execution checklist
+  Trade: charting, selected-market context, signals, paper orders, positions, and journal
+- `/build-test`
+  Build & Test: hypothesis, drafting, backtesting, evidence validation, and lifecycle promotion
+- `/system`
+  System: runtime health, safety controls, reconciliation, recovery, and audit
 
-The dashboard is optimized for execution context, while the workbench exposes the full control plane.
+Market context is embedded in Trade. Calibration and shadow replay are research-only components inside Build & Test.
 
 ## Active Boundaries And Safety
 
-- autonomous execution is paper-only
-- live mode requests are persisted but not honored by an active live execution engine
+- autonomous execution supports local paper positions and opt-in cTrader demo-account orders
+- live-account requests are rejected, and merely selecting the demo host is not sufficient: the connected account must be confirmed by cTrader with `isLive = false`
 - the runtime is intentionally guarded by confidence thresholds, bar freshness checks, protective-level validation, sizing rules, cooldowns, max trade counts, position limits, and daily loss controls
 
 This is a deliberate product boundary. The repo is built to demonstrate disciplined AI-assisted trading tooling and execution control, not unsafe fully autonomous live trading.

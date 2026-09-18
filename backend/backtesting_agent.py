@@ -10,6 +10,7 @@ import numpy as np
 
 from . import data_fetcher
 from . import optimizer_utils
+from backend.services.strategy_sandbox import StrategySandboxError, run_strategy_source
 
 @dataclass
 class BacktestParams:
@@ -208,25 +209,21 @@ def run_backtest(params: BacktestParams, extra_params: Dict[str, Any] = None) ->
             if isinstance(extra_params, dict) and "period" not in extra_params and "rsi" in extra_params:
                 extra_params["period"] = extra_params.get("rsi")
         else:
-            import importlib.util
             from pathlib import Path
 
             strat_path = Path("backend/strategies_generated") / f"{requested_strategy}.py"
             if not strat_path.exists():
                 return {"error": f"Saved strategy '{requested_strategy}' not found."}
             try:
-                spec = importlib.util.spec_from_file_location(f"strategies_generated.{requested_strategy}", strat_path)
-                if spec is None or spec.loader is None:
-                    return {"error": f"Unable to load strategy '{requested_strategy}'."}
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-            except Exception as e:
-                return {"error": f"Error loading strategy '{requested_strategy}': {e}"}
+                strategy_source = strat_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                return {"error": f"Unable to read strategy '{requested_strategy}': {exc}"}
 
-            signals_fn = getattr(mod, "signals", None)
-            if not callable(signals_fn):
-                return {"error": f"Strategy '{requested_strategy}' does not define signals(df, ...) for backtesting."}
-    
+            def signals_fn(frame, **strategy_kwargs):
+                try:
+                    return run_strategy_source(strategy_source, frame, strategy_kwargs)
+                except StrategySandboxError as exc:
+                    raise ValueError(f"Isolated strategy execution failed: {exc}") from exc
     if is_optimization:
         # Optimization for custom saved strategy (grid search over kwargs)
         if signals_fn is not None:

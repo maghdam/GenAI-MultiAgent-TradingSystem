@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import logging
 import os
 import re
@@ -13,7 +12,8 @@ from backend.services import studio_llm
 from backend.optimizer_utils import extract_parameters
 from backend.programmer_agent import ProgrammerAgent
 from backend.services.studio_backtests import run_strategy_code_backtest
-from backend.strategy import load_generated_strategies
+from backend.services.strategy_policy import StrategyPolicyError, validate_strategy_source
+from backend.services.strategy_lifecycle import ensure_lifecycle, record_backtest, source_hash
 from backend.domain.models import StudioTaskRequest, StudioTaskResponse
 
 
@@ -80,36 +80,25 @@ def _clean_generated_code(text: str) -> str:
 
 def _validate_strategy_code(code: str) -> str:
     cleaned = _clean_generated_code(code)
-    if not cleaned:
-        raise ValueError("The model returned empty strategy code.")
-
     try:
-        ast.parse(cleaned)
-    except SyntaxError as exc:
-        raise ValueError(f"Generated code is not valid Python: {exc}") from exc
-
-    module_globals: dict[str, object] = {}
-    try:
-        exec(cleaned, module_globals)
-    except Exception as exc:
-        raise ValueError(f"Generated code failed to load: {exc}") from exc
-    if not callable(module_globals.get("signals")):
-        raise ValueError("Generated code must define signals(df, ...) for backtesting.")
-    return textwrap.dedent(cleaned).lstrip("\n").replace("\r\n", "\n")
-
+        return validate_strategy_source(cleaned)
+    except StrategyPolicyError as exc:
+        raise ValueError(str(exc)) from exc
 
 def _save_strategy_code(name: str, code: str) -> StudioTaskResponse:
-    safe = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in name)
+    safe = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in name).lower()
     dest_dir = Path("backend/strategies_generated")
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / f"{safe}.py"
     code_norm = textwrap.dedent(str(code)).lstrip("\n").replace("\r\n", "\n")
-    dest_path.write_text(code_norm, encoding="utf-8")
-    try:
-        load_generated_strategies()
-    except Exception:
-        pass
-    return StudioTaskResponse(status="success", message=f"Strategy saved as {dest_path}")
+    validated = _validate_strategy_code(code_norm)
+    dest_path.write_text(validated, encoding="utf-8")
+    lifecycle = ensure_lifecycle(safe, validated)
+    return StudioTaskResponse(
+        status="success",
+        message=f"Strategy saved as {dest_path} and registered as lifecycle v{lifecycle.version} draft. It is not loaded into the trusted runtime.",
+        result={"lifecycle": lifecycle.model_dump(mode="json")},
+    )
 
 
 def _is_code_request(message: str, current_code: str | None) -> bool:
@@ -314,8 +303,8 @@ def _normalize_task_type(task_type: str, goal_text: str) -> str:
             or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\boptimi[sz](e|ation|ing)?\b", goal_lower)
         )
         looks_like_bt_cmd = bool(
-            re.match(r"\s*backtest(ing)?\b", goal_lower)
-            or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\bbacktest(ing)?\b", goal_lower)
+            re.match(r"\s*back\s*test(ing)?\b", goal_lower)
+            or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\bback\s*test(ing)?\b", goal_lower)
         )
         if looks_like_opt_cmd:
             return "optimize"
@@ -390,11 +379,16 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
             if isinstance(params, dict):
                 extra.update(params)
 
-            draft_code = str(extra.get("code") or "").strip() if isinstance(extra, dict) else ""
+            force_saved_strategy = bool(re.search(r"\bsaved\b", goal_text, flags=re.I)) if goal_text else False
+            draft_code = ""
+            if isinstance(extra, dict) and not force_saved_strategy:
+                draft_code = str(extra.get("code") or extra.get("current_code") or "").strip()
             if draft_code:
                 if task_type == "optimize":
                     return StudioTaskResponse(status="error", message="Optimization for unsaved draft code is not supported yet.")
                 try:
+                    validation_kind = str(extra.get("validation_kind") or "development_backtest")
+                    strategy_name = str(extra.get("strategy_name") or "draft").strip().lower()
                     result = run_strategy_code_backtest(
                         code=draft_code,
                         symbol=symbol,
@@ -402,8 +396,26 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                         num_bars=num_bars,
                         fee_bps=float(extra.get("fee_bps") or 0.0),
                         slippage_bps=float(extra.get("slippage_bps") or 0.0),
-                        strategy_name=str(extra.get("strategy_name") or "draft"),
+                        strategy_name=strategy_name,
+                        validation_kind=validation_kind,
                     )
+                    saved_path = Path("backend/strategies_generated") / f"{strategy_name}.py"
+                    if strategy_name != "draft" and saved_path.exists():
+                        saved_source = saved_path.read_text(encoding="utf-8")
+                        if source_hash(saved_source) == source_hash(draft_code):
+                            lifecycle = record_backtest(
+                                strategy_name,
+                                saved_source,
+                                result,
+                                validation_kind,
+                                context={
+                                    "symbol": str(symbol).upper(),
+                                    "timeframe": str(timeframe).upper(),
+                                    "data_start": result.get("Data Start"),
+                                    "data_end": result.get("Data End"),
+                                },
+                            )
+                            result["Lifecycle"] = lifecycle.model_dump(mode="json")
                 except Exception as exc:
                     return StudioTaskResponse(status="error", message=str(exc))
                 return StudioTaskResponse(status="success", message="Backtest complete.", result=result)
@@ -416,9 +428,12 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                             timeframe = match_tf.group(1).upper()
                     if (not isinstance(params, dict)) or not params.get("symbol"):
                         match_on = re.search(r"\bon\s+([A-Za-z0-9_]{3,20})\b", goal_text, flags=re.I)
+                        match_for = re.search(r"\bfor\s+([A-Za-z0-9_]{3,20})\b", goal_text, flags=re.I)
                         match_pair = re.search(r"\b([A-Za-z]{3,10}USD)\b", goal_text, flags=re.I)
                         if match_on:
                             symbol = match_on.group(1).upper()
+                        elif match_for:
+                            symbol = match_for.group(1).upper()
                         elif match_pair:
                             symbol = match_pair.group(1).upper()
                     if (not isinstance(params, dict)) or not params.get("num_bars"):
@@ -435,9 +450,8 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                     strategy_name = supplied.strip()
             if not strategy_name and goal_text:
                 try:
-                    import re
 
-                    match = re.match(r"(?i)\s*(?:backtest|optimize)\s+([a-z0-9_-]+)\b", goal_text)
+                    match = re.match(r"(?i)\s*(?:back\s*test|backtest|optimi[sz]e)\s+(?:the\s+)?([a-z0-9_-]+)\b", goal_text)
                     if match:
                         token = match.group(1).lower()
                         stop = {"the", "a", "an", "my", "this", "that", "strategy", "for", "on", "in", "to", "with"}

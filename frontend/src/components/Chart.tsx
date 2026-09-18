@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart,
   CandlestickSeries,
@@ -13,11 +13,49 @@ import { getV2Candles, type Candle } from '../services/api';
 import type { AnalysisResult } from '../types/analysis';
 
 const CHART_CANDLE_LIMIT = 1500;
+const LIVE_REFRESH_MS: Record<string, number> = {
+  M1: 1000,
+  M5: 2000,
+  M15: 5000,
+  M30: 10000,
+  H1: 15000,
+  H4: 30000,
+  D1: 60000,
+};
 
 interface ChartProps {
   symbol: string;
   timeframe: string;
   analysis: AnalysisResult | null;
+}
+
+function refreshIntervalForTimeframe(timeframe: string): number {
+  return LIVE_REFRESH_MS[timeframe.toUpperCase()] ?? 5000;
+}
+
+function sameCandles(a: Candle[], b: Candle[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  if (a.length === 0) return true;
+  const lastA = a[a.length - 1];
+  const lastB = b[b.length - 1];
+  const firstA = a[0];
+  const firstB = b[0];
+  return (
+    firstA.time === firstB.time
+    && lastA.time === lastB.time
+    && lastA.open === lastB.open
+    && lastA.high === lastB.high
+    && lastA.low === lastB.low
+    && lastA.close === lastB.close
+  );
+}
+
+function chartErrorMessage(message: string): string {
+  if (message.toLowerCase().includes('not authorized')) {
+    return 'cTrader account is not authorized. Reconnect or refresh account authorization before loading live candles.';
+  }
+  return message;
 }
 
 export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
@@ -29,33 +67,60 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
   const [error, setError] = useState<string | null>(null);
   const [chartReady, setChartReady] = useState(false);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const autoFitKeyRef = useRef('');
+  const refreshMs = useMemo(() => refreshIntervalForTimeframe(timeframe), [timeframe]);
+  const chartKey = `${symbol}:${timeframe}`;
 
-  /* Fetch candle data */
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
+    autoFitKeyRef.current = '';
+  }, [chartKey]);
 
-    getV2Candles(symbol, timeframe, CHART_CANDLE_LIMIT, controller.signal)
-      .then((response) => {
-        setCandles(response.candles);
-        setLoading(false);
-      })
-      .catch((err) => {
+  useEffect(() => {
+    let disposed = false;
+    let timer: number | null = null;
+    let controller: AbortController | null = null;
+
+    const scheduleNext = () => {
+      if (disposed) return;
+      timer = window.setTimeout(fetchCandles, refreshMs);
+    };
+
+    const fetchCandles = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const response = await getV2Candles(symbol, timeframe, CHART_CANDLE_LIMIT, controller.signal, { live: true });
+        if (disposed) return;
+        setCandles((prev) => (sameCandles(prev, response.candles) ? prev : response.candles));
+        setError(null);
+      } catch (err) {
+        if (disposed) return;
         if (err instanceof DOMException && err.name === 'AbortError') {
           return;
         }
-        setError(err.message);
-        setCandles([]);
-        setLoading(false);
-      });
+        setError(err instanceof Error ? chartErrorMessage(err.message) : 'Failed to refresh chart');
+      } finally {
+        if (!disposed) {
+          setLoading(false);
+          scheduleNext();
+        }
+      }
+    };
+
+    setLoading(true);
+    setError(null);
+    setCandles([]);
+    fetchCandles();
 
     return () => {
-      controller.abort();
+      disposed = true;
+      controller?.abort();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, refreshMs]);
 
-  /* Initialize chart */
   useEffect(() => {
     if (!chartContainerRef.current || chartRef.current) return;
 
@@ -113,7 +178,6 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     };
   }, []);
 
-  /* Set candle data */
   useEffect(() => {
     if (!chartReady || !candleSeriesRef.current) return;
 
@@ -126,13 +190,15 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
         close: c.close,
       }));
       candleSeriesRef.current.setData(seriesData);
-      chartRef.current?.timeScale().fitContent();
+      if (autoFitKeyRef.current !== chartKey) {
+        chartRef.current?.timeScale().fitContent();
+        autoFitKeyRef.current = chartKey;
+      }
     } else if (!loading) {
       candleSeriesRef.current.setData([]);
     }
-  }, [candles, loading, chartReady]);
+  }, [candles, loading, chartReady, chartKey]);
 
-  /* Draw analysis lines */
   useEffect(() => {
     if (!chartReady || !candleSeriesRef.current) return;
 
@@ -140,7 +206,7 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     priceLinesRef.current = [];
 
     if (analysis) {
-      const { entry, tp, sl, signal } = analysis;
+      const { entry, tp, sl } = analysis;
 
       const createLine = (price: number, label: string, color: string, style: LineStyle = LineStyle.Dotted) => {
         const line = candleSeriesRef.current?.createPriceLine({
@@ -160,15 +226,17 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     }
   }, [analysis, chartReady]);
 
+  const showOverlay = candles.length === 0 && (loading || !!error || !loading);
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
-      {(loading || error || (!loading && candles.length === 0)) && (
+      {showOverlay && (
         <div className="ta-chart-loading">
           {loading ? (
             <>
               <div className="ta-spinner" />
-              <div className="ta-chart-loading__text">Loading {symbol} {timeframe}…</div>
+              <div className="ta-chart-loading__text">Loading {symbol} {timeframe}...</div>
             </>
           ) : error ? (
             <div className="ta-chart-loading__text" style={{ color: 'var(--ta-bear)' }}>

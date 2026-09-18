@@ -32,6 +32,9 @@ export interface V2BrokerStatus {
   market_data_ready: boolean;
   broker_mode: string;
   account_id?: number | null;
+  account_type: 'demo' | 'live' | 'unknown';
+  demo_account_confirmed: boolean;
+  execution_ready: boolean;
   notes: string[];
 }
 
@@ -40,12 +43,15 @@ export interface V2WatchlistItem {
   timeframe: string;
   strategy: string;
   enabled: boolean;
+  trading_enabled: boolean;
+  lot_size?: number | null;
   params: Record<string, unknown>;
 }
 
 export interface V2Config {
   enabled: boolean;
   paper_autotrade: boolean;
+  demo_autotrade: boolean;
   allow_live: boolean;
   kill_switch: boolean;
   default_symbol: string;
@@ -54,6 +60,8 @@ export interface V2Config {
   scan_interval_sec: number;
   min_confidence: number;
   paper_trade_size: number;
+  account_currency: string;
+  paper_starting_equity_amount: number;
   risk_per_trade_pct: number;
   daily_loss_limit_pct: number;
   max_daily_trades: number;
@@ -108,6 +116,7 @@ export interface V2ManualOrderResponse {
   status: string;
   summary: string;
   position_id?: number | null;
+  broker_position_id?: number | null;
   mode: string;
 }
 
@@ -152,6 +161,9 @@ export interface V2PaperPosition {
   realized_pnl: number;
   unrealized_pnl: number;
   close_reason?: string | null;
+  account_currency: string;
+  cash_per_price_unit_per_lot: number;
+  instrument_spec_source: string;
 }
 
 export interface V2PaperEvent {
@@ -170,7 +182,7 @@ export interface V2OrderIntent {
   strategy: string;
   direction: 'long' | 'short' | 'no_trade';
   intent_type: 'open' | 'close' | 'update' | 'hold' | 'skip';
-  status: 'pending' | 'accepted' | 'rejected' | 'executed' | 'cancelled';
+  status: 'pending' | 'accepted' | 'rejected' | 'executed' | 'cancelled' | 'failed';
   confidence: number;
   entry_price?: number | null;
   stop_loss?: number | null;
@@ -178,6 +190,20 @@ export interface V2OrderIntent {
   quantity?: number | null;
   rationale: string;
   details: Record<string, unknown>;
+  decision_id?: number | null;
+}
+
+export interface V2DecisionRecord {
+  id: number;
+  created_at: string;
+  correlation_id: string;
+  decision_type: string;
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  outcome: string;
+  summary: string;
+  evidence: Record<string, unknown>;
 }
 
 export interface V2TradeAudit {
@@ -206,48 +232,184 @@ export interface V2Runtime {
   active_watchlist: string[];
 }
 
-export interface V2ChecklistComponent {
+export interface V2MarketIntelligenceDriver {
+  label: string;
+  detail: string;
+  impact: 'bullish' | 'bearish' | 'neutral';
+}
+
+export interface V2MarketIntelligenceInstrument {
   symbol: string;
-  bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
+  timeframe: string;
+  name: string;
+  category: string;
+  price?: number | null;
+  change?: number | null;
   change_pct?: number | null;
+  low_range?: number | null;
+  high_range?: number | null;
+  bias: 'bullish' | 'bearish' | 'neutral' | 'unknown';
+  confidence: number;
+  situation: string;
+  direction_note: string;
+  drivers: V2MarketIntelligenceDriver[];
+  support: number[];
+  resistance: number[];
+  last_updated: string;
+  data_status: 'live' | 'cached' | 'unavailable';
+  error?: string | null;
 }
 
-export interface V2AutoChecklist {
-  ts: number;
-  us30_bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
-  xau_bias: 'bullish' | 'bearish' | 'flat' | 'unknown';
-  dxy_bias?: 'bullish' | 'bearish' | 'flat' | 'unknown';
-  dxy_change_pct?: number | null;
-  correlation: 'normal' | 'fear' | 'dollar_crash' | 'weird' | 'unknown';
-  scenario: '' | 'A' | 'B' | 'C' | 'D';
-  components: Record<string, V2ChecklistComponent>;
-  component_score?: number | null;
-  top_movers?: V2ChecklistComponent[];
-  structure_hint?: 'bullish' | 'bearish' | 'range' | 'unknown';
-  volume_hint?: 'rising' | 'falling' | 'flat' | 'unknown';
-  structure_tf?: string | null;
-  volume_tf?: string | null;
-  smc_signal?: {
-    symbol?: string;
-    timeframe?: string;
-    strategy?: string;
-    signal?: string;
-    confidence?: number;
-    rationale?: string;
-  } | null;
-  notes?: string | null;
-}
-
-export interface V2CalendarEvent {
-  ts: number | null;
-  title: string | null;
+export interface V2MarketIntelligenceMacroEvent {
+  title: string;
   impact: 'high' | 'medium' | 'low' | 'unknown';
-  source?: string | null;
+  source: string;
+  ts?: number | null;
+}
+
+export interface V2MarketEvent {
+  id: number;
+  content_hash: string;
+  source: string;
+  title: string;
+  summary: string;
+  url: string;
+  published_at?: string | null;
+  ingested_at: string;
+  symbols: string[];
+  event_type: string;
+  sentiment: 'bullish' | 'bearish' | 'neutral' | 'mixed';
+  sentiment_score: number;
+  impact: 'high' | 'medium' | 'low' | 'unknown';
+  horizon: 'immediate' | 'intraday' | 'swing' | 'long_term' | 'unknown';
+  credibility_score: number;
+  classification_version: string;
+  raw: Record<string, unknown>;
+}
+
+export interface V2EventAlert {
+  id: number;
+  alert_key: string;
+  created_at: string;
+  alert_type: string;
+  symbol: string;
+  severity: 'info' | 'warning' | 'critical';
+  summary: string;
+  details: Record<string, unknown>;
+}
+
+export interface V2EventRefreshResponse {
+  ok: boolean;
+  configured_sources: number;
+  fetched_items: number;
+  inserted_events: number;
+  duplicate_events: number;
+  alerts_created: number;
+  errors: string[];
+}
+
+export interface V2EventCalibrationGroup {
+  event_type: string;
+  horizon: '5m' | '30m' | '4h' | '1d';
+  samples: number;
+  hit_rate?: number | null;
+  average_return_pct?: number | null;
+  median_return_pct?: number | null;
+  average_brier_score?: number | null;
+  average_favorable_excursion_pct?: number | null;
+  average_adverse_excursion_pct?: number | null;
+  gate: 'insufficient_samples' | 'observe' | 'eligible' | 'degraded';
+  gate_reason: string;
+}
+
+export interface V2EventCalibrationResponse {
+  generated_at: string;
+  evaluated_outcomes: number;
+  pending_outcomes: number;
+  unavailable_outcomes: number;
+  minimum_samples: number;
+  groups: V2EventCalibrationGroup[];
+}
+
+export interface V2EventCalibrationRunResponse {
+  ok: boolean;
+  events_checked: number;
+  outcomes_evaluated: number;
+  outcomes_pending: number;
+  outcomes_unavailable: number;
+  errors: string[];
+}
+
+export interface V2ConfluenceShadowRecord {
+  id: number;
+  created_at: string;
+  analysis_created_at: string;
+  mode: 'shadow';
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  original_signal: 'long' | 'short' | 'no_trade';
+  original_confidence: number;
+  shadow_signal: 'long' | 'short' | 'no_trade';
+  shadow_confidence: number;
+  confidence_adjustment: number;
+  action: 'confirm' | 'reduce' | 'neutral' | 'context_only' | 'insufficient_evidence';
+  target_horizon: '5m' | '30m' | '4h' | '1d';
+  event_score: number;
+  eligible_event_count: number;
+  event_ids: number[];
+  original_would_pass: boolean;
+  shadow_would_pass: boolean;
+  rationale: string;
+  evidence: Record<string, unknown>;
+  execution_unchanged: boolean;
+}
+
+export interface V2ConfluenceReplayMetrics {
+  candidate_decisions: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number;
+  expectancy_pct: number;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  profit_factor?: number | null;
+  trades_per_day: number;
+}
+
+export interface V2ConfluenceReplayResponse {
+  generated_at: string;
+  research_only: true;
+  methodology: string;
+  total_records: number;
+  priced_records: number;
+  pending_records: number;
+  unavailable_records: number;
+  fee_bps_per_side: number;
+  original: V2ConfluenceReplayMetrics;
+  shadow: V2ConfluenceReplayMetrics;
+  deltas: Record<string, number>;
+  verdict: 'insufficient_data' | 'keep_shadow' | 'candidate_for_review';
+  verdict_reason: string;
+  warnings: string[];
+}
+
+export interface V2MarketIntelligenceResponse {
+  generated_at: string;
+  regime: 'risk_on' | 'risk_off' | 'mixed' | 'unknown';
+  headline: string;
+  summary: string;
+  instruments: V2MarketIntelligenceInstrument[];
+  macro_events: V2MarketIntelligenceMacroEvent[];
+  market_events: V2MarketEvent[];
+  event_alerts: V2EventAlert[];
+  source_notes: string[];
 }
 
 export interface V2Status {
   version: string;
-  mode: 'paper_only' | 'live_enabled';
+  mode: 'paper_only' | 'demo_enabled' | 'live_enabled';
   broker: V2BrokerStatus;
   config: V2Config;
   runtime: V2Runtime;
@@ -259,6 +421,8 @@ export interface V2Status {
   recent_events: V2PaperEvent[];
   recent_order_intents: V2OrderIntent[];
   recent_trade_audits: V2TradeAudit[];
+  recent_decisions: V2DecisionRecord[];
+  recent_confluence_shadows: V2ConfluenceShadowRecord[];
 }
 
 export interface V2ModelsResponse {
@@ -304,6 +468,48 @@ export interface V2StudioTaskResponse {
   result?: any;
 }
 
+export type V2StrategyLifecycleStage = 'draft' | 'backtested' | 'validated' | 'paper' | 'eligible' | 'retired';
+export type V2StrategyEvidenceType = 'development_backtest' | 'out_of_sample' | 'regime' | 'paper';
+
+export interface V2StrategyLifecycleEvidence {
+  id: number;
+  lifecycle_id: number;
+  evidence_type: V2StrategyEvidenceType;
+  passed: boolean;
+  summary: string;
+  metrics: Record<string, any>;
+  context: Record<string, any>;
+  created_at: string;
+}
+
+export interface V2StrategyLifecycleTransition {
+  id: number;
+  lifecycle_id: number;
+  from_stage: V2StrategyLifecycleStage;
+  to_stage: V2StrategyLifecycleStage;
+  operator: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface V2StrategyLifecycle {
+  id: number;
+  strategy: string;
+  version: number;
+  version_hash: string;
+  stage: V2StrategyLifecycleStage;
+  hypothesis: string;
+  gates: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  evidence: V2StrategyLifecycleEvidence[];
+  transitions: V2StrategyLifecycleTransition[];
+  current_source: boolean;
+  next_stage?: V2StrategyLifecycleStage | null;
+  promotion_ready: boolean;
+  blockers: string[];
+}
+
 const STATUS_CACHE_TTL_MS = 1_500;
 const STRATEGIES_CACHE_TTL_MS = 60_000;
 const SYMBOLS_CACHE_TTL_MS = 5 * 60_000;
@@ -323,6 +529,19 @@ let symbolsInflight: Promise<SymbolsResponse> | null = null;
 const invalidateStatusCache = () => {
   statusCache = null;
   statusInflight = null;
+};
+
+const responseErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+  const text = await response.text();
+  if (!text) return fallback;
+  try {
+    const payload = JSON.parse(text);
+    if (typeof payload?.detail === 'string') return payload.detail;
+    if (typeof payload?.message === 'string') return payload.message;
+  } catch {
+    return text;
+  }
+  return text;
 };
 
 export const toAgentSignal = (analysis: V2Analysis): AgentSignal => ({
@@ -416,14 +635,15 @@ export const getV2Candles = async (
   timeframe: string,
   numBars: number = 5000,
   signal?: AbortSignal,
+  options: { live?: boolean } = {},
 ): Promise<CandlesResponse> => {
+  const liveQs = options.live ? `&live=1` : '';
   const response = await authFetch(
-    `/api/market/candles?symbol=${symbol}&timeframe=${timeframe}&num_bars=${numBars}`,
+    `/api/market/candles?symbol=${symbol}&timeframe=${timeframe}&num_bars=${numBars}${liveQs}`,
     { signal },
   );
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to fetch candles: ${response.status} ${response.statusText}`);
+    throw new Error(await responseErrorMessage(response, `Failed to fetch candles: ${response.status} ${response.statusText}`));
   }
   return response.json();
 };
@@ -489,6 +709,7 @@ export const backtestV2SavedStrategy = async (
   numBars: number,
   feeBps?: number,
   slippageBps?: number,
+  validationKind?: Exclude<V2StrategyEvidenceType, 'paper'>,
 ): Promise<any> => {
   const params = new URLSearchParams({
     strategy,
@@ -496,12 +717,9 @@ export const backtestV2SavedStrategy = async (
     timeframe,
     num_bars: String(numBars),
   });
-  if (typeof feeBps === 'number' && Number.isFinite(feeBps)) {
-    params.set('fee_bps', String(feeBps));
-  }
-  if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) {
-    params.set('slippage_bps', String(slippageBps));
-  }
+  if (typeof feeBps === 'number' && Number.isFinite(feeBps)) params.set('fee_bps', String(feeBps));
+  if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) params.set('slippage_bps', String(slippageBps));
+  if (validationKind) params.set('validation_kind', validationKind);
   const response = await authFetch(`/api/studio/backtest?${params.toString()}`);
   if (!response.ok) {
     const text = await response.text();
@@ -523,6 +741,42 @@ export const executeV2StudioTask = async (request: V2StudioTaskRequest): Promise
   return response.json();
 };
 
+export const getV2StrategyLifecycle = async (strategy: string): Promise<V2StrategyLifecycle> => {
+  const response = await authFetch(`/api/studio/lifecycle/${encodeURIComponent(strategy)}`);
+  if (!response.ok) throw new Error(await responseErrorMessage(response, `Failed to load lifecycle: ${response.status}`));
+  return response.json();
+};
+
+export const updateV2StrategyHypothesis = async (strategy: string, hypothesis: string): Promise<V2StrategyLifecycle> => {
+  const response = await authFetch(`/api/studio/lifecycle/${encodeURIComponent(strategy)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hypothesis }),
+  });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, `Failed to update hypothesis: ${response.status}`));
+  return response.json();
+};
+
+export const promoteV2StrategyLifecycle = async (
+  strategy: string,
+  operator: string,
+  reason = '',
+): Promise<V2StrategyLifecycle> => {
+  const response = await authFetch(`/api/studio/lifecycle/${encodeURIComponent(strategy)}/promote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operator, reason }),
+  });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, `Promotion failed: ${response.status}`));
+  return response.json();
+};
+
+export const recordV2PaperEvidence = async (strategy: string): Promise<V2StrategyLifecycle> => {
+  const response = await authFetch(`/api/studio/lifecycle/${encodeURIComponent(strategy)}/paper-evidence`, { method: 'POST' });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, `Paper evidence failed: ${response.status}`));
+  return response.json();
+};
+
 export const analyzeV2Strategy = async (
   payload: {
     symbol: string;
@@ -532,8 +786,7 @@ export const analyzeV2Strategy = async (
     params?: Record<string, unknown>;
   },
   signal?: AbortSignal,
-): Promise<V2Analysis> => {
-  const response = await authFetch('/api/analyze', {
+): Promise<V2Analysis> => {  const response = await authFetch('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -632,34 +885,56 @@ export const getV2TradeAudit = async (limit = 20): Promise<V2TradeAudit[]> => {
   return response.json();
 };
 
-export const fetchV2AutoChecklist = async (params?: {
-  tf?: string;
-  structure_tf?: string;
-}): Promise<V2AutoChecklist> => {
-  const search = new URLSearchParams();
-  if (params?.tf) {
-    search.set('tf', params.tf);
-  }
-  if (params?.structure_tf) {
-    search.set('structure_tf', params.structure_tf);
-  }
-  const qs = search.toString();
-  const response = await authFetch(`/api/checklist/auto${qs ? `?${qs}` : ''}`);
+export const fetchV2MarketIntelligence = async (): Promise<V2MarketIntelligenceResponse> => {
+  const response = await authFetch('/api/market/intelligence');
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Failed to fetch auto checklist: ${response.status} ${response.statusText}`);
+    throw new Error(text || `Failed to fetch market intelligence: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
 
-export const fetchV2NextCalendarEvent = async (): Promise<V2CalendarEvent | null> => {
-  try {
-    const response = await authFetch('/api/calendar/next');
-    if (!response.ok) {
-      return null;
-    }
-    return response.json();
-  } catch {
-    return null;
+export const refreshV2MarketEvents = async (): Promise<V2EventRefreshResponse> => {
+  const response = await authFetch('/api/market/events/refresh', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to refresh market events: ${response.status} ${response.statusText}`);
   }
+  return response.json();
+};
+
+export const fetchV2EventCalibration = async (): Promise<V2EventCalibrationResponse> => {
+  const response = await authFetch('/api/market/events/calibration');
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to fetch event calibration: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const calibrateV2MarketEvents = async (): Promise<V2EventCalibrationRunResponse> => {
+  const response = await authFetch('/api/market/events/calibrate', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to calibrate market events: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const fetchV2ConfluenceReplay = async (
+  symbol: string = 'US100',
+  feeBpsPerSide: number = 1,
+): Promise<V2ConfluenceReplayResponse> => {
+  const params = new URLSearchParams({
+    limit: '1000',
+    symbol: symbol.trim().toUpperCase(),
+    fee_bps_per_side: String(feeBpsPerSide),
+    num_bars: '5000',
+  });
+  const response = await authFetch(`/api/market/confluence-shadow/replay?${params.toString()}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to run confluence replay: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
 };

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from threading import Lock
 from time import monotonic
 from typing import List
@@ -7,33 +8,62 @@ from typing import List
 from fastapi import APIRouter, HTTPException
 
 from backend.adapters.ctrader import adapter as broker_adapter
+from backend.calendar import get_next_event
 from backend.config import SETTINGS
 from backend.domain.models import (
     AnalyzeRequest,
+    ConfluenceReplayResponse,
     EngineConfig,
     EngineStatus,
+    EventRefreshResponse,
+    EventCalibrationResponse,
+    EventCalibrationRunResponse,
+    InstrumentSpec,
     ManualOrderRequest,
+    MarketIntelligenceResponse,
+    MarketEventInput,
     SymbolLimits,
     StudioTaskRequest,
     StudioTaskResponse,
+    StrategyLifecyclePromoteRequest,
+    StrategyLifecycleUpdateRequest,
     StrategyAnalysis,
     StrategyInfo,
     WatchlistItem,
 )
-from backend.services.broker import get_broker_status, get_symbol_limits, list_positions, list_symbols
-from backend.services.checklist_feed import get_auto_checklist, get_calendar_next
+from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_positions, list_symbols
 from backend.services.engine import engine
 from backend.services.execution_engine import execute_paper_signal
+from backend.services.confluence_shadow import record_confluence_shadow
+from backend.services.confluence_replay import run_confluence_replay
+from backend.services.event_intelligence import detect_abnormal_events, ingest_events, refresh_configured_feeds
+from backend.services.event_calibration import build_event_calibration, calibrate_pending_event_outcomes
 from backend.services.market_data import MarketDataError, get_bars, get_market_data_status
+from backend.services.market_intelligence import build_market_intelligence
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
 from backend.services.risk import build_readiness
 from backend.services import model_service
 from backend.services import studio_llm
 from backend.services.studio_backtests import list_saved_strategy_files, run_saved_strategy_backtest
 from backend.services.studio_tasks import execute_studio_task
+from backend.services.strategy_lifecycle import (
+    StrategyLifecycleError,
+    get_lifecycle,
+    list_lifecycles,
+    promote,
+    record_paper_evidence,
+    retire,
+    update_hypothesis,
+)
 from backend.storage.repositories import (
     add_analysis,
+    list_decision_records,
+    list_confluence_shadows,
     list_incidents,
+    list_event_alerts,
+    list_event_outcomes,
+    list_market_events,
+    list_order_intent_transitions,
     list_order_intents,
     list_paper_events,
     list_paper_positions,
@@ -69,7 +99,8 @@ async def _get_cached_ollama_ready() -> bool:
             return _llm_ready_cache
 
     llm_result = await model_service.fetch_tags(timeout=1.0)
-    ready = bool(llm_result.get("ok"))
+    models = llm_result.get("models") if isinstance(llm_result.get("models"), list) else []
+    ready = bool(llm_result.get("ok")) and model_service.is_model_available(models)
 
     with _llm_ready_lock:
         _llm_ready_cache = ready
@@ -80,15 +111,15 @@ async def _get_cached_ollama_ready() -> bool:
 
 async def _status_payload() -> EngineStatus:
     config = _current_config()
-    broker = get_broker_status()
+    broker = await asyncio.to_thread(get_broker_status)
     strategies = [strategy.info() for strategy in list_strategies()]
-    readiness = build_readiness(config)
+    readiness = await asyncio.to_thread(build_readiness, config)
     runtime = load_runtime()
     runtime.ollama_ready = await _get_cached_ollama_ready()
     
     return EngineStatus(
         version=SETTINGS.version,
-        mode="live_enabled" if config.allow_live and not config.kill_switch else "paper_only",
+        mode="demo_enabled" if config.demo_autotrade and broker.execution_ready else "paper_only",
         broker=broker,
         config=config,
         runtime=runtime,
@@ -100,6 +131,8 @@ async def _status_payload() -> EngineStatus:
         recent_events=list_paper_events(8),
         recent_order_intents=list_order_intents(8),
         recent_trade_audits=list_trade_audits(8),
+        recent_decisions=list_decision_records(8),
+        recent_confluence_shadows=list_confluence_shadows(8),
     )
 
 
@@ -136,14 +169,12 @@ async def v2_get_config() -> EngineConfig:
 
 @router.post("/config", response_model=EngineConfig)
 async def v2_set_config(config: EngineConfig) -> EngineConfig:
-    saved = save_engine_config(config)
-    if saved.allow_live:
-        log_incident(
-            level="warning",
-            code="live_mode_request",
-            message="Live mode was requested, but execution remains disabled until the new engine is built.",
-            details=saved.model_dump(),
+    if config.allow_live:
+        raise HTTPException(
+            status_code=400,
+            detail="Live-account execution is not supported. Connect and verify a cTrader demo account instead.",
         )
+    saved = save_engine_config(config)
     engine.wake()
     return saved
 
@@ -193,12 +224,98 @@ async def v2_symbol_limits(symbol: str) -> SymbolLimits:
     return get_symbol_limits(symbol.upper())
 
 
+@router.get("/instrument-spec", response_model=InstrumentSpec)
+async def v2_instrument_spec(symbol: str) -> InstrumentSpec:
+    if not (symbol or "").strip():
+        raise HTTPException(status_code=400, detail="Symbol is required.")
+    return get_instrument_spec(symbol.upper(), _current_config().account_currency)
+
+
 @router.get("/market/status")
 async def v2_market_status(symbol: str | None = None, timeframe: str | None = None) -> dict:
     config = _current_config()
     probe_symbol = (symbol or config.default_symbol).upper()
     probe_timeframe = (timeframe or config.default_timeframe).upper()
-    return get_market_data_status(probe_symbol, probe_timeframe)
+    return await asyncio.to_thread(get_market_data_status, probe_symbol, probe_timeframe)
+
+
+@router.get("/market/intelligence", response_model=MarketIntelligenceResponse)
+async def v2_market_intelligence() -> MarketIntelligenceResponse:
+    return await asyncio.to_thread(build_market_intelligence, _current_config())
+
+
+@router.get("/market/events")
+async def v2_market_events(limit: int = 50, symbol: str | None = None) -> list:
+    limit = max(1, min(200, limit))
+    return [event.model_dump(mode="json") for event in list_market_events(limit, symbol)]
+
+
+@router.post("/market/events/ingest", response_model=EventRefreshResponse)
+async def v2_ingest_market_events(items: list[MarketEventInput]) -> EventRefreshResponse:
+    if len(items) > 200:
+        raise HTTPException(status_code=400, detail="At most 200 events may be ingested per request.")
+    inserted, duplicates = ingest_events(items)
+    alerts = detect_abnormal_events(inserted)
+    return EventRefreshResponse(
+        ok=True,
+        fetched_items=len(items),
+        inserted_events=len(inserted),
+        duplicate_events=duplicates,
+        alerts_created=alerts,
+    )
+
+
+@router.post("/market/events/refresh", response_model=EventRefreshResponse)
+async def v2_refresh_market_events() -> EventRefreshResponse:
+    return await asyncio.to_thread(refresh_configured_feeds)
+
+
+@router.get("/market/event-alerts")
+async def v2_event_alerts(limit: int = 20) -> list:
+    limit = max(1, min(100, limit))
+    return [alert.model_dump(mode="json") for alert in list_event_alerts(limit)]
+
+
+@router.post("/market/events/calibrate", response_model=EventCalibrationRunResponse)
+async def v2_calibrate_market_events(event_limit: int = 200) -> EventCalibrationRunResponse:
+    event_limit = max(1, min(2000, event_limit))
+    return await asyncio.to_thread(calibrate_pending_event_outcomes, event_limit)
+
+
+@router.get("/market/events/outcomes")
+async def v2_market_event_outcomes(limit: int = 200, status: str | None = None) -> list:
+    limit = max(1, min(2000, limit))
+    return [outcome.model_dump(mode="json") for outcome in list_event_outcomes(limit, status)]
+
+
+@router.get("/market/events/calibration", response_model=EventCalibrationResponse)
+async def v2_market_event_calibration() -> EventCalibrationResponse:
+    return build_event_calibration()
+
+
+@router.get("/market/confluence-shadow")
+async def v2_confluence_shadow(limit: int = 50, symbol: str | None = None) -> list:
+    limit = max(1, min(500, limit))
+    return [record.model_dump(mode="json") for record in list_confluence_shadows(limit, symbol)]
+
+
+@router.get("/market/confluence-shadow/replay", response_model=ConfluenceReplayResponse)
+async def v2_confluence_shadow_replay(
+    limit: int = 1000,
+    symbol: str | None = None,
+    fee_bps_per_side: float = 0.0,
+    num_bars: int = 5000,
+) -> ConfluenceReplayResponse:
+    limit = max(1, min(5000, limit))
+    num_bars = max(100, min(5000, num_bars))
+    fee_bps_per_side = max(0.0, min(100.0, fee_bps_per_side))
+    return await asyncio.to_thread(
+        run_confluence_replay,
+        limit=limit,
+        symbol=(symbol or "").strip().upper() or None,
+        fee_bps_per_side=fee_bps_per_side,
+        num_bars=num_bars,
+    )
 
 
 @router.get("/market/candles")
@@ -206,9 +323,10 @@ async def v2_market_candles(
     symbol: str,
     timeframe: str = "M5",
     num_bars: int = 5000,
+    live: bool = False,
 ) -> dict:
     try:
-        df = get_bars(symbol.upper(), timeframe.upper(), num_bars)
+        df = await asyncio.to_thread(get_bars, symbol.upper(), timeframe.upper(), num_bars, prefer_live=live)
     except MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -225,14 +343,15 @@ async def v2_market_candles(
     return {"candles": candles, "indicators": {}}
 
 
-@router.get("/checklist/auto")
-async def v2_checklist_auto(tf: str = "M5", structure_tf: str = "H1") -> dict:
-    return get_auto_checklist(tf=tf, structure_tf=structure_tf)
 
 
 @router.get("/calendar/next")
 async def v2_calendar_next() -> dict:
-    return get_calendar_next()
+    try:
+        event = get_next_event()
+    except Exception as exc:
+        return {"ts": None, "title": None, "impact": "unknown", "source": f"error: {exc}"}
+    return event or {"ts": None, "title": None, "impact": "unknown", "source": None}
 
 
 @router.get("/models")
@@ -258,8 +377,9 @@ async def v2_studio_backtest(
     num_bars: int = 1500,
     fee_bps: float = 0.0,
     slippage_bps: float = 0.0,
+    validation_kind: str = "development_backtest",
 ):
-    return run_saved_strategy_backtest(
+    kwargs = dict(
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,
@@ -267,11 +387,60 @@ async def v2_studio_backtest(
         fee_bps=fee_bps,
         slippage_bps=slippage_bps,
     )
+    if validation_kind != "development_backtest":
+        kwargs["validation_kind"] = validation_kind
+    return run_saved_strategy_backtest(**kwargs)
 
 
 @router.post("/studio/tasks", response_model=StudioTaskResponse)
 async def v2_studio_tasks(request: StudioTaskRequest) -> StudioTaskResponse:
     return await execute_studio_task(request)
+
+
+
+@router.get("/studio/lifecycles")
+async def v2_studio_lifecycles() -> list:
+    return [item.model_dump(mode="json") for item in list_lifecycles()]
+
+
+@router.get("/studio/lifecycle/{strategy}")
+async def v2_studio_lifecycle(strategy: str) -> dict:
+    try:
+        return get_lifecycle(strategy).model_dump(mode="json")
+    except StrategyLifecycleError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.put("/studio/lifecycle/{strategy}")
+async def v2_update_studio_lifecycle(strategy: str, request: StrategyLifecycleUpdateRequest) -> dict:
+    try:
+        return update_hypothesis(strategy, request.hypothesis).model_dump(mode="json")
+    except StrategyLifecycleError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/studio/lifecycle/{strategy}/promote")
+async def v2_promote_studio_lifecycle(strategy: str, request: StrategyLifecyclePromoteRequest) -> dict:
+    try:
+        return promote(strategy, request.operator, request.reason).model_dump(mode="json")
+    except StrategyLifecycleError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/studio/lifecycle/{strategy}/paper-evidence")
+async def v2_studio_paper_evidence(strategy: str) -> dict:
+    try:
+        return record_paper_evidence(strategy).model_dump(mode="json")
+    except StrategyLifecycleError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/studio/lifecycle/{strategy}/retire")
+async def v2_retire_studio_lifecycle(strategy: str, request: StrategyLifecyclePromoteRequest) -> dict:
+    try:
+        return retire(strategy, request.operator, request.reason).model_dump(mode="json")
+    except StrategyLifecycleError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.get("/paper/positions")
@@ -291,6 +460,17 @@ async def v2_paper_events(limit: int = 20) -> list:
 async def v2_order_intents(limit: int = 20) -> list:
     limit = max(1, min(100, limit))
     return [item.model_dump(mode="json") for item in list_order_intents(limit)]
+
+
+@router.get("/paper/order-intents/{intent_id}/transitions")
+async def v2_order_intent_transitions(intent_id: int) -> list:
+    return [item.model_dump(mode="json") for item in list_order_intent_transitions(intent_id)]
+
+
+@router.get("/decisions")
+async def v2_decisions(limit: int = 20) -> list:
+    limit = max(1, min(100, limit))
+    return [item.model_dump(mode="json") for item in list_decision_records(limit)]
 
 
 @router.get("/paper/audit")
@@ -359,12 +539,33 @@ async def v2_manual_order(request: ManualOrderRequest) -> dict:
         reasons=request.reasons or ([request.rationale] if request.rationale else []),
         context={"source": "manual_dashboard"},
     )
-    watch_item = WatchlistItem(
-        symbol=request.symbol.upper(),
-        timeframe=request.timeframe.upper(),
-        strategy=request.strategy,
-        enabled=True,
-        params={},
+    configured_item = next(
+        (
+            item
+            for item in config.watchlist
+            if item.symbol.upper() == request.symbol.upper()
+            and item.timeframe.upper() == request.timeframe.upper()
+        ),
+        None,
+    )
+    watch_item = (
+        configured_item.model_copy(
+            update={
+                "symbol": request.symbol.upper(),
+                "timeframe": request.timeframe.upper(),
+                "strategy": request.strategy,
+            }
+        )
+        if configured_item
+        else WatchlistItem(
+            symbol=request.symbol.upper(),
+            timeframe=request.timeframe.upper(),
+            strategy=request.strategy,
+            enabled=True,
+            trading_enabled=False,
+            lot_size=request.quantity,
+            params={},
+        )
     )
     mark_price = request.entry_price
     mark_timestamp = None
@@ -403,7 +604,8 @@ async def v2_manual_order(request: ManualOrderRequest) -> dict:
         "status": result.status,
         "summary": result.summary,
         "position_id": result.position_id,
-        "mode": "paper_only",
+        "broker_position_id": result.broker_position_id,
+        "mode": result.mode,
     }
 
 
@@ -435,4 +637,13 @@ async def v2_analyze(request: AnalyzeRequest) -> StrategyAnalysis:
     analysis.context.setdefault("engine_mode", "paper_only")
     analysis.context.setdefault("kill_switch", config.kill_switch)
     saved = add_analysis(analysis)
+    try:
+        record_confluence_shadow(saved, config.min_confidence)
+    except Exception as exc:
+        log_incident(
+            "warning",
+            "confluence_shadow_failed",
+            f"Shadow confluence failed for {saved.symbol}:{saved.timeframe}",
+            {"error": str(exc), "execution_unchanged": True},
+        )
     return saved

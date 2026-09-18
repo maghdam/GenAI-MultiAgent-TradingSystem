@@ -8,7 +8,7 @@ from backend.storage.repositories import close_paper_position, update_paper_posi
 
 def unrealized_pnl(position: PaperPosition, last_price: float) -> float:
     move = (last_price - position.entry_price) if position.direction == "long" else (position.entry_price - last_price)
-    return move * position.quantity
+    return move * position.quantity * position.cash_per_price_unit_per_lot
 
 
 def apply_mark(position: PaperPosition, last_price: float) -> None:

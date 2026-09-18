@@ -5,7 +5,7 @@ from typing import Dict, List
 
 from backend.domain.models import EngineConfig, StrategyAnalysis
 from backend.domain.models import SymbolLimits
-from backend.services.broker import get_symbol_limits
+from backend.services.broker import get_instrument_spec, get_symbol_limits
 
 _API_VOLUME_PRECISION = 10_000
 
@@ -21,6 +21,7 @@ class QuantityDecision:
 
 @dataclass
 class AutoSizingDecision:
+    accepted: bool
     requested_quantity: float
     reasons: List[str] = field(default_factory=list)
     details: Dict[str, object] = field(default_factory=dict)
@@ -57,11 +58,18 @@ def derive_auto_quantity(config: EngineConfig, analysis: StrategyAnalysis, mark_
         "entry_reference": entry_reference or None,
         "stop_loss": stop_loss,
     }
+    instrument = get_instrument_spec(analysis.symbol, config.account_currency)
+    details["instrument_spec"] = instrument.model_dump(mode="json")
 
     if entry_reference <= 0 or stop_loss is None:
         return AutoSizingDecision(
+            accepted=risk_pct <= 0,
             requested_quantity=fallback_quantity,
-            reasons=["Auto quantity fell back to the configured fixed size because no valid stop reference was available."],
+            reasons=[
+                "Risk-based auto quantity requires a valid entry and stop reference."
+                if risk_pct > 0
+                else "Auto quantity uses the configured fixed size because risk sizing is disabled."
+            ],
             details=details,
         )
 
@@ -72,24 +80,52 @@ def derive_auto_quantity(config: EngineConfig, analysis: StrategyAnalysis, mark_
 
     if stop_distance <= 0 or stop_pct <= 0:
         return AutoSizingDecision(
+            accepted=risk_pct <= 0,
             requested_quantity=fallback_quantity,
-            reasons=["Auto quantity fell back to the configured fixed size because the stop distance was invalid."],
+            reasons=[
+                "Risk-based auto quantity requires a positive stop distance."
+                if risk_pct > 0
+                else "Auto quantity uses the configured fixed size because risk sizing is disabled."
+            ],
             details=details,
         )
 
     if risk_pct <= 0:
         return AutoSizingDecision(
+            accepted=True,
             requested_quantity=fallback_quantity,
             reasons=["Auto quantity fell back to the configured fixed size because risk sizing is disabled."],
             details=details,
         )
 
-    requested_quantity = (risk_pct / 100.0) / stop_pct
+    cash_per_price_unit = instrument.cash_per_price_unit_per_lot
+    if not instrument.valuation_ready or not cash_per_price_unit or cash_per_price_unit <= 0:
+        details["sizing_mode"] = "fixed_fallback_unvalued_contract"
+        return AutoSizingDecision(
+            accepted=False,
+            requested_quantity=fallback_quantity,
+            reasons=[
+                "Automatic execution is blocked because broker contract valuation is unavailable."
+            ],
+            details=details,
+        )
+
+    equity_amount = float(config.paper_starting_equity_amount)
+    risk_amount = equity_amount * (risk_pct / 100.0)
+    loss_per_lot = stop_distance * float(cash_per_price_unit)
+    requested_quantity = risk_amount / loss_per_lot
     details["sizing_mode"] = "risk_based"
     details["raw_risk_quantity"] = requested_quantity
+    details["equity_amount"] = equity_amount
+    details["risk_amount"] = risk_amount
+    details["loss_per_lot_at_stop"] = loss_per_lot
     return AutoSizingDecision(
+        accepted=True,
         requested_quantity=requested_quantity,
-        reasons=[f"Auto quantity derived from {risk_pct:.2f}% risk and a {stop_pct * 100.0:.2f}% stop distance."],
+        reasons=[
+            f"Auto quantity derived from {risk_pct:.2f}% risk ({config.account_currency} {risk_amount:.2f}) "
+            f"and {config.account_currency} {loss_per_lot:.2f} loss per lot at the stop."
+        ],
         details=details,
     )
 

@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import AppNav from './AppNav';
 
 interface StatusChip {
   status: 'ok' | 'bad' | 'wait' | 'warn';
@@ -49,12 +49,6 @@ const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1', 'H4', 'D1'];
 const DEFAULT_FEED_STATUS: StatusChip = { status: 'wait', label: 'Feed' };
 const DEFAULT_LLM_STATUS: StatusChip = { status: 'wait', label: 'Model' };
 
-const NAV_LINKS = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/strategy-studio', label: 'Strategy Studio' },
-  { to: '/workbench', label: 'Workbench' },
-  { to: '/heavyweight-checklist', label: 'Checklist' },
-];
 
 export default function Header({
   strategy,
@@ -76,7 +70,6 @@ export default function Header({
   timeframe,
   onTimeframeChange,
 }: HeaderProps) {
-  const location = useLocation();
   const resolvedStrategyOptions = Array.from(new Set([...(strategyOptions || []), strategy]));
 
   const engineLabel = engineStatus
@@ -93,40 +86,8 @@ export default function Header({
 
   return (
     <>
-      {/* ─── Navbar ─── */}
-      <nav className="ta-navbar">
-        <div className="ta-navbar__brand">
-          <div className="ta-navbar__brand-icon">TA</div>
-          <span>TradeAgent</span>
-        </div>
-
-        <div className="ta-navbar__nav">
-          {NAV_LINKS.map((link) => (
-            link.to === '/' ? (
-              <Link
-                key={link.to}
-                to={link.to}
-                className={`ta-navbar__link${location.pathname === link.to ? ' ta-navbar__link--active' : ''}`}
-              >
-                {link.label}
-              </Link>
-            ) : (
-              <a
-                key={link.to}
-                href={link.to}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ta-navbar__link"
-              >
-                {link.label}
-              </a>
-            )
-          ))}
-        </div>
-
-        <div className="ta-navbar__spacer" />
-
-        <div className="ta-navbar__status">
+      <AppNav right={(
+        <>
           <span className="ta-status">
             <span className={`ta-status__dot ta-status__dot--${feedStatus.status}`} />
             {feedStatus.label}
@@ -144,12 +105,12 @@ export default function Header({
             className="ta-btn ta-btn--ghost ta-btn--sm"
             type="button"
             onClick={onOpenSettings}
-            title="Control Panel"
+            title="Trade setup"
           >
             ⚙
           </button>
-        </div>
-      </nav>
+        </>
+      )} />
 
       {/* ─── Toolbar ─── */}
       <div className="ta-toolbar">

@@ -3,7 +3,13 @@ import {
   backtestV2SavedStrategy,
   executeV2StudioTask,
   getV2StudioModels,
+  getV2StrategyLifecycle,
   listV2StudioStrategyFiles,
+  promoteV2StrategyLifecycle,
+  recordV2PaperEvidence,
+  updateV2StrategyHypothesis,
+  type V2StrategyEvidenceType,
+  type V2StrategyLifecycle,
   type V2StudioTaskRequest,
   type V2StudioTaskResponse,
   type V2StudioProviderInfo,
@@ -44,6 +50,10 @@ export default function StrategyStudioPage() {
   const [showCosts, setShowCosts] = useState(false);
   const [feeBps, setFeeBps] = useState<number>(0);
   const [slippageBps, setSlippageBps] = useState<number>(0);
+  const [validationKind, setValidationKind] = useState<Exclude<V2StrategyEvidenceType, 'paper'>>('development_backtest');
+  const [lifecycle, setLifecycle] = useState<V2StrategyLifecycle | null>(null);
+  const [hypothesis, setHypothesis] = useState('');
+  const [lifecycleError, setLifecycleError] = useState('');
   const [providers, setProviders] = useState<V2StudioProviderInfo[]>([]);
   const [llmProvider, setLlmProvider] = useState<string>(() => {
     try {
@@ -99,7 +109,7 @@ export default function StrategyStudioPage() {
     if (lastResult && isBacktestLikeResult(lastResult)) {
       persistBacktestResult(lastResult);
     }
-    window.open('/strategy-studio/results', '_blank', 'noopener,noreferrer');
+    window.open('/build-test/results', '_blank', 'noopener,noreferrer');
   };
 
   const resetStudio = () => {
@@ -203,6 +213,29 @@ export default function StrategyStudioPage() {
     return () => { mounted = false; };
   }, []);
 
+  React.useEffect(() => {
+    let mounted = true;
+    if (!savedStrategy) {
+      setLifecycle(null);
+      setHypothesis('');
+      return () => { mounted = false; };
+    }
+    getV2StrategyLifecycle(savedStrategy)
+      .then((record) => {
+        if (!mounted) return;
+        setLifecycle(record);
+        setHypothesis(record.hypothesis || '');
+        setLifecycleError('');
+      })
+      .catch((error: any) => {
+        if (!mounted) return;
+        setLifecycle(null);
+        setHypothesis('');
+        setLifecycleError(error?.message || 'Lifecycle is not registered yet. Save or backtest the strategy to register it.');
+      });
+    return () => { mounted = false; };
+  }, [savedStrategy]);
+
   const send = async (message: string) => {
     const text = (message || '').trim();
     if (!text || isLoading) return;
@@ -259,8 +292,8 @@ export default function StrategyStudioPage() {
     setMessages((prev) => [...prev, {
       role: 'user',
       content: draftCode
-        ? `Run backtest on current draft for ${symbol} ${timeframe} (${numBars} bars)`
-        : `Run backtest on saved strategy ${savedStrategy || 'sma'} for ${symbol} ${timeframe} (${numBars} bars)`,
+        ? `Run ${validationKind} on current draft for ${symbol} ${timeframe} (${numBars} bars)`
+        : `Run ${validationKind} on saved strategy ${savedStrategy || 'sma'} for ${symbol} ${timeframe} (${numBars} bars)`,
     }]);
 
     try {
@@ -278,6 +311,7 @@ export default function StrategyStudioPage() {
             fee_bps: feeBps,
             slippage_bps: slippageBps,
             strategy_name: savedStrategy || 'draft',
+            validation_kind: validationKind,
             code: draftCode,
           },
         };
@@ -294,12 +328,22 @@ export default function StrategyStudioPage() {
           numBars,
           feeBps,
           slippageBps,
+          validationKind,
         );
       }
 
       setLastResult(result);
       persistBacktestResult(result, meta);
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Backtest complete.' }]);
+      if (result?.Lifecycle) {
+        setLifecycle(result.Lifecycle);
+        setHypothesis(result.Lifecycle.hypothesis || '');
+        setLifecycleError('');
+      }
+      const evidence = result?.Lifecycle?.evidence?.[0];
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: evidence ? `${evidence.summary} Gate ${evidence.passed ? 'passed' : 'failed'}.` : 'Backtest complete.',
+      }]);
     } catch (e: any) {
       setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Backtest failed.' }]);
     } finally {
@@ -325,12 +369,63 @@ export default function StrategyStudioPage() {
         const files = await listV2StudioStrategyFiles();
         const list = Array.isArray(files) ? files : [];
         setAvailableSaved(list);
-        if (list.includes(name)) setSavedStrategy(name);
+        const savedName = res.result?.lifecycle?.strategy || name.toLowerCase();
+        if (list.includes(savedName)) setSavedStrategy(savedName);
+        if (res.result?.lifecycle) {
+          setLifecycle(res.result.lifecycle);
+          setHypothesis(res.result.lifecycle.hypothesis || '');
+          setLifecycleError('');
+        }
       } else {
         setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: res.message || 'Save failed.' }]);
       }
     } catch (e: any) {
       setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Request failed.' }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const saveLifecycleHypothesis = async () => {
+    if (!savedStrategy || isLoading) return;
+    setIsLoading(true);
+    try {
+      const record = await updateV2StrategyHypothesis(savedStrategy, hypothesis);
+      setLifecycle(record);
+      setLifecycleError('');
+    } catch (error: any) {
+      setLifecycleError(error?.message || 'Failed to save hypothesis.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const promoteLifecycle = async () => {
+    if (!savedStrategy || !lifecycle?.next_stage || isLoading) return;
+    const operator = prompt('Operator name for the audit trail');
+    if (!operator?.trim()) return;
+    const reason = prompt(`Reason for promotion to ${lifecycle.next_stage}`) || '';
+    setIsLoading(true);
+    try {
+      const record = await promoteV2StrategyLifecycle(savedStrategy, operator.trim(), reason);
+      setLifecycle(record);
+      setLifecycleError('');
+    } catch (error: any) {
+      setLifecycleError(error?.message || 'Promotion failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const collectPaperEvidence = async () => {
+    if (!savedStrategy || isLoading) return;
+    setIsLoading(true);
+    try {
+      const record = await recordV2PaperEvidence(savedStrategy);
+      setLifecycle(record);
+      setLifecycleError('');
+    } catch (error: any) {
+      setLifecycleError(error?.message || 'Paper evidence collection failed.');
     } finally {
       setIsLoading(false);
     }
@@ -406,6 +501,48 @@ export default function StrategyStudioPage() {
         />
       </div>
       <div className="box" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {lifecycle && (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'rgba(90, 70, 220, 0.06)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
+                <strong>Strategy lifecycle</strong>{' '}
+                <span className="muted">{lifecycle.strategy} v{lifecycle.version} - {lifecycle.version_hash.slice(0, 10)}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {(['draft', 'backtested', 'validated', 'paper', 'eligible'] as const).map((stage) => (
+                  <span key={stage} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, border: '1px solid var(--border)', opacity: lifecycle.stage === stage ? 1 : 0.45, color: lifecycle.stage === stage ? '#67e8f9' : undefined }}>
+                    {stage}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) auto', gap: 8, marginTop: 10 }}>
+              <textarea
+                value={hypothesis}
+                onChange={(event) => setHypothesis(event.target.value)}
+                placeholder="Measurable hypothesis: market, setup, entry/exit rule, expected behavior, and invalidation condition."
+                rows={2}
+                style={{ width: '100%', resize: 'vertical' }}
+              />
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <button className="btn" type="button" onClick={saveLifecycleHypothesis} disabled={isLoading}>Save hypothesis</button>
+                {lifecycle.stage === 'paper' && <button className="btn" type="button" onClick={collectPaperEvidence} disabled={isLoading}>Collect paper evidence</button>}
+                {lifecycle.next_stage && <button className="btn primary" type="button" onClick={promoteLifecycle} disabled={isLoading || !lifecycle.promotion_ready}>Promote to {lifecycle.next_stage}</button>}
+              </div>
+            </div>
+            {lifecycle.blockers.length > 0 && <div className="muted" style={{ marginTop: 8 }}>Blocked: {lifecycle.blockers.join(' ')}</div>}
+            {lifecycle.evidence.length > 0 && (
+              <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
+                {lifecycle.evidence.slice(0, 3).map((item) => (
+                  <div key={item.id} style={{ fontSize: 12, color: item.passed ? '#34d399' : '#fca5a5' }}>
+                    {item.passed ? 'PASS' : 'FAIL'} ? {item.summary}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {!lifecycle && lifecycleError && <div className="muted" style={{ marginBottom: 8 }}>{lifecycleError}</div>}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ fontWeight: 600 }}>{draftCode ? 'Draft / Result' : 'Result'}</div>
@@ -430,6 +567,11 @@ export default function StrategyStudioPage() {
               style={{ width: 110 }}
               title="Bars"
             />
+            <select value={validationKind} onChange={event => setValidationKind(event.target.value as Exclude<V2StrategyEvidenceType, 'paper'>)} title="Lifecycle evidence type">
+              <option value="development_backtest">Development 70%</option>
+              <option value="out_of_sample">Holdout 30%</option>
+              <option value="regime">Regime / alternate market</option>
+            </select>
             <button className="btn" type="button" onClick={() => setShowCosts(s => !s)} title="Toggle fee/slippage inputs">{showCosts ? 'Hide Costs' : 'Costs'}</button>
             {showCosts && (
               <>

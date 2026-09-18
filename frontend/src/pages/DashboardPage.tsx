@@ -14,12 +14,13 @@ import {
 } from '../services/api';
 import type { AgentSignal } from '../types';
 import Header, { type DashboardEngineStatus } from '../components/Header';
-import AgentSettings from '../components/AgentSettings';
+import TradeSettings from '../components/TradeSettings';
 import Chart from '../components/Chart';
 import SidePanel from '../components/SidePanel';
 import Journal from '../components/Journal';
 import AIOutput from '../components/AIOutput';
 import SymbolSelector from '../components/SymbolSelector';
+import MarketContextPanel from '../components/MarketContextPanel';
 
 export default function DashboardPage() {
   const [symbol, setSymbol] = useState('XAUUSD');
@@ -43,8 +44,16 @@ export default function DashboardPage() {
     const [strategies, nextStatus] = await Promise.all([getV2Strategies(), getV2Status()]);
     setV2Strategies(strategies);
     setStatus(nextStatus);
-    setLotSize((current) => (current === 0.01 ? nextStatus.config.paper_trade_size || current : current));
-    if (!strategies.some((item) => item.key === strategy) && strategies[0]?.key) {
+    const currentItem = nextStatus.config.watchlist.find(
+      (item) => item.symbol === symbol && item.timeframe === timeframe,
+    );
+    if (currentItem) {
+      setStrategy(currentItem.strategy);
+      setLotSize(currentItem.lot_size ?? nextStatus.config.paper_trade_size);
+    } else {
+      setLotSize((current) => (current === 0.01 ? nextStatus.config.paper_trade_size || current : current));
+    }
+    if (!currentItem && !strategies.some((item) => item.key === strategy) && strategies[0]?.key) {
       setStrategy(strategies[0].key);
     }
   };
@@ -100,7 +109,16 @@ export default function DashboardPage() {
   const handleWatchCurrent = async () => {
     if (!status) return;
     try {
-      const nextItem: V2WatchlistItem = { symbol, timeframe, strategy, enabled: true, params: {} };
+      const previous = status.config.watchlist.find((item) => item.symbol === symbol && item.timeframe === timeframe);
+      const nextItem: V2WatchlistItem = {
+        symbol,
+        timeframe,
+        strategy,
+        enabled: previous?.enabled ?? true,
+        trading_enabled: previous?.trading_enabled ?? false,
+        lot_size: lotSize,
+        params: previous?.params ?? {},
+      };
       const existing = status.config.watchlist || [];
       const deduped = existing.filter((item) => !(item.symbol === symbol && item.timeframe === timeframe));
       await setV2Config({ ...status.config, paper_trade_size: lotSize, watchlist: [...deduped, nextItem] });
@@ -114,9 +132,31 @@ export default function DashboardPage() {
   };
 
   const handleSignalSelect = (signal: AgentSignal) => {
-    if (signal.symbol) setSymbol(signal.symbol);
-    if (signal.timeframe) setTimeframe(signal.timeframe);
+    const nextSymbol = signal.symbol || symbol;
+    const nextTimeframe = signal.timeframe || timeframe;
+    setSymbol(nextSymbol);
+    setTimeframe(nextTimeframe);
+    applySymbolSettings(nextSymbol, nextTimeframe);
     setSelectedSignal(signal);
+  };
+
+  const applySymbolSettings = (nextSymbol: string, nextTimeframe: string) => {
+    const item = status?.config.watchlist.find(
+      (entry) => entry.symbol === nextSymbol && entry.timeframe === nextTimeframe,
+    );
+    if (!item) return;
+    setStrategy(item.strategy);
+    setLotSize(item.lot_size ?? status?.config.paper_trade_size ?? 0.01);
+  };
+
+  const handleSymbolChange = (nextSymbol: string) => {
+    setSymbol(nextSymbol);
+    applySymbolSettings(nextSymbol, timeframe);
+  };
+
+  const handleTimeframeChange = (nextTimeframe: string) => {
+    setTimeframe(nextTimeframe);
+    applySymbolSettings(symbol, nextTimeframe);
   };
 
   return (
@@ -148,15 +188,17 @@ export default function DashboardPage() {
         onRefreshStrategies={handleReloadStrategies}
         symbol={symbol}
         timeframe={timeframe}
-        onTimeframeChange={setTimeframe}
+        onTimeframeChange={handleTimeframeChange}
       />
 
       {/* Symbol selector row — compact */}
       <div className="ta-toolbar" style={{ paddingTop: '6px', paddingBottom: '6px', borderBottom: 'none' }}>
-        <SymbolSelector onSymbolChange={setSymbol} value={symbol} />
+        <SymbolSelector onSymbolChange={handleSymbolChange} value={symbol} />
       </div>
 
-      <AgentSettings isOpen={isAgentSettingsOpen} onClose={() => setIsAgentSettingsOpen(false)} />
+      <MarketContextPanel symbol={symbol} />
+
+      <TradeSettings isOpen={isAgentSettingsOpen} onClose={() => setIsAgentSettingsOpen(false)} />
 
       {/* ─── Main Layout: Chart + Sidebar ─── */}
       <div className="ta-main">

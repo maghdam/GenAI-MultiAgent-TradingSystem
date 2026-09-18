@@ -59,3 +59,20 @@ def test_get_bars_refreshes_stale_persisted_cache(monkeypatch) -> None:
     assert len(persisted) == 2
     assert float(persisted.iloc[-1]["close"]) == 201.0
     assert fetched_at is not None
+def test_get_bars_live_refresh_bypasses_persisted_cache(monkeypatch) -> None:
+    market_data._bars_cache.clear()
+    persisted = _sample_bars(100.0)
+    live = _sample_bars(200.0)
+    upsert_market_bars("XAUUSD", "M5", persisted)
+
+    monkeypatch.setattr(
+        "backend.services.market_data.adapter.get_bars",
+        lambda symbol, timeframe, num_bars: (live, float(live["close"].iloc[-1])),
+    )
+
+    bars = market_data.get_bars("XAUUSD", "M5", 2, prefer_live=True)
+
+    assert len(bars) == 2
+    assert float(bars.iloc[-1]["close"]) == 201.0
+
+
