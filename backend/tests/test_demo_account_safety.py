@@ -127,3 +127,84 @@ def test_config_api_rejects_live_execution_request() -> None:
         asyncio.run(v2_set_config(EngineConfig(allow_live=True)))
 
     assert exc.value.status_code == 400
+
+
+def test_sync_demo_position_targets_updates_and_verifies_broker(monkeypatch) -> None:
+    state = {
+        "symbol_name": "XAUUSD",
+        "symbol_id": 7,
+        "position_id": 456,
+        "direction": "buy",
+        "entry_price": 100.0,
+        "stop_loss": None,
+        "take_profit": None,
+    }
+    captured = {}
+
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
+    monkeypatch.setattr(ctd, "symbol_digits_map", {7: 2})
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "get_open_positions", lambda: [dict(state)])
+
+    def _modify(**kwargs):
+        captured.update(kwargs)
+        state["stop_loss"] = kwargs["stop_loss"]
+        state["take_profit"] = kwargs["take_profit"]
+        return object()
+
+    monkeypatch.setattr(ctd, "modify_position_sltp", _modify)
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: {"status": "ok"})
+
+    result = CTraderBrokerAdapter().sync_demo_position_targets(
+        symbol="XAUUSD",
+        direction="long",
+        stop_loss=99.0,
+        take_profit=102.0,
+        position_id=456,
+    )
+
+    assert result["verified"] is True
+    assert result["status"] == "synced"
+    assert captured["position_id"] == 456
+    assert captured["stop_loss"] == 99.0
+    assert captured["take_profit"] == 102.0
+
+
+def test_sync_demo_position_targets_skips_amend_when_already_synced(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
+    monkeypatch.setattr(ctd, "symbol_digits_map", {7: 2})
+    monkeypatch.setattr(
+        ctd,
+        "get_open_positions",
+        lambda: [
+            {
+                "symbol_name": "XAUUSD",
+                "symbol_id": 7,
+                "position_id": 456,
+                "direction": "buy",
+                "entry_price": 100.0,
+                "stop_loss": 99.0,
+                "take_profit": 102.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        ctd,
+        "modify_position_sltp",
+        lambda **kwargs: pytest.fail("already-synced targets must not be amended"),
+    )
+
+    result = CTraderBrokerAdapter().sync_demo_position_targets(
+        symbol="XAUUSD",
+        direction="long",
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+
+    assert result["verified"] is True
+    assert result["status"] == "already_synced"
+    assert result["position_id"] == 456
