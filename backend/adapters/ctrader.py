@@ -258,18 +258,26 @@ class CTraderBrokerAdapter:
         if symbol_id is None:
             return self._default_symbol_limits(sym)
 
-        min_api = int(ctd.symbol_min_volume_map.get(symbol_id) or 100)
-        step_api = int(ctd.symbol_step_volume_map.get(symbol_id) or min_api or 100)
-        max_api = int(ctd.symbol_max_volume_map.get(symbol_id) or 1_000_000)
+        lot_size_units = ctd.symbol_lot_size_map.get(symbol_id)
+        try:
+            protocol_per_lot = float(lot_size_units) * 100.0
+        except (TypeError, ValueError):
+            protocol_per_lot = 0.0
+        if protocol_per_lot <= 0:
+            return self._default_symbol_limits(sym)
+
+        min_api = int(ctd.symbol_min_volume_map.get(symbol_id) or 1)
+        step_api = int(ctd.symbol_step_volume_map.get(symbol_id) or min_api or 1)
+        max_api = int(ctd.symbol_max_volume_map.get(symbol_id) or max(min_api, step_api))
         max_api = max(max_api, min_api)
         step_api = max(step_api, 1)
 
         return SymbolLimits(
             symbol=sym,
             source="broker",
-            min_lots=min_api / 10_000,
-            step_lots=step_api / 10_000,
-            max_lots=max_api / 10_000,
+            min_lots=min_api / protocol_per_lot,
+            step_lots=step_api / protocol_per_lot,
+            max_lots=max_api / protocol_per_lot,
             min_api_units=min_api,
             step_api_units=step_api,
             max_api_units=max_api,
