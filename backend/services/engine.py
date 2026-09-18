@@ -6,12 +6,14 @@ from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
+from backend.services.broker import sync_demo_position_targets
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars
 from backend.services.paper_book import reconcile_position
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
 from backend.storage.repositories import (
     add_analysis,
+    add_trade_audit,
     get_open_position,
     list_paper_positions,
     load_bar_state,
@@ -137,6 +139,7 @@ class V2Engine:
         key = f"{item.symbol.upper()}|{item.timeframe.upper()}"
         if bar_state.get(key) == last_ts:
             self._mark_positions(item, float(df["close"].iloc[-1]))
+            self._sync_existing_demo_protection(config, item)
             return False, False
         strategy = get_strategy(item.strategy)
         analysis = strategy.analyze(
@@ -172,6 +175,37 @@ class V2Engine:
         if not result.retryable:
             bar_state[key] = last_ts
         return True, result.action_taken
+
+    def _sync_existing_demo_protection(self, config: EngineConfig, item: WatchlistItem) -> None:
+        if not (config.demo_autotrade and item.trading_enabled):
+            return
+        position = get_open_position(item.symbol.upper(), item.timeframe.upper())
+        if not position:
+            return
+        try:
+            protection = sync_demo_position_targets(
+                symbol=position.symbol,
+                direction=position.direction,
+                stop_loss=position.stop_loss,
+                take_profit=position.take_profit,
+            )
+            if protection.get("status") == "synced":
+                add_trade_audit(
+                    event_type="ctrader_demo_protection_repaired",
+                    symbol=position.symbol,
+                    timeframe=position.timeframe,
+                    strategy=position.strategy,
+                    position_id=position.id,
+                    summary="Repaired broker SL/TP during same-bar engine maintenance.",
+                    details=protection,
+                )
+        except Exception as exc:
+            log_incident(
+                "error",
+                "ctrader_demo_protection_sync_failed",
+                f"Could not synchronize broker protection for {position.symbol}:{position.timeframe}",
+                {"position_id": position.id, "error": str(exc), "phase": "same_bar_maintenance"},
+            )
 
     def _mark_positions(self, item: WatchlistItem, last_price: float) -> None:
         position = get_open_position(item.symbol.upper(), item.timeframe.upper())
