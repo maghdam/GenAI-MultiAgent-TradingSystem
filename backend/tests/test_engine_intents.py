@@ -317,6 +317,48 @@ def test_run_once_does_not_advance_bar_state_when_execution_raises(monkeypatch) 
     assert incidents[0].code == "scan_failure"
 
 
+def test_execute_paper_signal_accepts_timezone_aware_fresh_bar() -> None:
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch_item(),
+        analysis=_analysis(signal="long"),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is True
+    assert result.status == "executed"
+    intents = list_order_intents(5)
+    assert len(intents) == 1
+    assert intents[0].details["bar_age_seconds"] >= 0
+
+
+def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        lambda symbol: (False, "Broker lotSize metadata is not loaded yet for XAUUSD."),
+    )
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True}),
+        analysis=_analysis(signal="long"),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is False
+    assert result.status == "deferred"
+    assert result.retryable is True
+    assert result.intent_id is None
+    assert list_paper_positions("open") == []
+    assert list_order_intents(5) == []
+
+    incidents = list_incidents(5)
+    assert incidents[0].code == "ctrader_demo_symbol_not_ready"
+
+
 def test_execute_paper_signal_rejects_stale_market_bar() -> None:
     stale_bar = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=20)
 

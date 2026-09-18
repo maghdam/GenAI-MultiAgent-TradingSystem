@@ -49,6 +49,32 @@ class CTraderBrokerAdapter:
     def transport_started(self) -> bool:
         return self._thread_started
 
+    def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
+        """Return whether broker metadata is ready to safely size a demo order."""
+        if not ctd.is_demo_account_confirmed():
+            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+            return False, reason
+
+        sym = (symbol or "").strip().upper()
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
+        if symbol_id is None:
+            return False, f"Broker symbol {sym!r} is not loaded yet."
+
+        try:
+            lot_size = float((ctd.symbol_lot_size_map or {}).get(symbol_id) or 0.0)
+        except (TypeError, ValueError):
+            lot_size = 0.0
+        if lot_size <= 0:
+            return False, f"Broker lotSize metadata is not loaded yet for {sym}."
+
+        min_volume = (ctd.symbol_min_volume_map or {}).get(symbol_id)
+        step_volume = (ctd.symbol_step_volume_map or {}).get(symbol_id)
+        max_volume = (ctd.symbol_max_volume_map or {}).get(symbol_id)
+        if min_volume is None or step_volume is None or max_volume is None:
+            return False, f"Broker volume limits are not loaded yet for {sym}."
+
+        return True, "Broker symbol contract metadata is ready."
+
     @staticmethod
     def connected() -> bool:
         try:
@@ -258,18 +284,26 @@ class CTraderBrokerAdapter:
         if symbol_id is None:
             return self._default_symbol_limits(sym)
 
-        min_api = int(ctd.symbol_min_volume_map.get(symbol_id) or 100)
-        step_api = int(ctd.symbol_step_volume_map.get(symbol_id) or min_api or 100)
-        max_api = int(ctd.symbol_max_volume_map.get(symbol_id) or 1_000_000)
+        lot_size_units = ctd.symbol_lot_size_map.get(symbol_id)
+        try:
+            protocol_per_lot = float(lot_size_units) * 100.0
+        except (TypeError, ValueError):
+            protocol_per_lot = 0.0
+        if protocol_per_lot <= 0:
+            return self._default_symbol_limits(sym)
+
+        min_api = int(ctd.symbol_min_volume_map.get(symbol_id) or 1)
+        step_api = int(ctd.symbol_step_volume_map.get(symbol_id) or min_api or 1)
+        max_api = int(ctd.symbol_max_volume_map.get(symbol_id) or max(min_api, step_api))
         max_api = max(max_api, min_api)
         step_api = max(step_api, 1)
 
         return SymbolLimits(
             symbol=sym,
             source="broker",
-            min_lots=min_api / 10_000,
-            step_lots=step_api / 10_000,
-            max_lots=max_api / 10_000,
+            min_lots=min_api / protocol_per_lot,
+            step_lots=step_api / protocol_per_lot,
+            max_lots=max_api / protocol_per_lot,
             min_api_units=min_api,
             step_api_units=step_api,
             max_api_units=max_api,

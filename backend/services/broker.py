@@ -26,5 +26,9 @@ def get_instrument_spec(symbol: str, account_currency: str = "USD") -> Instrumen
     return adapter.get_instrument_spec(symbol, account_currency)
 
 
+def get_demo_symbol_execution_readiness(symbol: str) -> tuple[bool, str]:
+    return adapter.demo_symbol_execution_readiness(symbol)
+
+
 def place_demo_market_order(**kwargs) -> Dict[str, Any]:
     return adapter.place_demo_market_order(**kwargs)
