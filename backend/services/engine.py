@@ -6,14 +6,15 @@ from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
-from backend.services.broker import sync_demo_position_targets
+from backend.services.broker import get_broker_status, list_positions, sync_demo_position_targets
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars
-from backend.services.paper_book import reconcile_position
-from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
+from backend.services.paper_book import apply_mark, reconcile_position
+from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
     add_analysis,
     add_trade_audit,
+    close_paper_position,
     get_open_position,
     list_paper_positions,
     load_bar_state,
@@ -85,6 +86,16 @@ class V2Engine:
             return runtime.last_cycle_summary
 
         runtime.loop_active = True
+        if config.demo_autotrade:
+            try:
+                recover_demo_broker_trackers(config)
+            except Exception as exc:
+                log_incident(
+                    "error",
+                    "ctrader_demo_tracker_recovery_failed",
+                    "Could not reconcile cTrader demo positions with local trackers.",
+                    {"error": str(exc)},
+                )
         bar_state = load_bar_state()
         processed = 0
         actions = 0
@@ -138,7 +149,7 @@ class V2Engine:
         last_ts = int(last_dt.timestamp())
         key = f"{item.symbol.upper()}|{item.timeframe.upper()}"
         if bar_state.get(key) == last_ts:
-            self._mark_positions(item, float(df["close"].iloc[-1]))
+            self._mark_positions(config, item, float(df["close"].iloc[-1]))
             self._sync_existing_demo_protection(config, item)
             return False, False
         strategy = get_strategy(item.strategy)
@@ -207,10 +218,31 @@ class V2Engine:
                 {"position_id": position.id, "error": str(exc), "phase": "same_bar_maintenance"},
             )
 
-    def _mark_positions(self, item: WatchlistItem, last_price: float) -> None:
+    def _mark_positions(self, config: EngineConfig, item: WatchlistItem, last_price: float) -> None:
         position = get_open_position(item.symbol.upper(), item.timeframe.upper())
         if not position:
             return
-        reconcile_position(position, last_price)
+
+        demo_managed = bool(config.demo_autotrade and item.trading_enabled)
+        if not demo_managed:
+            reconcile_position(position, last_price)
+            return
+
+        apply_mark(position, last_price)
+        status = get_broker_status()
+        if not status.execution_ready:
+            return
+        expected_side = "buy" if position.direction == "long" else "sell"
+        broker_match = next(
+            (
+                row
+                for row in list_positions()
+                if str(row.get("symbol") or "").upper() == position.symbol.upper()
+                and str(row.get("direction") or "").lower() == expected_side
+            ),
+            None,
+        )
+        if broker_match is None:
+            close_paper_position(position.id, last_price, "broker_position_closed")
 
 engine = V2Engine()
