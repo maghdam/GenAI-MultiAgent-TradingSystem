@@ -340,17 +340,46 @@ class CTraderBrokerAdapter:
             symbol_id=symbol_id,
         )
         ack = ctd.wait_for_deferred(deferred, timeout=25)
-        if isinstance(ack, dict) and ack.get("status") in {"failed", "order_rejected"}:
-            reason = ack.get("error") or ack.get("reject_reason") or ack["status"]
-            raise RuntimeError(f"cTrader demo target sync failed: {reason}")
+        ack_payload: Dict[str, Any] = {}
+        if isinstance(ack, dict):
+            ack_payload = dict(ack)
+            if ack.get("status") in {"failed", "order_rejected"}:
+                reason = ack.get("error") or ack.get("reject_reason") or ack["status"]
+                raise RuntimeError(f"cTrader demo target sync failed: {reason}; ack={ack_payload}")
+        else:
+            try:
+                event = ctd.Protobuf.extract(ack)
+                ack_payload = ctd.MessageToDict(event, preserving_proto_field_name=True)
+                error_code = getattr(event, "errorCode", None)
+                description = getattr(event, "description", None)
+                reject_reason = getattr(event, "rejectReason", None)
+                execution_type = getattr(event, "executionType", None)
+                if error_code:
+                    raise RuntimeError(
+                        f"cTrader demo target sync rejected: errorCode={error_code} "
+                        f"description={description or ''}; ack={ack_payload}"
+                    )
+                if reject_reason:
+                    raise RuntimeError(
+                        f"cTrader demo target sync rejected: rejectReason={reject_reason}; ack={ack_payload}"
+                    )
+                # ProtoOAExecutionType.ORDER_REJECTED == 7.
+                if execution_type is not None and int(execution_type) == 7:
+                    raise RuntimeError(f"cTrader demo target sync rejected; ack={ack_payload}")
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                ack_payload = {"parse_error": str(exc), "raw_type": type(ack).__name__}
 
         verified_row = None
-        for attempt in range(5):
+        last_observed = None
+        for attempt in range(8):
             if attempt:
-                time.sleep(0.4)
+                time.sleep(0.5)
             candidate = _matching_position()
             if candidate is None:
                 continue
+            last_observed = candidate
             if _same(candidate.get("stop_loss"), stop_loss) and _same(
                 candidate.get("take_profit"), take_profit
             ):
@@ -358,8 +387,12 @@ class CTraderBrokerAdapter:
                 break
 
         if verified_row is None:
+            observed_sl = (last_observed or {}).get("stop_loss")
+            observed_tp = (last_observed or {}).get("take_profit")
             raise RuntimeError(
-                f"cTrader demo target sync could not verify SL/TP on position {broker_position_id}."
+                "cTrader demo target sync could not verify SL/TP on "
+                f"position {broker_position_id}; requested_sl={stop_loss} requested_tp={take_profit} "
+                f"observed_sl={observed_sl} observed_tp={observed_tp} ack={ack_payload}"
             )
 
         return {
@@ -369,7 +402,7 @@ class CTraderBrokerAdapter:
             "stop_loss": stop_loss,
             "take_profit": take_profit,
             "verified": True,
-            "ack": ack if isinstance(ack, dict) else {},
+            "ack": ack_payload,
         }
 
     def list_positions(self) -> List[Dict[str, Any]]:
