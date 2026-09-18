@@ -19,6 +19,7 @@ from backend.storage.repositories import (
     list_trade_audits,
     load_bar_state,
     open_paper_position,
+    save_bar_state,
     save_engine_config,
 )
 
@@ -277,6 +278,77 @@ def test_run_once_counts_market_data_skip_without_logging_incident(monkeypatch) 
     assert list_incidents(5) == []
 
 
+def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) -> None:
+    import pandas as pd
+
+    item = _watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1})
+    save_engine_config(
+        EngineConfig(
+            enabled=True,
+            paper_autotrade=False,
+            demo_autotrade=True,
+            kill_switch=False,
+            default_symbol="XAUUSD",
+            default_timeframe="M5",
+            watchlist=[item],
+        )
+    )
+    open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+    bars = pd.DataFrame(
+        [{"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0}],
+        index=pd.to_datetime(["2026-09-18T18:50:00Z"], utc=True),
+    )
+    last_ts = int(bars.index[-1].timestamp())
+    save_bar_state({"XAUUSD|M5": last_ts})
+
+    calls = []
+    monkeypatch.setattr(engine_module, "get_bars", lambda *args, **kwargs: bars)
+    monkeypatch.setattr(engine_module, "recover_demo_broker_trackers", lambda config: {"ready": True})
+    monkeypatch.setattr(
+        engine_module,
+        "get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "list_positions",
+        lambda: [
+            {
+                "symbol": "XAUUSD",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 100.0,
+                "stop_loss": None,
+                "take_profit": None,
+                "position_id": 456,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "sync_demo_position_targets",
+        lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
+    )
+
+    summary = asyncio.run(V2Engine().run_once())
+
+    assert "processed=0" in summary
+    assert len(calls) == 1
+    assert calls[0]["stop_loss"] == 99.0
+    assert calls[0]["take_profit"] == 102.0
+    audits = list_trade_audits(10)
+    assert any(record.event_type == "ctrader_demo_protection_repaired" for record in audits)
+
+
 def test_run_once_does_not_advance_bar_state_when_execution_raises(monkeypatch) -> None:
     import pandas as pd
 
@@ -357,6 +429,95 @@ def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> No
 
     incidents = list_incidents(5)
     assert incidents[0].code == "ctrader_demo_symbol_not_ready"
+
+
+def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monkeypatch) -> None:
+    open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+    calls = []
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
+    )
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="no_trade",
+            confidence=0.0,
+            entry_price=100.0,
+            reasons=["no trade"],
+        ),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "rejected"
+    assert len(calls) == 1
+    assert calls[0]["stop_loss"] == 99.0
+    assert calls[0]["take_profit"] == 102.0
+
+    audits = list_trade_audits(10)
+    assert any(record.event_type == "ctrader_demo_protection_repaired" for record in audits)
+
+
+def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypatch) -> None:
+    opened = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=98.5,
+        take_profit=101.0,
+    )
+    calls = []
+
+    def _sync(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {"status": "already_synced", "verified": True, "position_id": 456}
+        raise RuntimeError("broker amend rejected")
+
+    monkeypatch.setattr("backend.services.execution_engine.sync_demo_position_targets", _sync)
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        lambda symbol: (True, "Broker symbol contract metadata is ready."),
+    )
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=_analysis(signal="long"),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "failed"
+    refreshed = list_paper_positions("open")[0]
+    assert refreshed.id == opened.id
+    assert refreshed.stop_loss == 98.5
+    assert refreshed.take_profit == 101.0
+
+    intents = list_order_intents(5)
+    assert intents[0].status == "failed"
+    incidents = list_incidents(5)
+    assert any(item.code == "ctrader_demo_target_update_failed" for item in incidents)
 
 
 def test_execute_paper_signal_rejects_stale_market_bar() -> None:

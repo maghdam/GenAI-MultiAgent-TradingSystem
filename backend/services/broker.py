@@ -30,5 +30,13 @@ def get_demo_symbol_execution_readiness(symbol: str) -> tuple[bool, str]:
     return adapter.demo_symbol_execution_readiness(symbol)
 
 
+def sync_demo_position_targets(**kwargs) -> Dict[str, Any]:
+    return adapter.sync_demo_position_targets(**kwargs)
+
+
+def close_demo_position(**kwargs) -> Dict[str, Any]:
+    return adapter.close_demo_position(**kwargs)
+
+
 def place_demo_market_order(**kwargs) -> Dict[str, Any]:
     return adapter.place_demo_market_order(**kwargs)
