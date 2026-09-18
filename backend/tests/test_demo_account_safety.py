@@ -291,3 +291,90 @@ def test_sync_demo_position_targets_verification_error_includes_observed_values(
             take_profit=51771.85,
             position_id=56980462,
         )
+
+
+def test_trading_price_precision_uses_symbol_digits_not_money_digits(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "symbol_digits_map", {116: 1})
+    monkeypatch.setattr(ctd, "symbol_money_digits_map", {116: 2})
+
+    assert ctd._px_sym(116, 29476.48) == 29476.5
+    assert ctd._px_sym(116, 29511.75) == 29511.8
+
+
+def test_sync_demo_position_targets_marks_crossed_take_profit_for_exit(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"NAS100": 116})
+    monkeypatch.setattr(ctd, "symbol_digits_map", {116: 1})
+    monkeypatch.setattr(
+        ctd,
+        "get_open_positions",
+        lambda: [
+            {
+                "symbol_name": "NAS100",
+                "symbol_id": 116,
+                "position_id": 56980461,
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 29486.2,
+                "stop_loss": None,
+                "take_profit": None,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        ctd,
+        "modify_position_sltp",
+        lambda **kwargs: pytest.fail("crossed target must close instead of moving the TP"),
+    )
+
+    result = CTraderBrokerAdapter().sync_demo_position_targets(
+        symbol="NAS100",
+        direction="long",
+        stop_loss=29476.48,
+        take_profit=29511.75,
+        position_id=56980461,
+        reference_price=29549.0,
+    )
+
+    assert result["status"] == "exit_due_take_profit"
+    assert result["position_id"] == 56980461
+    assert result["quantity_lots"] == 0.1
+
+
+def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatch) -> None:
+    rows = [
+        {
+            "symbol_name": "NAS100",
+            "symbol_id": 116,
+            "position_id": 56980461,
+            "direction": "buy",
+            "volume_lots": 0.1,
+        }
+    ]
+    captured = {}
+
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"NAS100": 116})
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+
+    def _close(**kwargs):
+        captured.update(kwargs)
+        rows.clear()
+        return object()
+
+    monkeypatch.setattr(ctd, "close_position", _close)
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: {"status": "ok"})
+    monkeypatch.setattr(ctd, "get_open_positions", lambda: list(rows))
+
+    result = CTraderBrokerAdapter().close_demo_position(
+        symbol="NAS100",
+        position_id=56980461,
+        quantity_lots=0.1,
+    )
+
+    assert result["status"] == "closed"
+    assert result["verified"] is True
+    assert captured["symbol_id"] == 116
+    assert captured["volume_lots"] == 0.1
