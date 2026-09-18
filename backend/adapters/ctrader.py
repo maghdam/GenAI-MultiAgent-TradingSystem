@@ -249,6 +249,7 @@ class CTraderBrokerAdapter:
         stop_loss: float | None,
         take_profit: float | None,
         position_id: int | None = None,
+        reference_price: float | None = None,
     ) -> Dict[str, Any]:
         """Synchronize protective levels to exactly one cTrader demo position.
 
@@ -300,6 +301,60 @@ class CTraderBrokerAdapter:
         broker_position_id = int(broker_position.get("position_id") or 0)
         if broker_position_id <= 0:
             raise RuntimeError(f"Demo target sync found {sym} {side} without a valid position id.")
+
+        # Do not move a stale protective target farther away after the market
+        # has already crossed it. Signal the caller to close the broker position
+        # instead, preserving the strategy's intended protective exit.
+        if reference_price is not None:
+            ref = float(reference_price)
+            sl = float(stop_loss) if stop_loss is not None else None
+            tp = float(take_profit) if take_profit is not None else None
+            if direction == "long":
+                if sl is not None and ref <= sl:
+                    return {
+                        "status": "exit_due_stop_loss",
+                        "symbol": sym,
+                        "position_id": broker_position_id,
+                        "quantity_lots": broker_position.get("volume_lots"),
+                        "reference_price": ref,
+                        "stop_loss": sl,
+                        "take_profit": tp,
+                        "verified": False,
+                    }
+                if tp is not None and ref >= tp:
+                    return {
+                        "status": "exit_due_take_profit",
+                        "symbol": sym,
+                        "position_id": broker_position_id,
+                        "quantity_lots": broker_position.get("volume_lots"),
+                        "reference_price": ref,
+                        "stop_loss": sl,
+                        "take_profit": tp,
+                        "verified": False,
+                    }
+            else:
+                if sl is not None and ref >= sl:
+                    return {
+                        "status": "exit_due_stop_loss",
+                        "symbol": sym,
+                        "position_id": broker_position_id,
+                        "quantity_lots": broker_position.get("volume_lots"),
+                        "reference_price": ref,
+                        "stop_loss": sl,
+                        "take_profit": tp,
+                        "verified": False,
+                    }
+                if tp is not None and ref <= tp:
+                    return {
+                        "status": "exit_due_take_profit",
+                        "symbol": sym,
+                        "position_id": broker_position_id,
+                        "quantity_lots": broker_position.get("volume_lots"),
+                        "reference_price": ref,
+                        "stop_loss": sl,
+                        "take_profit": tp,
+                        "verified": False,
+                    }
 
         tick_size = None
         try:
@@ -404,6 +459,79 @@ class CTraderBrokerAdapter:
             "verified": True,
             "ack": ack_payload,
         }
+
+    def close_demo_position(
+        self,
+        *,
+        symbol: str,
+        position_id: int,
+        quantity_lots: float,
+    ) -> Dict[str, Any]:
+        if not ctd.is_demo_account_confirmed():
+            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+            raise RuntimeError(f"Demo close blocked: {reason}")
+
+        sym = (symbol or "").strip().upper()
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
+        if symbol_id is None:
+            raise RuntimeError(f"Demo close blocked: broker symbol {sym!r} is unavailable.")
+
+        deferred = ctd.close_position(
+            client=ctd.client,
+            account_id=ctd.ACCOUNT_ID,
+            position_id=int(position_id),
+            symbol_id=int(symbol_id),
+            volume_lots=float(quantity_lots),
+        )
+        ack = ctd.wait_for_deferred(deferred, timeout=25)
+
+        ack_payload: Dict[str, Any] = {}
+        if isinstance(ack, dict):
+            ack_payload = dict(ack)
+            if ack.get("status") in {"failed", "order_rejected"}:
+                reason = ack.get("error") or ack.get("reject_reason") or ack["status"]
+                raise RuntimeError(f"cTrader demo close failed: {reason}; ack={ack_payload}")
+        else:
+            try:
+                event = ctd.Protobuf.extract(ack)
+                ack_payload = ctd.MessageToDict(event, preserving_proto_field_name=True)
+                error_code = getattr(event, "errorCode", None)
+                description = getattr(event, "description", None)
+                reject_reason = getattr(event, "rejectReason", None)
+                if error_code:
+                    raise RuntimeError(
+                        f"cTrader demo close rejected: errorCode={error_code} "
+                        f"description={description or ''}; ack={ack_payload}"
+                    )
+                if reject_reason:
+                    raise RuntimeError(
+                        f"cTrader demo close rejected: rejectReason={reject_reason}; ack={ack_payload}"
+                    )
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                ack_payload = {"parse_error": str(exc), "raw_type": type(ack).__name__}
+
+        for attempt in range(8):
+            if attempt:
+                time.sleep(0.5)
+            still_open = any(
+                int(row.get("position_id") or 0) == int(position_id)
+                for row in (ctd.get_open_positions() or [])
+            )
+            if not still_open:
+                return {
+                    "status": "closed",
+                    "symbol": sym,
+                    "position_id": int(position_id),
+                    "quantity_lots": float(quantity_lots),
+                    "verified": True,
+                    "ack": ack_payload,
+                }
+
+        raise RuntimeError(
+            f"cTrader demo close could not verify position {position_id} as closed; ack={ack_payload}"
+        )
 
     def list_positions(self) -> List[Dict[str, Any]]:
         rows = ctd.get_open_positions() or []
