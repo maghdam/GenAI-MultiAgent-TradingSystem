@@ -35,4 +35,5 @@ if not exist "%PYTHON%" (
     exit /b 1
 )
 
-"%PYTHON%" -m uvicorn backend.app:app --host 127.0.0.1 --port 4000 1>"%RUN_DIR%\backend.log" 2>&1
+>"%RUN_DIR%\backend.log" echo [DB] %TRADEAGENT_DB_PATH%
+"%PYTHON%" -m uvicorn backend.app:app --host 127.0.0.1 --port 4000 1>>"%RUN_DIR%\backend.log" 2>&1
