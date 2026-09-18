@@ -71,7 +71,7 @@ ACCOUNT_IS_DEMO: bool | None = None
 ACCOUNT_VERIFICATION_ERROR: str | None = None
 
 _PRICE_FACTOR = 100_000
-_VOLUME_PRECISION = 10_000         # API volume units = 0.0001 lots (1 lot = 10,000 units)
+_PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurement units.
 
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
@@ -177,26 +177,39 @@ def normalize_sltp_for_side(*, side: str, entry_price: float | None, sl: float |
     return sl_v, tp_v
 
 
-def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
-    """Convert a lot amount to the cTrader API volume units.
+def _protocol_volume_per_lot(symbol_id: int) -> float:
+    """Return cTrader protocol-volume units for one lot of the symbol.
 
-    Notes:
-    - cTrader OpenAPI expects volume as an integer in 0.0001-lot increments.
-      In other words, 1.00 lot == 10,000 API volume units.
-    - This is independent of symbol contract size; do NOT multiply by contract size here.
+    Open API volume is expressed in cents of the symbol measurement unit.
+    ProtoOASymbol.lotSize is also in cents, while symbol_lot_size_map stores
+    the decoded measurement units per lot.
     """
+    lot_size_units = symbol_lot_size_map.get(int(symbol_id))
+    try:
+        lot_size_units = float(lot_size_units)
+    except (TypeError, ValueError):
+        lot_size_units = 0.0
+    if lot_size_units <= 0:
+        raise ValueError(f"Broker lotSize metadata is unavailable for symbol_id={symbol_id}")
+    return lot_size_units * _PROTOCOL_VOLUME_SCALE
+
+
+def _lots_to_units(lots: float | int | None, symbol_id: int) -> int | None:
+    """Convert lots to cTrader protocol volume (cents of measurement units)."""
     if lots is None:
         return None
-    return int(round(float(lots) * _VOLUME_PRECISION))
+    return int(round(float(lots) * _protocol_volume_per_lot(symbol_id)))
+
+
+def protocol_volume_to_lots(symbol_id: int, volume: float | int | None) -> float | None:
+    """Convert cTrader protocol volume back to lots using the symbol contract."""
+    if volume is None:
+        return None
+    return float(volume) / _protocol_volume_per_lot(symbol_id)
 
 
 def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
-    """Convert lots from UI to cTrader API volume units and validate against symbol limits.
-
-    - API volume = lots * 10_000 (integer)
-    - Symbol metadata (min/step/max) is returned in 0.01-lot units ("cent-lots").
-      Convert to API volume units by multiplying by 100.
-    """
+    """Convert a lot amount to cTrader protocol volume and validate broker limits."""
     try:
         lots_val = float(lots)
     except (TypeError, ValueError):
@@ -205,40 +218,35 @@ def volume_lots_to_units(symbol_id: int, lots: float | int | None) -> int:
     if lots_val <= 0:
         raise ValueError("Lot size must be greater than zero")
 
-    api_volume = int(round(lots_val * _VOLUME_PRECISION))
+    api_volume = int(round(lots_val * _protocol_volume_per_lot(symbol_id)))
 
     min_api = symbol_min_volume_map.get(symbol_id)
     step_api = symbol_step_volume_map.get(symbol_id)
     max_api = symbol_max_volume_map.get(symbol_id)
 
     if min_api is not None and api_volume < min_api:
-        raise ValueError(
-            f"Lot size too small; minimum is {min_api / _VOLUME_PRECISION:.2f} lots"
-        )
+        minimum_lots = protocol_volume_to_lots(symbol_id, min_api)
+        raise ValueError(f"Lot size too small; minimum is {minimum_lots:.4f} lots")
 
     if max_api is not None and api_volume > max_api:
-        raise ValueError(
-            f"Lot size too large; maximum is {max_api / _VOLUME_PRECISION:.2f} lots"
-        )
+        maximum_lots = protocol_volume_to_lots(symbol_id, max_api)
+        raise ValueError(f"Lot size too large; maximum is {maximum_lots:.4f} lots")
 
     if step_api:
-        if api_volume % step_api:
-            raise ValueError(
-                f"Lot size must align to step {step_api / _VOLUME_PRECISION:.2f} lots"
-            )
+        base = int(min_api or 0)
+        if (api_volume - base) % int(step_api):
+            step_lots = protocol_volume_to_lots(symbol_id, step_api)
+            raise ValueError(f"Lot size must align to step {step_lots:.4f} lots")
 
     print(
-        f"[VOLUME] symbol_id={symbol_id} lots={lots_val} api_volume={api_volume} (api-units) min={min_api} step={step_api} max={max_api}"
+        f"[VOLUME] symbol_id={symbol_id} lots={lots_val} protocol_volume={api_volume} "
+        f"min={min_api} step={step_api} max={max_api}"
     )
     return api_volume
 
 
 def coerce_volume_lots_to_units(symbol_id: int, lots: float | int | None) -> tuple[int, float]:
-    """Coerce a requested lot amount up to broker-allowed min/step and return API units.
-
-    Returns (api_volume, lots_final). Rounds up to nearest allowed step and clamps
-    to [min,max] if limits are known. Does not raise on small/misaligned sizes.
-    """
+    """Coerce lots to broker min/step/max and return (protocol_volume, lots)."""
     try:
         lots_val = float(lots)
     except (TypeError, ValueError):
@@ -247,36 +255,36 @@ def coerce_volume_lots_to_units(symbol_id: int, lots: float | int | None) -> tup
     if lots_val <= 0:
         raise ValueError("Lot size must be greater than zero")
 
-    api_volume = int(round(lots_val * _VOLUME_PRECISION))
-
+    per_lot = _protocol_volume_per_lot(symbol_id)
+    api_volume = int(round(lots_val * per_lot))
     min_api = symbol_min_volume_map.get(symbol_id)
     step_api = symbol_step_volume_map.get(symbol_id)
     max_api = symbol_max_volume_map.get(symbol_id)
-    hard_min = bool(symbol_min_verified.get(symbol_id))
-    hard_step = bool(symbol_step_verified.get(symbol_id))
-    base_floor_api = int(round(0.01 * _VOLUME_PRECISION))  # 0.01 lots
 
-    # Apply min: treat metadata mins as soft; enforce only verified mins.
-    if hard_min and (min_api is not None) and api_volume < min_api:
-        api_volume = int(min_api)
-    else:
-        if api_volume < base_floor_api:
-            api_volume = base_floor_api
+    base_floor_api = max(1, int(round(0.01 * per_lot)))
+    floor = int(min_api) if min_api is not None else base_floor_api
+    api_volume = max(api_volume, floor, base_floor_api)
 
-    # Snap to step by rounding up
-    if step_api and step_api > 0:
-        if hard_step or step_api <= base_floor_api:
-            rem = api_volume % step_api
-            if rem:
-                api_volume += step_api - rem
+    if step_api and int(step_api) > 0:
+        step = int(step_api)
+        base = int(min_api or 0)
+        rem = (api_volume - base) % step
+        if rem:
+            api_volume += step - rem
 
-    # Apply max (after step rounding)
-    if max_api is not None and api_volume > max_api:
+    if max_api is not None and api_volume > int(max_api):
         api_volume = int(max_api)
+        if step_api and int(step_api) > 0:
+            step = int(step_api)
+            base = int(min_api or 0)
+            rem = (api_volume - base) % step
+            if rem:
+                api_volume -= rem
 
-    lots_final = api_volume / _VOLUME_PRECISION
+    lots_final = api_volume / per_lot
     print(
-        f"[VOLUME] COERCE symbol_id={symbol_id} requested_lots={lots_val} -> lots={lots_final:.2f} api_volume={api_volume} min={min_api} step={step_api} max={max_api} hard_min={hard_min} hard_step={hard_step}"
+        f"[VOLUME] COERCE symbol_id={symbol_id} requested_lots={lots_val} -> "
+        f"lots={lots_final:.4f} protocol_volume={api_volume} min={min_api} step={step_api} max={max_api}"
     )
     return api_volume, lots_final
 
@@ -297,19 +305,19 @@ def _install_fallback_symbols(reason: str | None = None):
     print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
     symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
     symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear(); symbol_min_verified.clear(); symbol_step_verified.clear()
-    default_min = int(round(0.01 * _VOLUME_PRECISION))
-    default_max = int(round(100.00 * _VOLUME_PRECISION))
+
     for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
         symbol_map[idx] = name
         symbol_name_to_id[name] = idx
         symbol_digits_map[idx] = 5
-        # Assume 0.01 lot minimum/step when metadata is unavailable
-        symbol_lot_size_map[idx] = 100_000 if name in ["EURUSD", "GBPUSD"] else 100
-        symbol_min_volume_map[idx] = default_min
-        symbol_step_volume_map[idx] = default_min
+        lot_size_units = 100_000.0 if name in ["EURUSD", "GBPUSD"] else 100.0
+        symbol_lot_size_map[idx] = lot_size_units
+        per_lot = lot_size_units * _PROTOCOL_VOLUME_SCALE
+        symbol_min_volume_map[idx] = int(round(0.01 * per_lot))
+        symbol_step_volume_map[idx] = int(round(0.01 * per_lot))
+        symbol_max_volume_map[idx] = int(round(100.0 * per_lot))
         symbol_min_verified[idx] = False
         symbol_step_verified[idx] = False
-        symbol_max_volume_map[idx] = default_max
     if symbol_map:
         print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
 
@@ -334,17 +342,11 @@ def symbols_response_cb(res):
         min_vol_raw = getattr(s, "minVolume", None) or getattr(s, "min_volume", None)
         step_vol_raw = getattr(s, "stepVolume", None) or getattr(s, "step_volume", None)
         max_vol_raw = getattr(s, "maxVolume", None) or getattr(s, "max_volume", None)
-        # Symbol volume thresholds are provided by API in cent-lots (0.01-lot) units; convert to API units (0.0001 lots) by multiplying by 100.
-        # Fall back conservatively if missing (assume 1.00 lot min/max reasonable defaults).
-        min_api = (
-            int(min_vol_raw) * 100 if min_vol_raw is not None else int(round(1.00 * _VOLUME_PRECISION))
-        )
-        step_api = (
-            int(step_vol_raw) * 100 if step_vol_raw is not None else min_api
-        )
-        max_api = (
-            int(max_vol_raw) * 100 if max_vol_raw is not None else int(round(100.00 * _VOLUME_PRECISION))
-        )
+        # Open API already reports min/step/max volume in cents of the
+        # symbol measurement unit. Preserve those protocol values exactly.
+        min_api = int(min_vol_raw) if min_vol_raw is not None else 1
+        step_api = int(step_vol_raw) if step_vol_raw is not None else min_api
+        max_api = int(max_vol_raw) if max_vol_raw is not None else max(min_api, step_api)
         
         symbol_min_volume_map[s.symbolId] = min_api
         symbol_step_volume_map[s.symbolId] = step_api
@@ -381,16 +383,16 @@ def symbol_details_response_cb(res):
         # cTrader encodes lotSize in cents of an underlying unit.
         if lot_size_raw:
             symbol_lot_size_map[sid] = float(lot_size_raw) / 100.0
-        # Preserve the existing internal volume precision until broker routing
-        # is migrated separately; these fields still improve verified limits.
+        # minVolume/stepVolume/maxVolume are already protocol volume (cents
+        # of measurement units), so do not apply another scale factor.
         if min_volume_raw is not None:
-            symbol_min_volume_map[sid] = int(min_volume_raw) * 100
+            symbol_min_volume_map[sid] = int(min_volume_raw)
             symbol_min_verified[sid] = True
         if step_volume_raw is not None:
-            symbol_step_volume_map[sid] = int(step_volume_raw) * 100
+            symbol_step_volume_map[sid] = int(step_volume_raw)
             symbol_step_verified[sid] = True
         if max_volume_raw is not None:
-            symbol_max_volume_map[sid] = int(max_volume_raw) * 100
+            symbol_max_volume_map[sid] = int(max_volume_raw)
         detailed += 1
     print(f"[DEBUG] Loaded full contract metadata for {detailed} symbols.")
 
@@ -542,8 +544,9 @@ def _log_event(event) -> None:
                 import re
                 m = re.search(r"minimum allowed volume\s*=\s*([0-9]+(?:\.[0-9]+)?)", str(desc), re.IGNORECASE)
                 if m:
-                    # Error text uses cent-lots (0.01-lot) units; convert to API units (x100)
-                    min_api = int(round(float(m.group(1)) * 100))
+                    # Broker volume hints use the same protocol volume unit:
+                    # cents of the symbol measurement unit.
+                    min_api = int(round(float(m.group(1))))
                     sid = int(_LAST_ORDER_CTX.get("symbol_id", -1))
                     if sid in symbol_map:
                         prev = symbol_min_volume_map.get(sid)
@@ -552,8 +555,7 @@ def _log_event(event) -> None:
                         print(f"[VOLUME] Updated min for {symbol_map[sid]} to {min_api} (API units)")
                 m2 = re.search(r"step\s*=?\s*([0-9]+(?:\.[0-9]+)?)", str(desc), re.IGNORECASE)
                 if m2:
-                    # Error text uses cent-lots; convert to API units (x100)
-                    step_api = int(round(float(m2.group(1)) * 100))
+                    step_api = int(round(float(m2.group(1))))
                     sid = int(_LAST_ORDER_CTX.get("symbol_id", -1))
                     if sid in symbol_map and step_api > 0:
                         symbol_step_volume_map[sid] = step_api
@@ -741,7 +743,7 @@ def _parse_reconcile_positions(obj):
             position_id=p.positionId,
             direction="buy" if td.tradeSide == ProtoOATradeSide.BUY else "sell",
             entry_price=_decode_px(sid, getattr(p, "price", 0)),
-            volume_lots=td.volume / _VOLUME_PRECISION,
+            volume_lots=protocol_volume_to_lots(int(sid), td.volume) if sid is not None else None,
             stop_loss=_decode_px(sid, getattr(p, "stopLoss", None)) if getattr(p, "stopLoss", None) not in (None, 0) else None,
             take_profit=_decode_px(sid, getattr(p, "takeProfit", None)) if getattr(p, "takeProfit", None) not in (None, 0) else None,
         ))
@@ -797,7 +799,7 @@ def place_order(
         symbolId=symbol_id,
         orderType=ProtoOAOrderType.Value(order_type.upper()),
         tradeSide=ProtoOATradeSide.Value(side.upper()),
-        volume=int(volume),  # 1 lot = 10,000,000 units (already scaled by caller)
+        volume=int(volume),  # cTrader protocol volume: cents of measurement units
     )
 
     # Capture context for potential TRADING_BAD_VOLUME correction
