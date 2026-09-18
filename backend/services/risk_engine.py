@@ -44,7 +44,19 @@ def _validate_market_freshness(
     if bar_timestamp is None:
         return False, details, "No market-data timestamp was available for the signal."
 
-    age = now - bar_timestamp
+    # Broker/Pandas timestamps are UTC-aware while persisted/runtime timestamps
+    # are historically UTC-naive. Normalize both before subtraction so a fresh
+    # aware market bar cannot crash the scan loop.
+    normalized_now = now.astimezone(UTC).replace(tzinfo=None) if now.tzinfo is not None else now
+    normalized_bar = (
+        bar_timestamp.astimezone(UTC).replace(tzinfo=None)
+        if bar_timestamp.tzinfo is not None
+        else bar_timestamp
+    )
+    details["bar_timestamp"] = normalized_bar.isoformat()
+    details["evaluated_at"] = normalized_now.isoformat()
+
+    age = normalized_now - normalized_bar
     max_age = (_timeframe_delta(timeframe) * 3) + timedelta(seconds=30)
     details["bar_age_seconds"] = max(0.0, age.total_seconds())
     details["max_bar_age_seconds"] = max_age.total_seconds()
