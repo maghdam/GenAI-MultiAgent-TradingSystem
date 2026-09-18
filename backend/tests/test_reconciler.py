@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.market_data import MarketDataError
-from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
+from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
+    create_order_intent,
     list_incidents,
     list_paper_positions,
     load_runtime,
     open_paper_position,
+    save_engine_config,
     save_runtime,
 )
 
@@ -102,3 +104,163 @@ def test_reconcile_open_positions_logs_skip_incident_when_market_data_fails(monk
     assert len(incidents) == 1
     assert incidents[0].code == "reconcile_market_data_unavailable"
     assert incidents[0].details["reason"] == "test_skip"
+
+
+def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None:
+    config = EngineConfig(
+        enabled=True,
+        demo_autotrade=True,
+        watchlist=[
+            WatchlistItem(
+                symbol="NAS100",
+                timeframe="M5",
+                strategy="breakout",
+                enabled=True,
+                trading_enabled=True,
+                lot_size=0.1,
+                params={},
+            )
+        ],
+    )
+    save_engine_config(config)
+    intent = create_order_intent(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        intent_type="open",
+        status="accepted",
+        confidence=0.8,
+        entry_price=29487.5,
+        stop_loss=29476.4,
+        take_profit=29511.7,
+        quantity=0.1,
+        rationale="test",
+        details={},
+    )
+    from backend.storage.repositories import update_order_intent_status
+    update_order_intent_status(
+        intent.id,
+        "executed",
+        {
+            "broker_order": {
+                "position_id": 56980461,
+                "symbol": "NAS100",
+                "quantity_lots": 0.1,
+            }
+        },
+        reason="ctrader_demo_order_executed",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.list_positions",
+        lambda: [
+            {
+                "symbol": "NAS100",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 29486.2,
+                "stop_loss": None,
+                "take_profit": None,
+                "position_id": 56980461,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_instrument_spec",
+        lambda symbol, currency: type(
+            "Spec",
+            (),
+            {
+                "cash_per_price_unit_per_lot": 1.0,
+                "source": "test",
+                "valuation_ready": True,
+            },
+        )(),
+    )
+    sync_calls = []
+    monkeypatch.setattr(
+        "backend.services.reconciler.sync_demo_position_targets",
+        lambda **kwargs: sync_calls.append(kwargs) or {"status": "synced", "verified": True},
+    )
+
+    result = recover_demo_broker_trackers(config)
+
+    assert result["recovered"] == 1
+    positions = list_paper_positions("open")
+    assert len(positions) == 1
+    assert positions[0].symbol == "NAS100"
+    assert positions[0].quantity == 0.1
+    assert positions[0].entry_price == 29486.2
+    assert positions[0].stop_loss == 29476.4
+    assert positions[0].take_profit == 29511.7
+    assert sync_calls[0]["position_id"] == 56980461
+
+
+def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(monkeypatch) -> None:
+    config = EngineConfig(
+        enabled=True,
+        demo_autotrade=True,
+        watchlist=[
+            WatchlistItem(
+                symbol="XAUUSD",
+                timeframe="M5",
+                strategy="sma_cross",
+                enabled=True,
+                trading_enabled=True,
+                lot_size=0.1,
+                params={},
+            )
+        ],
+    )
+    save_engine_config(config)
+    open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+
+    def _fake_bars(symbol: str, timeframe: str, bars: int):
+        import pandas as pd
+        return pd.DataFrame(
+            [{"close": 102.5}],
+            index=pd.to_datetime(["2026-09-18T18:55:00Z"], utc=True),
+        )
+
+    monkeypatch.setattr("backend.services.reconciler.get_bars", _fake_bars)
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.list_positions",
+        lambda: [
+            {
+                "symbol": "XAUUSD",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 100.0,
+                "stop_loss": 99.0,
+                "take_profit": 102.0,
+                "position_id": 456,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.sync_demo_position_targets",
+        lambda **kwargs: {"status": "already_synced", "verified": True},
+    )
+
+    summary = reconcile_open_positions(reason="demo_test")
+
+    assert summary["closed"] == 0
+    assert len(list_paper_positions("open")) == 1
