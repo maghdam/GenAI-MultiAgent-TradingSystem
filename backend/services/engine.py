@@ -169,7 +169,8 @@ class V2Engine:
                 "close": float(df["close"].iloc[-1]),
             },
         )
-        bar_state[key] = last_ts
+        if not result.retryable:
+            bar_state[key] = last_ts
         return True, result.action_taken
 
     def _mark_positions(self, item: WatchlistItem, last_price: float) -> None:
