@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import threading
+import time
 from typing import Any, Dict, List
 
 import backend.ctrader_client as ctd
@@ -238,6 +239,137 @@ class CTraderBrokerAdapter:
             "volume_api_units": volume,
             "position_id": result.get("position_id"),
             "ack": result.get("ack", {}),
+        }
+
+    def sync_demo_position_targets(
+        self,
+        *,
+        symbol: str,
+        direction: str,
+        stop_loss: float | None,
+        take_profit: float | None,
+        position_id: int | None = None,
+    ) -> Dict[str, Any]:
+        """Synchronize protective levels to exactly one cTrader demo position.
+
+        This is deliberately synchronous: local targets are considered broker-synced
+        only after reconcile confirms the requested SL/TP values.
+        """
+        if not ctd.is_demo_account_confirmed():
+            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+            raise RuntimeError(f"Demo target sync blocked: {reason}")
+
+        sym = (symbol or "").strip().upper()
+        side = "buy" if direction == "long" else ("sell" if direction == "short" else "")
+        if not side:
+            raise RuntimeError(f"Demo target sync blocked: unsupported direction {direction!r}.")
+
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
+        if symbol_id is None:
+            raise RuntimeError(f"Demo target sync blocked: broker symbol {sym!r} is unavailable.")
+
+        def _matching_position() -> Dict[str, Any] | None:
+            rows = ctd.get_open_positions() or []
+            if position_id is not None:
+                for row in rows:
+                    if int(row.get("position_id") or 0) == int(position_id):
+                        return row
+                return None
+            matches = [
+                row
+                for row in rows
+                if str(row.get("symbol_name") or "").upper() == sym
+                and str(row.get("direction") or "").lower() == side
+            ]
+            if len(matches) > 1:
+                raise RuntimeError(
+                    f"Demo target sync is ambiguous: {len(matches)} broker positions match {sym} {side}."
+                )
+            return matches[0] if matches else None
+
+        broker_position = None
+        for attempt in range(3):
+            broker_position = _matching_position()
+            if broker_position is not None:
+                break
+            if attempt < 2:
+                time.sleep(0.4)
+        if broker_position is None:
+            raise RuntimeError(f"Demo target sync could not find broker position for {sym} {side}.")
+
+        broker_position_id = int(broker_position.get("position_id") or 0)
+        if broker_position_id <= 0:
+            raise RuntimeError(f"Demo target sync found {sym} {side} without a valid position id.")
+
+        tick_size = None
+        try:
+            digits = int((ctd.symbol_digits_map or {}).get(symbol_id))
+            tick_size = 10.0 ** -digits
+        except (TypeError, ValueError):
+            tick_size = None
+        tolerance = max(float(tick_size or 0.0) * 1.5, 1e-6)
+
+        def _same(actual: Any, expected: float | None) -> bool:
+            if expected is None:
+                return actual in (None, 0, 0.0)
+            if actual in (None, 0, 0.0):
+                return False
+            try:
+                return abs(float(actual) - float(expected)) <= tolerance
+            except (TypeError, ValueError):
+                return False
+
+        if _same(broker_position.get("stop_loss"), stop_loss) and _same(
+            broker_position.get("take_profit"), take_profit
+        ):
+            return {
+                "status": "already_synced",
+                "symbol": sym,
+                "position_id": broker_position_id,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "verified": True,
+            }
+
+        deferred = ctd.modify_position_sltp(
+            client=ctd.client,
+            account_id=ctd.ACCOUNT_ID,
+            position_id=broker_position_id,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            symbol_id=symbol_id,
+        )
+        ack = ctd.wait_for_deferred(deferred, timeout=25)
+        if isinstance(ack, dict) and ack.get("status") in {"failed", "order_rejected"}:
+            reason = ack.get("error") or ack.get("reject_reason") or ack["status"]
+            raise RuntimeError(f"cTrader demo target sync failed: {reason}")
+
+        verified_row = None
+        for attempt in range(5):
+            if attempt:
+                time.sleep(0.4)
+            candidate = _matching_position()
+            if candidate is None:
+                continue
+            if _same(candidate.get("stop_loss"), stop_loss) and _same(
+                candidate.get("take_profit"), take_profit
+            ):
+                verified_row = candidate
+                break
+
+        if verified_row is None:
+            raise RuntimeError(
+                f"cTrader demo target sync could not verify SL/TP on position {broker_position_id}."
+            )
+
+        return {
+            "status": "synced",
+            "symbol": sym,
+            "position_id": broker_position_id,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "verified": True,
+            "ack": ack if isinstance(ack, dict) else {},
         }
 
     def list_positions(self) -> List[Dict[str, Any]]:
