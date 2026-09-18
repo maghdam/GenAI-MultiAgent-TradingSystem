@@ -20,15 +20,27 @@ def _get_connection() -> sqlite3.Connection:
     conn = getattr(_LOCAL, "connection", None)
     if conn is None:
         _ensure_parent(SETTINGS.db_path)
-        conn = sqlite3.connect(SETTINGS.db_path, check_same_thread=False)
+        conn = sqlite3.connect(SETTINGS.db_path, check_same_thread=False, timeout=5.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA foreign_keys = ON")
+        # WAL is safe and useful for the local runtime DB because status/API
+        # readers can coexist with the engine's writes without blocking.
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         _LOCAL.connection = conn
     return conn
 
 
 @contextmanager
 def get_db() -> Iterator[sqlite3.Connection]:
-    yield _get_connection()
+    conn = _get_connection()
+    try:
+        yield conn
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
 
 
 def init_db() -> None:
