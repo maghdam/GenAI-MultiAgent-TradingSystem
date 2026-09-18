@@ -198,7 +198,9 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
     assert positions[0].entry_price == 29486.2
     assert positions[0].stop_loss == 29476.4
     assert positions[0].take_profit == 29511.7
-    assert sync_calls[0]["position_id"] == 56980461
+    # Recovery only reconstructs the tracker. Protection is repaired later
+    # during market-aware reconciliation so stale targets are never moved.
+    assert sync_calls == []
 
 
 def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(monkeypatch) -> None:
@@ -264,3 +266,83 @@ def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(mon
 
     assert summary["closed"] == 0
     assert len(list_paper_positions("open")) == 1
+
+
+def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monkeypatch) -> None:
+    config = EngineConfig(
+        enabled=True,
+        demo_autotrade=True,
+        watchlist=[
+            WatchlistItem(
+                symbol="NAS100",
+                timeframe="M5",
+                strategy="breakout",
+                enabled=True,
+                trading_enabled=True,
+                lot_size=0.1,
+                params={},
+            )
+        ],
+    )
+    save_engine_config(config)
+    opened = open_paper_position(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        quantity=0.1,
+        entry_price=29486.2,
+        stop_loss=29476.4,
+        take_profit=29511.7,
+    )
+
+    def _fake_bars(symbol: str, timeframe: str, bars: int):
+        import pandas as pd
+        return pd.DataFrame(
+            [{"close": 29549.0}],
+            index=pd.to_datetime(["2026-09-18T19:05:00Z"], utc=True),
+        )
+
+    broker_row = {
+        "symbol": "NAS100",
+        "direction": "buy",
+        "volume_lots": 0.1,
+        "entry_price": 29486.2,
+        "stop_loss": None,
+        "take_profit": None,
+        "position_id": 56980461,
+    }
+    monkeypatch.setattr("backend.services.reconciler.get_bars", _fake_bars)
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr("backend.services.reconciler.list_positions", lambda: [broker_row])
+    monkeypatch.setattr(
+        "backend.services.reconciler.sync_demo_position_targets",
+        lambda **kwargs: {
+            "status": "exit_due_take_profit",
+            "position_id": 56980461,
+            "quantity_lots": 0.1,
+            "reference_price": 29549.0,
+        },
+    )
+    close_calls = []
+    monkeypatch.setattr(
+        "backend.services.reconciler.close_demo_position",
+        lambda **kwargs: close_calls.append(kwargs) or {
+            "status": "closed",
+            "position_id": 56980461,
+            "verified": True,
+        },
+    )
+
+    summary = reconcile_open_positions(reason="crossed_tp_test")
+
+    assert summary["closed"] == 1
+    assert close_calls[0]["position_id"] == 56980461
+    assert list_paper_positions("open") == []
+    closed = list_paper_positions("closed")
+    assert len(closed) == 1
+    assert closed[0].id == opened.id
+    assert closed[0].close_reason == "broker_take_profit"
