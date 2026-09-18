@@ -38,3 +38,4 @@ NOTES.md
 docker_usage_guide.md
 
 
+backend/data/*.db-journal
