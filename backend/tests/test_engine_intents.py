@@ -359,6 +359,91 @@ def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> No
     assert incidents[0].code == "ctrader_demo_symbol_not_ready"
 
 
+def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monkeypatch) -> None:
+    open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+    calls = []
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
+    )
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="no_trade",
+            confidence=0.0,
+            entry_price=100.0,
+            reasons=["no trade"],
+        ),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "rejected"
+    assert len(calls) == 1
+    assert calls[0]["stop_loss"] == 99.0
+    assert calls[0]["take_profit"] == 102.0
+
+    audits = list_trade_audits(10)
+    assert any(record.event_type == "ctrader_demo_protection_repaired" for record in audits)
+
+
+def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypatch) -> None:
+    opened = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=98.5,
+        take_profit=101.0,
+    )
+    calls = []
+
+    def _sync(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {"status": "already_synced", "verified": True, "position_id": 456}
+        raise RuntimeError("broker amend rejected")
+
+    monkeypatch.setattr("backend.services.execution_engine.sync_demo_position_targets", _sync)
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=_analysis(signal="long"),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "failed"
+    refreshed = list_paper_positions("open")[0]
+    assert refreshed.id == opened.id
+    assert refreshed.stop_loss == 98.5
+    assert refreshed.take_profit == 101.0
+
+    intents = list_order_intents(5)
+    assert intents[0].status == "failed"
+    incidents = list_incidents(5)
+    assert any(item.code == "ctrader_demo_target_update_failed" for item in incidents)
+
+
 def test_execute_paper_signal_rejects_stale_market_bar() -> None:
     stale_bar = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=20)
 
