@@ -416,6 +416,9 @@ def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkey
     monkeypatch.setattr(ctd, "get_deals_by_position_id", _deals)
 
     close_hint = datetime.fromisoformat("2026-09-23T19:04:18")
+    now_utc = datetime.fromisoformat("2026-09-23T19:15:00+00:00")
+    monkeypatch.setattr("backend.adapters.ctrader._utc_now", lambda: now_utc)
+
     summary = CTraderBrokerAdapter().get_closed_position_summary(
         12345,
         closed_at_hint=close_hint,
@@ -423,7 +426,7 @@ def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkey
 
     assert captured["position_id"] == 12345
     assert captured["from_timestamp"] == int((close_hint.replace(tzinfo=UTC) - timedelta(days=1)).timestamp() * 1000)
-    assert captured["to_timestamp"] == int((close_hint.replace(tzinfo=UTC) + timedelta(days=1)).timestamp() * 1000)
+    assert captured["to_timestamp"] == int(now_utc.timestamp() * 1000)
     assert summary is not None
     assert summary["position_id"] == 12345
     assert summary["exit_price"] == pytest.approx(30463.9)
@@ -459,6 +462,6 @@ def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> 
     assert "timeout" not in captured
     request = captured["message"]
     assert request.positionId == 456
-    assert request.toTimestamp == 1_790_188_060_000
-    assert request.fromTimestamp == 1_790_015_260_000
+    assert request.toTimestamp == 1_790_188_000_000
+    assert request.fromTimestamp == 1_790_015_200_000
     assert request.IsInitialized() is True
