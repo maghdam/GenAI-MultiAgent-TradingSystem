@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -405,14 +406,24 @@ def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkey
         closePositionDetail=detail,
     )
 
-    monkeypatch.setattr(
-        ctd,
-        "get_deals_by_position_id",
-        lambda position_id, **kwargs: [deal],
+    captured = {}
+
+    def _deals(position_id, **kwargs):
+        captured["position_id"] = position_id
+        captured.update(kwargs)
+        return [deal]
+
+    monkeypatch.setattr(ctd, "get_deals_by_position_id", _deals)
+
+    close_hint = datetime.fromisoformat("2026-09-23T19:04:18")
+    summary = CTraderBrokerAdapter().get_closed_position_summary(
+        12345,
+        closed_at_hint=close_hint,
     )
 
-    summary = CTraderBrokerAdapter().get_closed_position_summary(12345)
-
+    assert captured["position_id"] == 12345
+    assert captured["from_timestamp"] == int((close_hint.replace(tzinfo=UTC) - timedelta(days=1)).timestamp() * 1000)
+    assert captured["to_timestamp"] == int((close_hint.replace(tzinfo=UTC) + timedelta(days=1)).timestamp() * 1000)
     assert summary is not None
     assert summary["position_id"] == 12345
     assert summary["exit_price"] == pytest.approx(30463.9)
