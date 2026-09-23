@@ -16,6 +16,10 @@ from backend.storage.repositories import (
 
 
 def test_closed_demo_history_replaces_estimated_pnl_with_ctrader_deal(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
     intent = create_order_intent(
         symbol="US30",
         timeframe="M5",
@@ -112,6 +116,10 @@ def test_closed_demo_history_replaces_estimated_pnl_with_ctrader_deal(monkeypatc
 
 
 def test_closed_history_skips_paper_position_without_broker_identity(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
     position = open_paper_position(
         symbol="EURUSD",
         timeframe="M5",
