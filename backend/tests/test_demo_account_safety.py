@@ -405,7 +405,11 @@ def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkey
         closePositionDetail=detail,
     )
 
-    monkeypatch.setattr(ctd, "get_deals_by_position_id", lambda position_id: [deal])
+    monkeypatch.setattr(
+        ctd,
+        "get_deals_by_position_id",
+        lambda position_id, **kwargs: [deal],
+    )
 
     summary = CTraderBrokerAdapter().get_closed_position_summary(12345)
 
@@ -444,6 +448,6 @@ def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> 
     assert "timeout" not in captured
     request = captured["message"]
     assert request.positionId == 456
-    assert request.fromTimestamp == 0
     assert request.toTimestamp == 1_790_188_060_000
+    assert request.fromTimestamp == 1_790_015_260_000
     assert request.IsInitialized() is True
