@@ -140,3 +140,61 @@ def test_closed_history_skips_paper_position_without_broker_identity(monkeypatch
 
     assert result["reconciled"] == 0
     assert result["missing_broker_id"] == 1
+
+
+
+def test_closed_history_does_not_double_count_same_broker_position(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+
+    first = open_paper_position(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        broker_position_id=900001,
+    )
+    close_paper_position(first.id, 101.0, "broker_position_closed")
+
+    second = open_paper_position(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        broker_position_id=900001,
+    )
+    close_paper_position(second.id, 101.0, "broker_position_closed")
+
+    calls = []
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_closed_position_summary",
+        lambda broker_position_id, **kwargs: calls.append((broker_position_id, kwargs)) or {
+            "status": "found",
+            "position_id": broker_position_id,
+            "exit_price": 99.5,
+            "closed_at": datetime.fromisoformat("2026-09-23T19:04:18"),
+            "gross_profit": -2.71,
+            "swap": 0.0,
+            "commission": 0.0,
+            "pnl_conversion_fee": 0.0,
+            "net_profit": -2.71,
+            "closed_volume_api": 10,
+            "deal_ids": [123],
+        },
+    )
+
+    result = reconcile_closed_demo_history(limit=20)
+
+    assert result["reconciled"] == 1
+    assert result["duplicate_broker_id"] == 1
+    assert len(calls) == 1
