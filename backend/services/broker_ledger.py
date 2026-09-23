@@ -98,6 +98,48 @@ def close_local_position_from_broker(
     )
 
 
+def close_local_position_after_broker_close(
+    position: PaperPosition,
+    *,
+    broker_close: Dict[str, Any] | None,
+    fallback_price: float,
+    reason: str,
+) -> PaperPosition:
+    broker_close = broker_close if isinstance(broker_close, dict) else {}
+    broker_position_id = int(
+        broker_close.get("position_id")
+        or position.broker_position_id
+        or resolve_broker_position_id(position)
+        or 0
+    )
+    if broker_position_id and position.broker_position_id != broker_position_id:
+        position = set_paper_position_broker_id(position.id, broker_position_id)
+
+    summary = broker_close.get("close_summary")
+    if not isinstance(summary, dict) and broker_position_id:
+        try:
+            summary = get_closed_position_summary(broker_position_id)
+        except Exception:
+            summary = None
+
+    if isinstance(summary, dict) and summary.get("exit_price") is not None:
+        return close_paper_position(
+            position.id,
+            float(summary["exit_price"]),
+            reason,
+            realized_pnl_override=float(summary.get("net_profit") or 0.0),
+            closed_at_override=summary.get("closed_at"),
+            realized_pnl_source="ctrader_deal",
+        )
+
+    return close_paper_position(
+        position.id,
+        fallback_price,
+        reason,
+        realized_pnl_source="paper_estimate",
+    )
+
+
 def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
     positions = [
         position
