@@ -691,7 +691,7 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
         err_txt = str(f); ev.set()
 
     print(f"[DEBUG] OHLC Fetch: {symbol} {tf} | window={buffer_minutes}m")
-    d = client.send(req, timeout=10)
+    d = client.send(req, responseTimeoutInSeconds=10)
     d.addCallbacks(_ok, _err)
 
     if not ev.wait(12):
@@ -710,7 +710,7 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
             fromTimestamp=int(calendar.timegm(from_time_fb.utctimetuple())) * 1000,
             toTimestamp=int(calendar.timegm(now.utctimetuple())) * 1000,
         )
-        d_fb = client.send(req_fb, timeout=10)
+        d_fb = client.send(req_fb, responseTimeoutInSeconds=10)
         d_fb.addCallbacks(_ok, _err)
         if not ev.wait(12):
             print(f"[WARN] OHLC fallback timeout for {symbol} {tf}")
@@ -774,7 +774,7 @@ def get_reconcile_snapshot():
         err = str(f)
         ev.set()
 
-    d = client.send(ProtoOAReconcileReq(ctidTraderAccountId=ACCOUNT_ID), timeout=10)
+    d = client.send(ProtoOAReconcileReq(ctidTraderAccountId=ACCOUNT_ID), responseTimeoutInSeconds=10)
     d.addCallbacks(_ok, _err)
     if not ev.wait(10):
         err = "reconcile timeout"
@@ -804,7 +804,7 @@ def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = N
     if to_timestamp is not None:
         req.toTimestamp = max(0, int(to_timestamp))
 
-    raw = wait_for_deferred(client.send(req, timeout=20), timeout=25)
+    raw = wait_for_deferred(client.send(req, responseTimeoutInSeconds=20), timeout=25)
     if isinstance(raw, dict) and raw.get("status") == "failed":
         raise RuntimeError(f"cTrader deal history failed: {raw.get('error') or 'unknown error'}")
 
@@ -863,7 +863,7 @@ def place_order(
     print(
         f"[DEBUG] Sending order: {order_type=} {side=} volume={volume} price={price} SL={stop_loss} TP={take_profit}"
     )
-    d = client.send(req, client_msg_id=client_msg_id, timeout=12)
+    d = client.send(req, clientMsgId=client_msg_id, responseTimeoutInSeconds=12)
 
     # Optionally amend SL/TP post-fill for MARKET
     if order_type.upper() == "MARKET":
@@ -1101,7 +1101,7 @@ def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_p
     if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
     if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
     # Increase timeout to avoid default 5s cancellation
-    return client.send(req, timeout=20)
+    return client.send(req, responseTimeoutInSeconds=20)
 
 
 def close_position(*, client, account_id, position_id, symbol_id, volume_lots):
@@ -1112,7 +1112,7 @@ def close_position(*, client, account_id, position_id, symbol_id, volume_lots):
     # ProtoOAClosePositionReq.volume is required and uses the same protocol
     # volume representation (0.01 of a measurement unit) as order volume.
     req.volume = volume_lots_to_units(int(symbol_id), volume_lots)
-    return client.send(req, timeout=20)
+    return client.send(req, responseTimeoutInSeconds=20)
 
 def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=None, take_profit=None, symbol_id=None):
     req = ProtoOAAmendOrderReq(
@@ -1122,7 +1122,7 @@ def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=N
     )
     if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
     if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
-    return client.send(req, timeout=20)
+    return client.send(req, responseTimeoutInSeconds=20)
 
 # ── blocking helper used by FastAPI layer ─────────────────────────────────
 def wait_for_deferred(deferred, timeout=40):
