@@ -15,6 +15,7 @@ from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAAmendOrderReq,
     ProtoOAAmendPositionSLTPReq,
     ProtoOAClosePositionReq,
+    ProtoOADealListByPositionIdReq,
 )
 from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
     ProtoOAOrderType,
@@ -786,6 +787,34 @@ def get_open_positions():
 
 def get_pending_orders():
     return get_reconcile_snapshot()["orders"]
+
+
+def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = None, to_timestamp: int | None = None):
+    """Return cTrader execution deals for one position id.
+
+    Historical deal data is the authoritative source for actual broker close
+    price and realized P&L after a demo position disappears from reconcile.
+    """
+    req = ProtoOADealListByPositionIdReq(
+        ctidTraderAccountId=ACCOUNT_ID,
+        positionId=int(position_id),
+    )
+    if from_timestamp is not None:
+        req.fromTimestamp = max(0, int(from_timestamp))
+    if to_timestamp is not None:
+        req.toTimestamp = max(0, int(to_timestamp))
+
+    raw = wait_for_deferred(client.send(req, timeout=20), timeout=25)
+    if isinstance(raw, dict) and raw.get("status") == "failed":
+        raise RuntimeError(f"cTrader deal history failed: {raw.get('error') or 'unknown error'}")
+
+    event = Protobuf.extract(raw)
+    if getattr(event, "__class__", type("x", (object,), {})).__name__ == "ProtoOAErrorRes" or hasattr(event, "errorCode"):
+        code = getattr(event, "errorCode", "ERR")
+        description = getattr(event, "description", "")
+        raise RuntimeError(f"cTrader deal history failed: {code} {description}".strip())
+
+    return list(getattr(event, "deal", []) or [])
 
 
 # ── place order ───────────────────────────────────────────────────────────-
