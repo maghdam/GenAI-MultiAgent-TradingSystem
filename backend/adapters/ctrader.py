@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import threading
 import time
 from typing import Any, Dict, List
@@ -460,13 +460,35 @@ class CTraderBrokerAdapter:
             "ack": ack_payload,
         }
 
-    def get_closed_position_summary(self, position_id: int) -> Dict[str, Any] | None:
+    def get_closed_position_summary(
+        self,
+        position_id: int,
+        *,
+        closed_at_hint: datetime | None = None,
+    ) -> Dict[str, Any] | None:
         """Return authoritative broker close price/P&L for a closed position.
 
-        cTrader's closing deal contains realized P&L in the account deposit
-        currency. This avoids estimating broker P&L from a later market bar.
+        cTrader rejects excessively wide historical boundaries. We only need
+        the closing deal, so query a narrow window around the locally observed
+        broker disappearance time. For immediate closes, use a recent window.
         """
-        deals = ctd.get_deals_by_position_id(int(position_id))
+        if closed_at_hint is not None:
+            hint = closed_at_hint
+            if hint.tzinfo is None:
+                hint = hint.replace(tzinfo=UTC)
+            else:
+                hint = hint.astimezone(UTC)
+            window_start = hint - timedelta(days=1)
+            window_end = hint + timedelta(days=1)
+        else:
+            window_end = datetime.now(UTC) + timedelta(minutes=5)
+            window_start = window_end - timedelta(days=2)
+
+        deals = ctd.get_deals_by_position_id(
+            int(position_id),
+            from_timestamp=int(window_start.timestamp() * 1000),
+            to_timestamp=int(window_end.timestamp() * 1000),
+        )
         closing: list[tuple[Any, Any]] = []
         for deal in deals:
             detail = getattr(deal, "closePositionDetail", None)
