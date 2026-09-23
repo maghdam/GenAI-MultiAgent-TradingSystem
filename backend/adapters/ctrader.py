@@ -12,6 +12,10 @@ from backend.domain.models import BrokerStatus, InstrumentSpec, SymbolLimits
 from backend.services.runtime_state import external_dependency_state, market_data_dependency_state
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class CTraderBrokerAdapter:
     _USD_INDEX_ALIASES = ("US100", "NAS100", "USTEC", "NAS", "US500", "SPX", "US30", "DJ30")
 
@@ -472,7 +476,7 @@ class CTraderBrokerAdapter:
         the closing deal, so query a narrow window around the locally observed
         broker disappearance time. For immediate closes, use a recent window.
         """
-        now_utc = datetime.now(UTC)
+        now_utc = _utc_now()
         if closed_at_hint is not None:
             hint = closed_at_hint
             if hint.tzinfo is None:
