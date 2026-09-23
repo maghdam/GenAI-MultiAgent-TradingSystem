@@ -15,7 +15,6 @@ from backend.services.market_data import MarketDataError, get_bars
 from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
-    reconcile_closed_demo_history,
 )
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.storage.repositories import (
