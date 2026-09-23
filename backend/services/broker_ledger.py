@@ -121,7 +121,9 @@ def close_local_position_after_broker_close(
         position = set_paper_position_broker_id(position.id, broker_position_id)
 
     summary = broker_close.get("close_summary")
-    if not isinstance(summary, dict) and broker_position_id:
+    # The real close adapter always includes close_summary (possibly None).
+    # Do not issue a second historical request for mocked/legacy close payloads.
+    if not isinstance(summary, dict) and not broker_close and broker_position_id:
         try:
             summary = get_closed_position_summary(broker_position_id)
         except Exception:
