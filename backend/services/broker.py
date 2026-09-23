@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List
 
 from backend.adapters.ctrader import adapter
@@ -38,8 +39,12 @@ def close_demo_position(**kwargs) -> Dict[str, Any]:
     return adapter.close_demo_position(**kwargs)
 
 
-def get_closed_position_summary(position_id: int) -> Dict[str, Any] | None:
-    return adapter.get_closed_position_summary(position_id)
+def get_closed_position_summary(
+    position_id: int,
+    *,
+    closed_at_hint: datetime | None = None,
+) -> Dict[str, Any] | None:
+    return adapter.get_closed_position_summary(position_id, closed_at_hint=closed_at_hint)
 
 
 def place_demo_market_order(**kwargs) -> Dict[str, Any]:
