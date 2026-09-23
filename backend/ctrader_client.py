@@ -802,7 +802,8 @@ def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = N
     surface only as a response timeout. Always populate both fields.
     """
     now_ms = int(time.time() * 1000)
-    end_ms = now_ms + 60_000 if to_timestamp is None else max(0, int(to_timestamp))
+    # Historical endpoints reject future period boundaries.
+    end_ms = now_ms if to_timestamp is None else min(now_ms, max(0, int(to_timestamp)))
     start_ms = (
         max(0, end_ms - 2 * 24 * 60 * 60 * 1000)
         if from_timestamp is None
