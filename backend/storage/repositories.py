@@ -1067,6 +1067,8 @@ def _row_to_position(row) -> PaperPosition:
         account_currency=str(row["account_currency"] or "USD"),
         cash_per_price_unit_per_lot=float(row["cash_per_price_unit_per_lot"] or 1.0),
         instrument_spec_source=str(row["instrument_spec_source"] or "legacy"),
+        broker_position_id=(int(row["broker_position_id"]) if row["broker_position_id"] is not None else None),
+        realized_pnl_source=str(row["realized_pnl_source"] or "paper_estimate"),
     )
 
 
@@ -1074,7 +1076,8 @@ def list_paper_positions(status: Optional[str] = None) -> List[PaperPosition]:
     sql = """
         SELECT id, symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
                stop_loss, take_profit, opened_at, closed_at, exit_price, realized_pnl, unrealized_pnl, close_reason,
-               account_currency, cash_per_price_unit_per_lot, instrument_spec_source
+               account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
+               broker_position_id, realized_pnl_source
         FROM paper_positions
     """
     params: tuple[Any, ...] = ()
@@ -1093,7 +1096,8 @@ def get_open_position(symbol: str, timeframe: str) -> Optional[PaperPosition]:
             """
             SELECT id, symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
                    stop_loss, take_profit, opened_at, closed_at, exit_price, realized_pnl, unrealized_pnl, close_reason,
-                   account_currency, cash_per_price_unit_per_lot, instrument_spec_source
+                   account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
+                   broker_position_id, realized_pnl_source
             FROM paper_positions
             WHERE status = 'open' AND symbol = ? AND timeframe = ?
             ORDER BY id DESC
@@ -1117,6 +1121,7 @@ def open_paper_position(
     account_currency: str = "USD",
     cash_per_price_unit_per_lot: float = 1.0,
     instrument_spec_source: str = "legacy",
+    broker_position_id: int | None = None,
 ) -> PaperPosition:
     now = _utcnow().isoformat()
     with get_db() as db:
@@ -1125,9 +1130,10 @@ def open_paper_position(
             INSERT INTO paper_positions(
                 symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
                 stop_loss, take_profit, opened_at, realized_pnl, unrealized_pnl,
-                account_currency, cash_per_price_unit_per_lot, instrument_spec_source
+                account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
+                broker_position_id, realized_pnl_source
             )
-            VALUES(?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, 'paper_estimate')
             """,
             (
                 symbol.upper(),
@@ -1143,6 +1149,7 @@ def open_paper_position(
                 account_currency.upper(),
                 cash_per_price_unit_per_lot,
                 instrument_spec_source,
+                broker_position_id,
             ),
         )
         row_id = int(cur.lastrowid)
@@ -1171,6 +1178,7 @@ def open_paper_position(
                 "account_currency": account_currency.upper(),
                 "cash_per_price_unit_per_lot": cash_per_price_unit_per_lot,
                 "instrument_spec_source": instrument_spec_source,
+                "broker_position_id": broker_position_id,
             "stop_loss": stop_loss,
             "take_profit": take_profit,
         },
@@ -1184,7 +1192,8 @@ def get_position_by_id(position_id: int) -> PaperPosition:
             """
             SELECT id, symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
                    stop_loss, take_profit, opened_at, closed_at, exit_price, realized_pnl, unrealized_pnl, close_reason,
-                   account_currency, cash_per_price_unit_per_lot, instrument_spec_source
+                   account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
+                   broker_position_id, realized_pnl_source
             FROM paper_positions
             WHERE id = ?
             """,
@@ -1231,13 +1240,22 @@ def update_paper_position_targets(position_id: int, stop_loss: float | None, tak
     )
 
 
-def close_paper_position(position_id: int, exit_price: float, reason: str) -> PaperPosition:
+def close_paper_position(
+    position_id: int,
+    exit_price: float,
+    reason: str,
+    *,
+    realized_pnl_override: float | None = None,
+    closed_at_override: datetime | None = None,
+    realized_pnl_source: str = "paper_estimate",
+) -> PaperPosition:
     position = get_position_by_id(position_id)
     if position.status != "open":
         return position
     signed_move = (exit_price - position.entry_price) if position.direction == "long" else (position.entry_price - exit_price)
-    realized = signed_move * position.quantity * position.cash_per_price_unit_per_lot
-    now = _utcnow().isoformat()
+    estimated = signed_move * position.quantity * position.cash_per_price_unit_per_lot
+    realized = float(realized_pnl_override) if realized_pnl_override is not None else estimated
+    now = (closed_at_override or _utcnow()).isoformat()
     with get_db() as db:
         db.execute(
             """
@@ -1248,10 +1266,11 @@ def close_paper_position(position_id: int, exit_price: float, reason: str) -> Pa
                 exit_price = ?,
                 realized_pnl = ?,
                 unrealized_pnl = 0,
-                close_reason = ?
+                close_reason = ?,
+                realized_pnl_source = ?
             WHERE id = ?
             """,
-            (exit_price, now, exit_price, realized, reason, position_id),
+            (exit_price, now, exit_price, realized, reason, realized_pnl_source, position_id),
         )
         db.commit()
     add_paper_event(
@@ -1262,6 +1281,8 @@ def close_paper_position(position_id: int, exit_price: float, reason: str) -> Pa
             "exit_price": exit_price,
             "reason": reason,
             "realized_pnl": realized,
+            "realized_pnl_source": realized_pnl_source,
+            "broker_position_id": position.broker_position_id,
         },
     )
     add_trade_audit(
@@ -1271,7 +1292,106 @@ def close_paper_position(position_id: int, exit_price: float, reason: str) -> Pa
         strategy=position.strategy,
         position_id=position_id,
         summary=f"Closed paper {position.direction} position.",
-        details={"exit_price": exit_price, "reason": reason, "realized_pnl": realized},
+        details={
+            "exit_price": exit_price,
+            "reason": reason,
+            "realized_pnl": realized,
+            "realized_pnl_source": realized_pnl_source,
+            "broker_position_id": position.broker_position_id,
+        },
+    )
+    return get_position_by_id(position_id)
+
+
+def set_paper_position_broker_id(position_id: int, broker_position_id: int | None) -> PaperPosition:
+    with get_db() as db:
+        db.execute(
+            "UPDATE paper_positions SET broker_position_id = ? WHERE id = ?",
+            (broker_position_id, position_id),
+        )
+        db.commit()
+    return get_position_by_id(position_id)
+
+
+def reconcile_closed_paper_position_from_broker(
+    position_id: int,
+    *,
+    exit_price: float,
+    realized_pnl: float,
+    closed_at: datetime | None,
+    broker_position_id: int,
+    broker_details: Dict[str, Any] | None = None,
+) -> PaperPosition:
+    position = get_position_by_id(position_id)
+    if position.status != "closed":
+        raise ValueError(f"Paper position {position_id} must be closed before broker P&L reconciliation.")
+
+    closed_at_value = (closed_at or position.closed_at or _utcnow()).isoformat()
+    details = dict(broker_details or {})
+    details.update(
+        {
+            "exit_price": float(exit_price),
+            "realized_pnl": float(realized_pnl),
+            "realized_pnl_source": "ctrader_deal",
+            "broker_position_id": int(broker_position_id),
+        }
+    )
+
+    with get_db() as db:
+        db.execute(
+            """
+            UPDATE paper_positions
+            SET current_price = ?,
+                closed_at = ?,
+                exit_price = ?,
+                realized_pnl = ?,
+                unrealized_pnl = 0,
+                broker_position_id = ?,
+                realized_pnl_source = 'ctrader_deal'
+            WHERE id = ?
+            """,
+            (
+                float(exit_price),
+                closed_at_value,
+                float(exit_price),
+                float(realized_pnl),
+                int(broker_position_id),
+                position_id,
+            ),
+        )
+
+        # Keep the operator-facing close row current while retaining a separate
+        # reconciliation audit record below.
+        audit_rows = db.execute(
+            """
+            SELECT id, details_json
+            FROM trade_audit
+            WHERE position_id = ? AND event_type = 'paper_position_closed'
+            """,
+            (position_id,),
+        ).fetchall()
+        for row in audit_rows:
+            try:
+                audit_details = json.loads(row["details_json"] or "{}")
+            except Exception:
+                audit_details = {}
+            if not isinstance(audit_details, dict):
+                audit_details = {}
+            audit_details.update(details)
+            db.execute(
+                "UPDATE trade_audit SET details_json = ? WHERE id = ?",
+                (json.dumps(audit_details, ensure_ascii=False), int(row["id"])),
+            )
+        db.commit()
+
+    add_trade_audit(
+        event_type="ctrader_demo_close_reconciled",
+        symbol=position.symbol,
+        timeframe=position.timeframe,
+        strategy=position.strategy,
+        position_id=position_id,
+        summary="Reconciled close price and realized P&L from cTrader deal history.",
+        details=details,
     )
     return get_position_by_id(position_id)
 
