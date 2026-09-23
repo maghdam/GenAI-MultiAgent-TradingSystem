@@ -423,6 +423,7 @@ def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> 
     captured = {}
 
     def _send(message, **kwargs):
+        captured["message"] = message
         captured.update(kwargs)
         return object()
 
@@ -434,9 +435,15 @@ def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> 
         lambda raw: SimpleNamespace(deal=[]),
     )
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd.time, "time", lambda: 1_790_188_000.0)
 
     result = ctd.get_deals_by_position_id(456)
 
     assert result == []
     assert captured["responseTimeoutInSeconds"] == 20
     assert "timeout" not in captured
+    request = captured["message"]
+    assert request.positionId == 456
+    assert request.fromTimestamp == 0
+    assert request.toTimestamp == 1_790_188_060_000
+    assert request.IsInitialized() is True
