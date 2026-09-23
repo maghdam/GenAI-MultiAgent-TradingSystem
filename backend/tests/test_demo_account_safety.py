@@ -367,6 +367,11 @@ def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatc
     monkeypatch.setattr(ctd, "close_position", _close)
     monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: {"status": "ok"})
     monkeypatch.setattr(ctd, "get_open_positions", lambda: list(rows))
+    monkeypatch.setattr(
+        CTraderBrokerAdapter,
+        "get_closed_position_summary",
+        lambda self, position_id: None,
+    )
 
     result = CTraderBrokerAdapter().close_demo_position(
         symbol="NAS100",
@@ -378,3 +383,36 @@ def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatc
     assert result["verified"] is True
     assert captured["symbol_id"] == 116
     assert captured["volume_lots"] == 0.1
+
+
+
+def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkeypatch) -> None:
+    detail = SimpleNamespace(
+        grossProfit=-271,
+        swap=0,
+        commission=0,
+        pnlConversionFee=0,
+        closedVolume=10,
+        moneyDigits=2,
+    )
+    deal = SimpleNamespace(
+        dealId=991,
+        executionPrice=30463.9,
+        executionTimestamp=1790186686611,
+        filledVolume=10,
+        volume=10,
+        moneyDigits=2,
+        closePositionDetail=detail,
+    )
+
+    monkeypatch.setattr(ctd, "get_deals_by_position_id", lambda position_id: [deal])
+
+    summary = CTraderBrokerAdapter().get_closed_position_summary(12345)
+
+    assert summary is not None
+    assert summary["position_id"] == 12345
+    assert summary["exit_price"] == pytest.approx(30463.9)
+    assert summary["gross_profit"] == pytest.approx(-2.71)
+    assert summary["net_profit"] == pytest.approx(-2.71)
+    assert summary["deal_ids"] == [991]
+    assert summary["closed_at"] is not None
