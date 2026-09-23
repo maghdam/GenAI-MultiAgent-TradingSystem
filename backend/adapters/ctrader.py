@@ -472,6 +472,7 @@ class CTraderBrokerAdapter:
         the closing deal, so query a narrow window around the locally observed
         broker disappearance time. For immediate closes, use a recent window.
         """
+        now_utc = datetime.now(UTC)
         if closed_at_hint is not None:
             hint = closed_at_hint
             if hint.tzinfo is None:
@@ -479,9 +480,14 @@ class CTraderBrokerAdapter:
             else:
                 hint = hint.astimezone(UTC)
             window_start = hint - timedelta(days=1)
-            window_end = hint + timedelta(days=1)
+            # cTrader rejects a historical toTimestamp that lies in the future.
+            # Recent locally observed closes therefore need their +1 day window
+            # clamped to the current UTC time.
+            window_end = min(hint + timedelta(days=1), now_utc)
+            if window_start >= window_end:
+                window_start = window_end - timedelta(days=2)
         else:
-            window_end = datetime.now(UTC) + timedelta(minutes=5)
+            window_end = now_utc
             window_start = window_end - timedelta(days=2)
 
         deals = ctd.get_deals_by_position_id(
