@@ -507,7 +507,7 @@ async def v2_engine_scan() -> dict:
 @router.post("/engine/reconcile")
 async def v2_engine_reconcile() -> dict:
     summary = reconcile_open_positions(reason="manual")
-    history = reconcile_closed_demo_history(limit=100) if _current_config().demo_autotrade else {
+    history = reconcile_closed_demo_history(limit=20) if _current_config().demo_autotrade else {
         "checked": 0,
         "reconciled": 0,
         "missing_broker_id": 0,
