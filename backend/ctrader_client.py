@@ -794,15 +794,27 @@ def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = N
 
     Historical deal data is the authoritative source for actual broker close
     price and realized P&L after a demo position disappears from reconcile.
+
+    Some released cTrader OpenApiPy protobuf schemas still mark fromTimestamp
+    and toTimestamp as required for ProtoOADealListByPositionIdReq even though
+    the current public API docs describe them as optional. TcpProtocol queues
+    serialization asynchronously, so leaving a required proto2 field unset can
+    surface only as a response timeout. Always populate both fields.
     """
+    now_ms = int(time.time() * 1000)
+    start_ms = 0 if from_timestamp is None else max(0, int(from_timestamp))
+    end_ms = now_ms + 60_000 if to_timestamp is None else max(0, int(to_timestamp))
+    # Server contract caps timestamps at 19 Jan 2038.
+    end_ms = min(end_ms, 2_147_483_646_000)
+    if end_ms < start_ms:
+        start_ms, end_ms = end_ms, start_ms
+
     req = ProtoOADealListByPositionIdReq(
         ctidTraderAccountId=ACCOUNT_ID,
         positionId=int(position_id),
+        fromTimestamp=start_ms,
+        toTimestamp=end_ms,
     )
-    if from_timestamp is not None:
-        req.fromTimestamp = max(0, int(from_timestamp))
-    if to_timestamp is not None:
-        req.toTimestamp = max(0, int(to_timestamp))
 
     raw = wait_for_deferred(client.send(req, responseTimeoutInSeconds=20), timeout=25)
     if isinstance(raw, dict) and raw.get("status") == "failed":
