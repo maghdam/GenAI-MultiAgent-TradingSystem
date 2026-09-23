@@ -82,7 +82,10 @@ def close_local_position_from_broker(
 
     if broker_position_id:
         try:
-            summary = get_closed_position_summary(broker_position_id)
+            summary = get_closed_position_summary(
+                broker_position_id,
+                closed_at_hint=position.closed_at,
+            )
         except Exception:
             summary = None
         if summary and summary.get("exit_price") is not None:
@@ -125,7 +128,10 @@ def close_local_position_after_broker_close(
     # Do not issue a second historical request for mocked/legacy close payloads.
     if not isinstance(summary, dict) and not broker_close and broker_position_id:
         try:
-            summary = get_closed_position_summary(broker_position_id)
+            summary = get_closed_position_summary(
+                broker_position_id,
+                closed_at_hint=position.closed_at,
+            )
         except Exception:
             summary = None
 
@@ -155,6 +161,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
             "reconciled": 0,
             "missing_broker_id": 0,
             "unavailable": 0,
+            "duplicate_broker_id": 0,
             "ready": False,
             "reason": "cTrader demo account is not execution-ready yet.",
             "errors": [],
@@ -169,7 +176,9 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
     reconciled = 0
     missing_broker_id = 0
     unavailable = 0
+    duplicate_broker_id = 0
     errors: list[Dict[str, Any]] = []
+    seen_broker_ids: set[int] = set()
 
     for position in positions:
         checked += 1
@@ -177,9 +186,16 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
         if not broker_position_id:
             missing_broker_id += 1
             continue
+        if broker_position_id in seen_broker_ids:
+            duplicate_broker_id += 1
+            continue
+        seen_broker_ids.add(broker_position_id)
 
         try:
-            summary = get_closed_position_summary(broker_position_id)
+            summary = get_closed_position_summary(
+                broker_position_id,
+                closed_at_hint=position.closed_at,
+            )
         except Exception as exc:
             unavailable += 1
             errors.append(
@@ -218,6 +234,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
         "reconciled": reconciled,
         "missing_broker_id": missing_broker_id,
         "unavailable": unavailable,
+        "duplicate_broker_id": duplicate_broker_id,
         "ready": True,
         "reason": "",
         "errors": errors[:10],
