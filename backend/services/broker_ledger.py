@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from backend.domain.models import PaperPosition
-from backend.services.broker import get_closed_position_summary
+from backend.services.broker import get_broker_status, get_closed_position_summary
 from backend.storage.repositories import (
     close_paper_position,
     list_order_intents,
@@ -148,6 +148,18 @@ def close_local_position_after_broker_close(
 
 
 def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
+    status = get_broker_status()
+    if not status.execution_ready:
+        return {
+            "checked": 0,
+            "reconciled": 0,
+            "missing_broker_id": 0,
+            "unavailable": 0,
+            "ready": False,
+            "reason": "cTrader demo account is not execution-ready yet.",
+            "errors": [],
+        }
+
     positions = [
         position
         for position in list_paper_positions("closed")[: max(1, int(limit))]
@@ -157,6 +169,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
     reconciled = 0
     missing_broker_id = 0
     unavailable = 0
+    errors: list[Dict[str, Any]] = []
 
     for position in positions:
         checked += 1
@@ -167,11 +180,27 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
 
         try:
             summary = get_closed_position_summary(broker_position_id)
-        except Exception:
+        except Exception as exc:
             unavailable += 1
+            errors.append(
+                {
+                    "position_id": position.id,
+                    "broker_position_id": broker_position_id,
+                    "symbol": position.symbol,
+                    "error": str(exc),
+                }
+            )
             continue
         if not summary or summary.get("exit_price") is None:
             unavailable += 1
+            errors.append(
+                {
+                    "position_id": position.id,
+                    "broker_position_id": broker_position_id,
+                    "symbol": position.symbol,
+                    "error": "No closing cTrader deal was returned for this position.",
+                }
+            )
             continue
 
         reconcile_closed_paper_position_from_broker(
@@ -189,4 +218,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
         "reconciled": reconciled,
         "missing_broker_id": missing_broker_id,
         "unavailable": unavailable,
+        "ready": True,
+        "reason": "",
+        "errors": errors[:10],
     }
