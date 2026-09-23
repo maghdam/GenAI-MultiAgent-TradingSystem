@@ -460,6 +460,104 @@ class CTraderBrokerAdapter:
             "ack": ack_payload,
         }
 
+    def get_closed_position_summary(self, position_id: int) -> Dict[str, Any] | None:
+        """Return authoritative broker close price/P&L for a closed position.
+
+        cTrader's closing deal contains realized P&L in the account deposit
+        currency. This avoids estimating broker P&L from a later market bar.
+        """
+        deals = ctd.get_deals_by_position_id(int(position_id))
+        closing: list[tuple[Any, Any]] = []
+        for deal in deals:
+            detail = getattr(deal, "closePositionDetail", None)
+            has_detail = False
+            try:
+                has_detail = bool(deal.HasField("closePositionDetail"))
+            except Exception:
+                try:
+                    has_detail = detail is not None and bool(detail.ListFields())
+                except Exception:
+                    has_detail = detail is not None
+            if detail is not None and has_detail:
+                closing.append((deal, detail))
+
+        if not closing:
+            return None
+
+        total_weight = 0.0
+        weighted_exit = 0.0
+        gross_profit = 0.0
+        swap = 0.0
+        commission = 0.0
+        pnl_conversion_fee = 0.0
+        latest_ts_ms = 0
+        deal_ids: list[int] = []
+
+        def _money_digits(deal: Any, detail: Any) -> int:
+            for obj in (detail, deal):
+                try:
+                    if obj.HasField("moneyDigits"):
+                        return int(getattr(obj, "moneyDigits"))
+                except Exception:
+                    value = getattr(obj, "moneyDigits", None)
+                    if value not in (None, ""):
+                        try:
+                            return int(value)
+                        except (TypeError, ValueError):
+                            pass
+            return 2
+
+        for deal, detail in closing:
+            digits = _money_digits(deal, detail)
+            scale = float(10 ** max(0, digits))
+            gross_profit += float(getattr(detail, "grossProfit", 0) or 0) / scale
+            swap += float(getattr(detail, "swap", 0) or 0) / scale
+            commission += float(getattr(detail, "commission", 0) or 0) / scale
+            pnl_conversion_fee += float(getattr(detail, "pnlConversionFee", 0) or 0) / scale
+
+            weight = float(
+                getattr(detail, "closedVolume", 0)
+                or getattr(deal, "filledVolume", 0)
+                or getattr(deal, "volume", 0)
+                or 0
+            )
+            price = float(getattr(deal, "executionPrice", 0.0) or 0.0)
+            if weight > 0 and price > 0:
+                weighted_exit += price * weight
+                total_weight += weight
+
+            latest_ts_ms = max(
+                latest_ts_ms,
+                int(getattr(deal, "executionTimestamp", 0) or 0),
+            )
+            try:
+                deal_ids.append(int(getattr(deal, "dealId", 0) or 0))
+            except (TypeError, ValueError):
+                pass
+
+        exit_price = weighted_exit / total_weight if total_weight > 0 else None
+        closed_at = None
+        if latest_ts_ms > 0:
+            closed_at = datetime.fromtimestamp(latest_ts_ms / 1000.0, tz=UTC).replace(tzinfo=None)
+
+        # Monetary fields from ClosePositionDetail are denominated in the
+        # account deposit currency and are signed broker values.
+        net_profit = gross_profit + swap + commission + pnl_conversion_fee
+
+        return {
+            "status": "found",
+            "position_id": int(position_id),
+            "exit_price": exit_price,
+            "closed_at": closed_at,
+            "gross_profit": gross_profit,
+            "swap": swap,
+            "commission": commission,
+            "pnl_conversion_fee": pnl_conversion_fee,
+            "net_profit": net_profit,
+            "closed_volume_api": total_weight,
+            "deal_ids": [deal_id for deal_id in deal_ids if deal_id > 0],
+        }
+
     def close_demo_position(
         self,
         *,
@@ -520,6 +618,16 @@ class CTraderBrokerAdapter:
                 for row in (ctd.get_open_positions() or [])
             )
             if not still_open:
+                close_summary = None
+                for history_attempt in range(5):
+                    try:
+                        close_summary = self.get_closed_position_summary(int(position_id))
+                    except Exception:
+                        close_summary = None
+                    if close_summary is not None:
+                        break
+                    if history_attempt < 4:
+                        time.sleep(0.4)
                 return {
                     "status": "closed",
                     "symbol": sym,
@@ -527,6 +635,7 @@ class CTraderBrokerAdapter:
                     "quantity_lots": float(quantity_lots),
                     "verified": True,
                     "ack": ack_payload,
+                    "close_summary": close_summary,
                 }
 
         raise RuntimeError(
