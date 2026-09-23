@@ -1,17 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { getV2TradeAudit, type V2TradeAudit } from '../services/api';
+import { formatBackendLocalDateTime } from '../utils/datetime';
 
 function formatTimestamp(value: string | null): string {
-  if (!value) return '–';
-  try {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString('en-US', {
-      month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false,
-    });
-  } catch { return value; }
+  return formatBackendLocalDateTime(value, {
+    month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
 }
 
 function formatPnl(value: unknown): string {
@@ -76,9 +72,16 @@ export default function Journal() {
         ? realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'
         : '';
 
+      const closeTime =
+        typeof trade.details?.broker_closed_at === 'string'
+          ? trade.details.broker_closed_at
+          : typeof trade.details?.closed_at === 'string'
+            ? trade.details.closed_at
+            : trade.created_at;
+
       return (
         <tr key={trade.id}>
-          <td>{formatTimestamp(trade.created_at)}</td>
+          <td>{formatTimestamp(closeTime)}</td>
           <td style={{ fontWeight: 600 }}>{trade.symbol}</td>
           <td>{trade.timeframe}</td>
           <td className={toneClass}>{trade.event_type}</td>

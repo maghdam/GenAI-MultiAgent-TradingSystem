@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { toAgentSignal, type V2Analysis, type V2OrderIntent, type V2PaperPosition, type V2Status } from '../services/api';
 import type { AgentSignal } from '../types';
+import { formatBackendLocalTime } from '../utils/datetime';
 
 interface SidePanelProps {
   status: V2Status | null;
@@ -9,8 +10,7 @@ interface SidePanelProps {
 }
 
 function formatTimestamp(value?: string | null): string {
-  if (!value) return '–';
-  try { return new Date(value).toLocaleTimeString(); } catch { return '–'; }
+  return formatBackendLocalTime(value);
 }
 
 function formatConfidence(value?: number): string {

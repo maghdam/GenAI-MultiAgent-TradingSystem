@@ -198,6 +198,7 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
     assert positions[0].entry_price == 29486.2
     assert positions[0].stop_loss == 29476.4
     assert positions[0].take_profit == 29511.7
+    assert positions[0].broker_position_id == 56980461
     # Recovery only reconstructs the tracker. Protection is repaired later
     # during market-aware reconciliation so stale targets are never moved.
     assert sync_calls == []

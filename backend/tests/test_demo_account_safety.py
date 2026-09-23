@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -367,6 +368,11 @@ def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatc
     monkeypatch.setattr(ctd, "close_position", _close)
     monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: {"status": "ok"})
     monkeypatch.setattr(ctd, "get_open_positions", lambda: list(rows))
+    monkeypatch.setattr(
+        CTraderBrokerAdapter,
+        "get_closed_position_summary",
+        lambda self, position_id: None,
+    )
 
     result = CTraderBrokerAdapter().close_demo_position(
         symbol="NAS100",
@@ -378,3 +384,84 @@ def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatc
     assert result["verified"] is True
     assert captured["symbol_id"] == 116
     assert captured["volume_lots"] == 0.1
+
+
+
+def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkeypatch) -> None:
+    detail = SimpleNamespace(
+        grossProfit=-271,
+        swap=0,
+        commission=0,
+        pnlConversionFee=0,
+        closedVolume=10,
+        moneyDigits=2,
+    )
+    deal = SimpleNamespace(
+        dealId=991,
+        executionPrice=30463.9,
+        executionTimestamp=1790186686611,
+        filledVolume=10,
+        volume=10,
+        moneyDigits=2,
+        closePositionDetail=detail,
+    )
+
+    captured = {}
+
+    def _deals(position_id, **kwargs):
+        captured["position_id"] = position_id
+        captured.update(kwargs)
+        return [deal]
+
+    monkeypatch.setattr(ctd, "get_deals_by_position_id", _deals)
+
+    close_hint = datetime.fromisoformat("2026-09-23T19:04:18")
+    now_utc = datetime.fromisoformat("2026-09-23T19:15:00+00:00")
+    monkeypatch.setattr("backend.adapters.ctrader._utc_now", lambda: now_utc)
+
+    summary = CTraderBrokerAdapter().get_closed_position_summary(
+        12345,
+        closed_at_hint=close_hint,
+    )
+
+    assert captured["position_id"] == 12345
+    assert captured["from_timestamp"] == int((close_hint.replace(tzinfo=UTC) - timedelta(days=1)).timestamp() * 1000)
+    assert captured["to_timestamp"] == int(now_utc.timestamp() * 1000)
+    assert summary is not None
+    assert summary["position_id"] == 12345
+    assert summary["exit_price"] == pytest.approx(30463.9)
+    assert summary["gross_profit"] == pytest.approx(-2.71)
+    assert summary["net_profit"] == pytest.approx(-2.71)
+    assert summary["deal_ids"] == [991]
+    assert summary["closed_at"] is not None
+
+
+
+def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> None:
+    captured = {}
+
+    def _send(message, **kwargs):
+        captured["message"] = message
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(ctd.client, "send", _send)
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: object())
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda raw: SimpleNamespace(deal=[]),
+    )
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd.time, "time", lambda: 1_790_188_000.0)
+
+    result = ctd.get_deals_by_position_id(456)
+
+    assert result == []
+    assert captured["responseTimeoutInSeconds"] == 20
+    assert "timeout" not in captured
+    request = captured["message"]
+    assert request.positionId == 456
+    assert request.toTimestamp == 1_790_188_000_000
+    assert request.fromTimestamp == 1_790_015_200_000
+    assert request.IsInitialized() is True

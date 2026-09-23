@@ -14,6 +14,10 @@ from backend.services.broker import (
     sync_demo_position_targets,
 )
 from backend.services.paper_book import apply_mark, reconcile_position
+from backend.services.broker_ledger import (
+    close_local_position_after_broker_close,
+    close_local_position_from_broker,
+)
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
@@ -71,7 +75,11 @@ def _refresh_open_position(
             None,
         )
         if broker_match is None:
-            close_paper_position(position.id, mark_price, "broker_position_closed")
+            close_local_position_from_broker(
+                position,
+                fallback_price=mark_price,
+                fallback_reason="broker_position_closed",
+            )
             return None
 
     return get_open_position(item.symbol.upper(), item.timeframe.upper())
@@ -114,7 +122,12 @@ def execute_paper_signal(
                     if protection.get("status") == "exit_due_stop_loss"
                     else "broker_take_profit"
                 )
-                closed = close_paper_position(position.id, mark_price, reason)
+                closed = close_local_position_after_broker_close(
+                    position,
+                    broker_close=broker_close,
+                    fallback_price=mark_price,
+                    reason=reason,
+                )
                 add_trade_audit(
                     event_type="ctrader_demo_protective_exit",
                     symbol=position.symbol,
@@ -491,7 +504,12 @@ def execute_paper_signal(
                         if broker_protection.get("status") == "exit_due_stop_loss"
                         else "broker_take_profit"
                     )
-                    closed = close_paper_position(position.id, mark_price, reason)
+                    closed = close_local_position_after_broker_close(
+                    position,
+                    broker_close=broker_close,
+                    fallback_price=mark_price,
+                    reason=reason,
+                )
                     update_order_intent_status(
                         intent.id,
                         "executed",
@@ -702,6 +720,9 @@ def execute_paper_signal(
         account_currency=config.account_currency,
         cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
         instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
+        broker_position_id=(
+            int(broker_order.get("position_id") or 0) if broker_order and broker_order.get("position_id") else None
+        ),
     )
     update_order_intent_status(
         intent.id,

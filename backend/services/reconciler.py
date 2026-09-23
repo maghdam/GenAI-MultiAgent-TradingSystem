@@ -12,6 +12,10 @@ from backend.services.broker import (
     sync_demo_position_targets,
 )
 from backend.services.market_data import MarketDataError, get_bars
+from backend.services.broker_ledger import (
+    close_local_position_after_broker_close,
+    close_local_position_from_broker,
+)
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.storage.repositories import (
     add_paper_event,
@@ -97,6 +101,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             account_currency=cfg.account_currency,
             cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
             instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
+            broker_position_id=broker_position_id,
         )
         local_keys.add((symbol, direction))
         recovered += 1
@@ -205,7 +210,11 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 None,
             )
             if broker_match is None:
-                close_paper_position(position.id, last_price, "broker_position_closed")
+                close_local_position_from_broker(
+                    position,
+                    fallback_price=last_price,
+                    fallback_reason="broker_position_closed",
+                )
                 closed += 1
                 continue
             try:
@@ -228,7 +237,12 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                         if protection.get("status") == "exit_due_stop_loss"
                         else "broker_take_profit"
                     )
-                    close_paper_position(position.id, last_price, close_reason)
+                    close_local_position_after_broker_close(
+                        position,
+                        broker_close=broker_close,
+                        fallback_price=last_price,
+                        reason=close_reason,
+                    )
                     closed += 1
                     add_trade_audit(
                         event_type="ctrader_demo_protective_exit",

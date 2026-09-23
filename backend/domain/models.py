@@ -244,6 +244,8 @@ class PaperPosition(BaseModel):
     account_currency: str = "USD"
     cash_per_price_unit_per_lot: float = 1.0
     instrument_spec_source: str = "legacy"
+    broker_position_id: Optional[int] = None
+    realized_pnl_source: str = "paper_estimate"
 
 
 class PaperEvent(BaseModel):

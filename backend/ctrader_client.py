@@ -15,6 +15,7 @@ from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAAmendOrderReq,
     ProtoOAAmendPositionSLTPReq,
     ProtoOAClosePositionReq,
+    ProtoOADealListByPositionIdReq,
 )
 from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
     ProtoOAOrderType,
@@ -690,7 +691,7 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
         err_txt = str(f); ev.set()
 
     print(f"[DEBUG] OHLC Fetch: {symbol} {tf} | window={buffer_minutes}m")
-    d = client.send(req, timeout=10)
+    d = client.send(req, responseTimeoutInSeconds=10)
     d.addCallbacks(_ok, _err)
 
     if not ev.wait(12):
@@ -709,7 +710,7 @@ def get_ohlc_data(symbol: str, tf: str = "D1", n: int = 10):
             fromTimestamp=int(calendar.timegm(from_time_fb.utctimetuple())) * 1000,
             toTimestamp=int(calendar.timegm(now.utctimetuple())) * 1000,
         )
-        d_fb = client.send(req_fb, timeout=10)
+        d_fb = client.send(req_fb, responseTimeoutInSeconds=10)
         d_fb.addCallbacks(_ok, _err)
         if not ev.wait(12):
             print(f"[WARN] OHLC fallback timeout for {symbol} {tf}")
@@ -773,7 +774,7 @@ def get_reconcile_snapshot():
         err = str(f)
         ev.set()
 
-    d = client.send(ProtoOAReconcileReq(ctidTraderAccountId=ACCOUNT_ID), timeout=10)
+    d = client.send(ProtoOAReconcileReq(ctidTraderAccountId=ACCOUNT_ID), responseTimeoutInSeconds=10)
     d.addCallbacks(_ok, _err)
     if not ev.wait(10):
         err = "reconcile timeout"
@@ -786,6 +787,51 @@ def get_open_positions():
 
 def get_pending_orders():
     return get_reconcile_snapshot()["orders"]
+
+
+def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = None, to_timestamp: int | None = None):
+    """Return cTrader execution deals for one position id.
+
+    Historical deal data is the authoritative source for actual broker close
+    price and realized P&L after a demo position disappears from reconcile.
+
+    Some released cTrader OpenApiPy protobuf schemas still mark fromTimestamp
+    and toTimestamp as required for ProtoOADealListByPositionIdReq even though
+    the current public API docs describe them as optional. TcpProtocol queues
+    serialization asynchronously, so leaving a required proto2 field unset can
+    surface only as a response timeout. Always populate both fields.
+    """
+    now_ms = int(time.time() * 1000)
+    # Historical endpoints reject future period boundaries.
+    end_ms = now_ms if to_timestamp is None else min(now_ms, max(0, int(to_timestamp)))
+    start_ms = (
+        max(0, end_ms - 2 * 24 * 60 * 60 * 1000)
+        if from_timestamp is None
+        else max(0, int(from_timestamp))
+    )
+    # Server contract caps timestamps at 19 Jan 2038.
+    end_ms = min(end_ms, 2_147_483_646_000)
+    if end_ms < start_ms:
+        start_ms, end_ms = end_ms, start_ms
+
+    req = ProtoOADealListByPositionIdReq(
+        ctidTraderAccountId=ACCOUNT_ID,
+        positionId=int(position_id),
+        fromTimestamp=start_ms,
+        toTimestamp=end_ms,
+    )
+
+    raw = wait_for_deferred(client.send(req, responseTimeoutInSeconds=20), timeout=25)
+    if isinstance(raw, dict) and raw.get("status") == "failed":
+        raise RuntimeError(f"cTrader deal history failed: {raw.get('error') or 'unknown error'}")
+
+    event = Protobuf.extract(raw)
+    if getattr(event, "__class__", type("x", (object,), {})).__name__ == "ProtoOAErrorRes" or hasattr(event, "errorCode"):
+        code = getattr(event, "errorCode", "ERR")
+        description = getattr(event, "description", "")
+        raise RuntimeError(f"cTrader deal history failed: {code} {description}".strip())
+
+    return list(getattr(event, "deal", []) or [])
 
 
 # ── place order ───────────────────────────────────────────────────────────-
@@ -834,7 +880,7 @@ def place_order(
     print(
         f"[DEBUG] Sending order: {order_type=} {side=} volume={volume} price={price} SL={stop_loss} TP={take_profit}"
     )
-    d = client.send(req, client_msg_id=client_msg_id, timeout=12)
+    d = client.send(req, clientMsgId=client_msg_id, responseTimeoutInSeconds=12)
 
     # Optionally amend SL/TP post-fill for MARKET
     if order_type.upper() == "MARKET":
@@ -1072,7 +1118,7 @@ def modify_position_sltp(client, account_id, position_id, stop_loss=None, take_p
     if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
     if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
     # Increase timeout to avoid default 5s cancellation
-    return client.send(req, timeout=20)
+    return client.send(req, responseTimeoutInSeconds=20)
 
 
 def close_position(*, client, account_id, position_id, symbol_id, volume_lots):
@@ -1083,7 +1129,7 @@ def close_position(*, client, account_id, position_id, symbol_id, volume_lots):
     # ProtoOAClosePositionReq.volume is required and uses the same protocol
     # volume representation (0.01 of a measurement unit) as order volume.
     req.volume = volume_lots_to_units(int(symbol_id), volume_lots)
-    return client.send(req, timeout=20)
+    return client.send(req, responseTimeoutInSeconds=20)
 
 def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=None, take_profit=None, symbol_id=None):
     req = ProtoOAAmendOrderReq(
@@ -1093,7 +1139,7 @@ def modify_pending_order_sltp(client, account_id, order_id, version, stop_loss=N
     )
     if stop_loss   is not None: req.stopLoss   = _px_sym(symbol_id, stop_loss)
     if take_profit is not None: req.takeProfit = _px_sym(symbol_id, take_profit)
-    return client.send(req, timeout=20)
+    return client.send(req, responseTimeoutInSeconds=20)
 
 # ── blocking helper used by FastAPI layer ─────────────────────────────────
 def wait_for_deferred(deferred, timeout=40):

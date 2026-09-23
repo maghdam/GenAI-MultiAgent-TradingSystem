@@ -41,6 +41,7 @@ from backend.services.event_calibration import build_event_calibration, calibrat
 from backend.services.market_data import MarketDataError, get_bars, get_market_data_status
 from backend.services.market_intelligence import build_market_intelligence
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
+from backend.services.broker_ledger import reconcile_closed_demo_history
 from backend.services.risk import build_readiness
 from backend.services import model_service
 from backend.services import studio_llm
@@ -506,7 +507,13 @@ async def v2_engine_scan() -> dict:
 @router.post("/engine/reconcile")
 async def v2_engine_reconcile() -> dict:
     summary = reconcile_open_positions(reason="manual")
-    return {"ok": True, **summary}
+    history = reconcile_closed_demo_history(limit=20) if _current_config().demo_autotrade else {
+        "checked": 0,
+        "reconciled": 0,
+        "missing_broker_id": 0,
+        "unavailable": 0,
+    }
+    return {"ok": True, **summary, "closed_history": history}
 
 
 @router.post("/engine/recover")
