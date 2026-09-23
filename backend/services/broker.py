@@ -38,5 +38,9 @@ def close_demo_position(**kwargs) -> Dict[str, Any]:
     return adapter.close_demo_position(**kwargs)
 
 
+def get_closed_position_summary(position_id: int) -> Dict[str, Any] | None:
+    return adapter.get_closed_position_summary(position_id)
+
+
 def place_demo_market_order(**kwargs) -> Dict[str, Any]:
     return adapter.place_demo_market_order(**kwargs)
