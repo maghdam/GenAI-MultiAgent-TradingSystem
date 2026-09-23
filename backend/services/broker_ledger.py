@@ -62,6 +62,11 @@ def _broker_summary_details(summary: Dict[str, Any]) -> Dict[str, Any]:
         "broker_pnl_conversion_fee": summary.get("pnl_conversion_fee"),
         "broker_net_profit": summary.get("net_profit"),
         "broker_deal_ids": summary.get("deal_ids") or [],
+        "broker_closed_at": (
+            summary.get("closed_at").isoformat()
+            if getattr(summary.get("closed_at"), "isoformat", None)
+            else summary.get("closed_at")
+        ),
     }
 
 
