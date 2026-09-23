@@ -12,8 +12,9 @@ import {
   type V2Config,
   type V2Status,
 } from '../services/api';
+import { formatBackendLocalDateTime } from '../utils/datetime';
 
-const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString() : '--';
+const formatTime = (value?: string | null) => formatBackendLocalDateTime(value);
 
 export default function SystemPage() {
   const [status, setStatus] = useState<V2Status | null>(null);
