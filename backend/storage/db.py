@@ -104,7 +104,9 @@ def init_db() -> None:
                 close_reason TEXT,
                 account_currency TEXT NOT NULL DEFAULT 'USD',
                 cash_per_price_unit_per_lot REAL NOT NULL DEFAULT 1.0,
-                instrument_spec_source TEXT NOT NULL DEFAULT 'legacy'
+                instrument_spec_source TEXT NOT NULL DEFAULT 'legacy',
+                broker_position_id INTEGER,
+                realized_pnl_source TEXT NOT NULL DEFAULT 'paper_estimate'
             )
             """
         )
@@ -181,6 +183,10 @@ def init_db() -> None:
             cur.execute("ALTER TABLE paper_positions ADD COLUMN cash_per_price_unit_per_lot REAL NOT NULL DEFAULT 1.0")
         if "instrument_spec_source" not in existing_position_columns:
             cur.execute("ALTER TABLE paper_positions ADD COLUMN instrument_spec_source TEXT NOT NULL DEFAULT 'legacy'")
+        if "broker_position_id" not in existing_position_columns:
+            cur.execute("ALTER TABLE paper_positions ADD COLUMN broker_position_id INTEGER")
+        if "realized_pnl_source" not in existing_position_columns:
+            cur.execute("ALTER TABLE paper_positions ADD COLUMN realized_pnl_source TEXT NOT NULL DEFAULT 'paper_estimate'")
         cur.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_decision_records_symbol_created
