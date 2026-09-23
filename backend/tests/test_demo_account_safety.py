@@ -416,3 +416,27 @@ def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkey
     assert summary["net_profit"] == pytest.approx(-2.71)
     assert summary["deal_ids"] == [991]
     assert summary["closed_at"] is not None
+
+
+
+def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> None:
+    captured = {}
+
+    def _send(message, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(ctd.client, "send", _send)
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: object())
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda raw: SimpleNamespace(deal=[]),
+    )
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+
+    result = ctd.get_deals_by_position_id(456)
+
+    assert result == []
+    assert captured["responseTimeoutInSeconds"] == 20
+    assert "timeout" not in captured
