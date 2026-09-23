@@ -10,6 +10,10 @@ from backend.services.broker import close_demo_position, get_broker_status, list
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars
 from backend.services.paper_book import apply_mark, reconcile_position
+from backend.services.broker_ledger import (
+    close_local_position_after_broker_close,
+    close_local_position_from_broker,
+)
 from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
     add_analysis,
@@ -233,7 +237,12 @@ class V2Engine:
                     if protection.get("status") == "exit_due_stop_loss"
                     else "broker_take_profit"
                 )
-                close_paper_position(position.id, last_price, reason)
+                close_local_position_after_broker_close(
+                    position,
+                    broker_close=broker_close,
+                    fallback_price=last_price,
+                    reason=reason,
+                )
                 add_trade_audit(
                     event_type="ctrader_demo_protective_exit",
                     symbol=position.symbol,
@@ -287,6 +296,10 @@ class V2Engine:
             None,
         )
         if broker_match is None:
-            close_paper_position(position.id, last_price, "broker_position_closed")
+            close_local_position_from_broker(
+                position,
+                fallback_price=last_price,
+                fallback_reason="broker_position_closed",
+            )
 
 engine = V2Engine()
