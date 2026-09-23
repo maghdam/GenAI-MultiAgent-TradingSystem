@@ -72,7 +72,7 @@ def test_closed_demo_history_replaces_estimated_pnl_with_ctrader_deal(monkeypatc
     broker_closed_at = datetime.fromisoformat("2026-09-23T19:03:11.014000")
     monkeypatch.setattr(
         "backend.services.broker_ledger.get_closed_position_summary",
-        lambda broker_position_id: {
+        lambda broker_position_id, **kwargs: {
             "status": "found",
             "position_id": broker_position_id,
             "exit_price": 51637.5,
@@ -133,7 +133,7 @@ def test_closed_history_skips_paper_position_without_broker_identity(monkeypatch
     close_paper_position(position.id, 1.11, "take_profit")
     monkeypatch.setattr(
         "backend.services.broker_ledger.get_closed_position_summary",
-        lambda broker_position_id: pytest.fail("pure paper trade must not query broker history"),
+        lambda broker_position_id, **kwargs: pytest.fail("pure paper trade must not query broker history"),
     )
 
     result = reconcile_closed_demo_history(limit=20)
