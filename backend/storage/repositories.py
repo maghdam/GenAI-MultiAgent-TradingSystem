@@ -1283,6 +1283,7 @@ def close_paper_position(
             "realized_pnl": realized,
             "realized_pnl_source": realized_pnl_source,
             "broker_position_id": position.broker_position_id,
+            "closed_at": now,
         },
     )
     add_trade_audit(
@@ -1298,6 +1299,7 @@ def close_paper_position(
             "realized_pnl": realized,
             "realized_pnl_source": realized_pnl_source,
             "broker_position_id": position.broker_position_id,
+            "closed_at": now,
         },
     )
     return get_position_by_id(position_id)
@@ -1334,6 +1336,7 @@ def reconcile_closed_paper_position_from_broker(
             "realized_pnl": float(realized_pnl),
             "realized_pnl_source": "ctrader_deal",
             "broker_position_id": int(broker_position_id),
+            "closed_at": closed_at_value,
         }
     )
 
