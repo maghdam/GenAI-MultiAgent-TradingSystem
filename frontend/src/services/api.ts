@@ -164,6 +164,8 @@ export interface V2PaperPosition {
   account_currency: string;
   cash_per_price_unit_per_lot: number;
   instrument_spec_source: string;
+  broker_position_id?: number | null;
+  realized_pnl_source?: string;
 }
 
 export interface V2PaperEvent {
