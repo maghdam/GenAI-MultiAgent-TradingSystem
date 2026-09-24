@@ -101,6 +101,104 @@ def test_per_symbol_lot_routes_verified_demo_order_and_tracks_position(monkeypat
     assert intents[0].details["execution_mode"] == "ctrader_demo"
 
 
+def test_unprotected_demo_order_is_closed_by_failsafe(monkeypatch) -> None:
+    _mock_demo_ready(monkeypatch)
+    captured_close = {}
+
+    monkeypatch.setattr(
+        "backend.services.execution_engine.place_demo_market_order",
+        lambda **kwargs: {
+            "status": "executed",
+            "position_id": 321,
+            "account_type": "demo",
+            "quantity_lots": 0.25,
+        },
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("protection verification failed")),
+    )
+
+    def _close(**kwargs):
+        captured_close.update(kwargs)
+        return {
+            "status": "closed",
+            "verified": True,
+            "position_id": kwargs["position_id"],
+            "quantity_lots": kwargs["quantity_lots"],
+        }
+
+    monkeypatch.setattr("backend.services.execution_engine.close_demo_position", _close)
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch(),
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is True
+    assert result.status == "failed"
+    assert result.retryable is False
+    assert result.broker_position_id == 321
+    assert captured_close["position_id"] == 321
+    assert captured_close["quantity_lots"] == 0.25
+    assert list_paper_positions("open") == []
+
+    intents = list_order_intents(5)
+    assert intents[0].status == "failed"
+    assert intents[0].details["failsafe_closed"] is True
+    assert intents[0].details["failsafe_close"]["verified"] is True
+
+
+def test_unprotected_demo_order_close_failure_retains_tracker_for_retry(monkeypatch) -> None:
+    _mock_demo_ready(monkeypatch)
+
+    monkeypatch.setattr(
+        "backend.services.execution_engine.place_demo_market_order",
+        lambda **kwargs: {
+            "status": "executed",
+            "position_id": 654,
+            "account_type": "demo",
+            "quantity_lots": 0.25,
+        },
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("protection verification failed")),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.close_demo_position",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("broker close verification failed")),
+    )
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch(),
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is True
+    assert result.status == "failed"
+    assert result.retryable is True
+    assert result.broker_position_id == 654
+
+    positions = list_paper_positions("open")
+    assert len(positions) == 1
+    assert positions[0].broker_position_id == 654
+    assert positions[0].quantity == 0.25
+
+    intents = list_order_intents(5)
+    assert intents[0].status == "failed"
+    assert intents[0].details["tracking_retained"] is True
+    assert "broker close verification failed" in intents[0].details["failsafe_close_error"]
+
+
 def test_demo_order_failure_does_not_create_local_position(monkeypatch) -> None:
     _mock_demo_ready(monkeypatch)
     monkeypatch.setattr(
