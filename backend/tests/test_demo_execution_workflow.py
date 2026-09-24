@@ -55,7 +55,23 @@ def _watch() -> WatchlistItem:
     )
 
 
+def _mock_demo_ready(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        lambda symbol: (True, "ready"),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: {
+            "status": "synced",
+            "position_id": kwargs.get("position_id"),
+            "quantity_lots": kwargs.get("quantity_lots"),
+        },
+    )
+
+
 def test_per_symbol_lot_routes_verified_demo_order_and_tracks_position(monkeypatch) -> None:
+    _mock_demo_ready(monkeypatch)
     captured = {}
 
     def _place(**kwargs):
@@ -86,6 +102,7 @@ def test_per_symbol_lot_routes_verified_demo_order_and_tracks_position(monkeypat
 
 
 def test_demo_order_failure_does_not_create_local_position(monkeypatch) -> None:
+    _mock_demo_ready(monkeypatch)
     monkeypatch.setattr(
         "backend.services.execution_engine.place_demo_market_order",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("demo account not confirmed")),
@@ -125,7 +142,7 @@ def test_engine_uses_enabled_row_strategy_and_preserves_per_symbol_lot(monkeypat
 
     def _execute(**kwargs):
         captured["watch_item"] = kwargs["watch_item"]
-        return SimpleNamespace(action_taken=True)
+        return SimpleNamespace(action_taken=True, retryable=False)
 
     monkeypatch.setattr(engine_module, "get_bars", lambda *args, **kwargs: bars)
     monkeypatch.setattr(
@@ -143,6 +160,34 @@ def test_engine_uses_enabled_row_strategy_and_preserves_per_symbol_lot(monkeypat
     assert captured["analysis_kwargs"]["symbol"] == "XAUUSD"
     assert captured["watch_item"].lot_size == 0.4
     assert captured["watch_item"].trading_enabled is True
+
+
+def test_demo_symbol_not_ready_defers_without_creating_intent(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        lambda symbol: (False, "Connected cTrader account is not confirmed as demo."),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.place_demo_market_order",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("order must not be routed before demo readiness")),
+    )
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch(),
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is False
+    assert result.status == "deferred"
+    assert result.retryable is True
+    assert result.intent_id is None
+    assert "not confirmed as demo" in result.summary
+    assert list_paper_positions("open") == []
+    assert list_order_intents(5) == []
 
 
 def test_disabled_watchlist_row_does_not_generate_signal(monkeypatch) -> None:
