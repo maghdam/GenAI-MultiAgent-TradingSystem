@@ -717,6 +717,35 @@ def execute_paper_signal(
                     position_id=broker_position_id,
                     quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
                 )
+            except Exception as close_exc:
+                unprotected_close_error = str(close_exc)
+                broker_order["failsafe_closed"] = False
+                broker_order["failsafe_close_error"] = unprotected_close_error
+                log_incident(
+                    "error",
+                    "ctrader_demo_unprotected_failsafe_close_failed",
+                    f"Fail-safe close failed for unprotected cTrader demo position {analysis.symbol}:{analysis.timeframe}",
+                    {
+                        "intent_id": intent.id,
+                        "broker_position_id": broker_position_id or None,
+                        "protection_error": str(exc),
+                        "close_error": unprotected_close_error,
+                    },
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_unprotected_failsafe_close_failed",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    summary="Fail-safe close failed; local tracking will be retained so protection can be retried.",
+                    details={
+                        "broker_position_id": broker_position_id or None,
+                        "protection_error": str(exc),
+                        "close_error": unprotected_close_error,
+                    },
+                )
+            else:
                 broker_order["failsafe_close"] = broker_close
                 broker_order["failsafe_closed"] = True
                 update_order_intent_status(
@@ -762,34 +791,6 @@ def execute_paper_signal(
                     mode="demo_enabled",
                     broker_position_id=broker_position_id,
                     retryable=False,
-                )
-            except Exception as close_exc:
-                unprotected_close_error = str(close_exc)
-                broker_order["failsafe_closed"] = False
-                broker_order["failsafe_close_error"] = unprotected_close_error
-                log_incident(
-                    "error",
-                    "ctrader_demo_unprotected_failsafe_close_failed",
-                    f"Fail-safe close failed for unprotected cTrader demo position {analysis.symbol}:{analysis.timeframe}",
-                    {
-                        "intent_id": intent.id,
-                        "broker_position_id": broker_position_id or None,
-                        "protection_error": str(exc),
-                        "close_error": unprotected_close_error,
-                    },
-                )
-                add_trade_audit(
-                    event_type="ctrader_demo_unprotected_failsafe_close_failed",
-                    symbol=analysis.symbol,
-                    timeframe=analysis.timeframe,
-                    strategy=analysis.strategy,
-                    intent_id=intent.id,
-                    summary="Fail-safe close failed; local tracking will be retained so protection can be retried.",
-                    details={
-                        "broker_position_id": broker_position_id or None,
-                        "protection_error": str(exc),
-                        "close_error": unprotected_close_error,
-                    },
                 )
 
     created = open_paper_position(
