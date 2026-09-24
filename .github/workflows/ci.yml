@@ -19,6 +19,11 @@ jobs:
     name: Backend tests (Python 3.12)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Tests mock broker transport. A non-live placeholder prevents import-time
+      # credential parsing from depending on a developer's local .env file.
+      CTRADER_ACCOUNT_ID: "0"
+      CTRADER_HOST_TYPE: "demo"
 
     steps:
       - name: Check out repository
