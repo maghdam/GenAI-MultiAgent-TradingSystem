@@ -597,6 +597,7 @@ def execute_paper_signal(
         )
 
     broker_order = None
+    unprotected_close_error: str | None = None
     if demo_execution:
         try:
             broker_order = place_demo_market_order(
@@ -683,13 +684,14 @@ def execute_paper_signal(
         except Exception as exc:
             broker_order["protection_verified"] = False
             broker_order["protection_error"] = str(exc)
+            broker_position_id = int(broker_order.get("position_id") or 0)
             log_incident(
                 "error",
                 "ctrader_demo_order_unprotected",
                 f"Demo order opened but broker SL/TP could not be verified for {analysis.symbol}:{analysis.timeframe}",
                 {
                     "intent_id": intent.id,
-                    "broker_position_id": broker_order.get("position_id"),
+                    "broker_position_id": broker_position_id or None,
                     "error": str(exc),
                 },
             )
@@ -699,14 +701,96 @@ def execute_paper_signal(
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
                 intent_id=intent.id,
-                summary="Demo order opened; broker protection verification failed and will be retried.",
+                summary="Demo order opened without verified broker protection; fail-safe close will be attempted.",
                 details={
-                    "broker_position_id": broker_order.get("position_id"),
+                    "broker_position_id": broker_position_id or None,
                     "error": str(exc),
                     "stop_loss": analysis.stop_loss,
                     "take_profit": analysis.take_profit,
                 },
             )
+            try:
+                if broker_position_id <= 0:
+                    raise RuntimeError("cTrader demo order did not return a valid broker position id for fail-safe close.")
+                broker_close = close_demo_position(
+                    symbol=analysis.symbol,
+                    position_id=broker_position_id,
+                    quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
+                )
+                broker_order["failsafe_close"] = broker_close
+                broker_order["failsafe_closed"] = True
+                update_order_intent_status(
+                    intent.id,
+                    "failed",
+                    {
+                        "broker_order": broker_order,
+                        "protection_error": str(exc),
+                        "failsafe_closed": True,
+                        "failsafe_close": broker_close,
+                    },
+                    reason="ctrader_demo_unprotected_failsafe_closed",
+                )
+                log_incident(
+                    "warning",
+                    "ctrader_demo_unprotected_failsafe_closed",
+                    f"Closed unprotected cTrader demo position for {analysis.symbol}:{analysis.timeframe}",
+                    {
+                        "intent_id": intent.id,
+                        "broker_position_id": broker_position_id,
+                        "protection_error": str(exc),
+                        "broker_close": broker_close,
+                    },
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_unprotected_failsafe_closed",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    summary="Closed cTrader demo position because broker SL/TP could not be verified.",
+                    details={
+                        "broker_position_id": broker_position_id,
+                        "protection_error": str(exc),
+                        "broker_close": broker_close,
+                    },
+                )
+                return ExecutionResult(
+                    action_taken=True,
+                    intent_id=intent.id,
+                    status="failed",
+                    summary="Demo position was closed by fail-safe because broker protection could not be verified.",
+                    mode="demo_enabled",
+                    broker_position_id=broker_position_id,
+                    retryable=False,
+                )
+            except Exception as close_exc:
+                unprotected_close_error = str(close_exc)
+                broker_order["failsafe_closed"] = False
+                broker_order["failsafe_close_error"] = unprotected_close_error
+                log_incident(
+                    "error",
+                    "ctrader_demo_unprotected_failsafe_close_failed",
+                    f"Fail-safe close failed for unprotected cTrader demo position {analysis.symbol}:{analysis.timeframe}",
+                    {
+                        "intent_id": intent.id,
+                        "broker_position_id": broker_position_id or None,
+                        "protection_error": str(exc),
+                        "close_error": unprotected_close_error,
+                    },
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_unprotected_failsafe_close_failed",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    summary="Fail-safe close failed; local tracking will be retained so protection can be retried.",
+                    details={
+                        "broker_position_id": broker_position_id or None,
+                        "protection_error": str(exc),
+                        "close_error": unprotected_close_error,
+                    },
+                )
 
     created = open_paper_position(
         symbol=analysis.symbol,
@@ -724,6 +808,45 @@ def execute_paper_signal(
             int(broker_order.get("position_id") or 0) if broker_order and broker_order.get("position_id") else None
         ),
     )
+    if broker_order and unprotected_close_error is not None:
+        update_order_intent_status(
+            intent.id,
+            "failed",
+            {
+                "opened_position_id": created.id,
+                "execution_mode": "ctrader_demo",
+                "broker_order": broker_order,
+                "failsafe_close_error": unprotected_close_error,
+                "tracking_retained": True,
+            },
+            reason="ctrader_demo_unprotected_failsafe_close_failed",
+        )
+        add_trade_audit(
+            event_type="ctrader_demo_unprotected_tracking_retained",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            intent_id=intent.id,
+            position_id=created.id,
+            summary="Retained local tracking for an unprotected demo position after the fail-safe close also failed.",
+            details={
+                "broker_position_id": (broker_order or {}).get("position_id"),
+                "close_error": unprotected_close_error,
+                "stop_loss": analysis.stop_loss,
+                "take_profit": analysis.take_profit,
+            },
+        )
+        return ExecutionResult(
+            action_taken=True,
+            intent_id=intent.id,
+            status="failed",
+            summary="Broker protection failed and the fail-safe close failed; local tracking was retained for retry.",
+            position_id=created.id,
+            mode="demo_enabled",
+            broker_position_id=(broker_order or {}).get("position_id"),
+            retryable=True,
+        )
+
     update_order_intent_status(
         intent.id,
         "executed",
