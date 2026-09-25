@@ -18,6 +18,7 @@ from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
 )
+from backend.services.broker_position_match import match_broker_position
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
@@ -30,6 +31,7 @@ from backend.storage.repositories import (
     open_paper_position,
     update_order_intent_status,
     update_paper_position_targets,
+    set_paper_position_broker_id,
 )
 
 
@@ -43,6 +45,10 @@ class ExecutionResult:
     mode: str = "paper_only"
     broker_position_id: int | None = None
     retryable: bool = False
+
+
+class BrokerPositionIdentityError(RuntimeError):
+    pass
 
 
 def _refresh_open_position(
@@ -64,23 +70,33 @@ def _refresh_open_position(
     apply_mark(position, mark_price)
     status = get_broker_status()
     if status.execution_ready:
-        expected_side = "buy" if position.direction == "long" else "sell"
-        broker_match = next(
-            (
-                row
-                for row in list_positions()
-                if str(row.get("symbol") or "").upper() == position.symbol.upper()
-                and str(row.get("direction") or "").lower() == expected_side
-            ),
-            None,
-        )
-        if broker_match is None:
+        match = match_broker_position(position, list_positions())
+        if match.status in {"id_mismatch", "legacy_ambiguous"}:
+            message = f"Could not safely identify broker position for {position.symbol}:{position.timeframe}."
+            log_incident(
+                "error",
+                "ctrader_demo_position_identity_ambiguous",
+                message,
+                {
+                    "position_id": position.id,
+                    "broker_position_id": position.broker_position_id,
+                    "match_status": match.status,
+                    "candidates": match.candidates,
+                },
+            )
+            raise BrokerPositionIdentityError(message)
+        if not match.matched:
             close_local_position_from_broker(
                 position,
                 fallback_price=mark_price,
                 fallback_reason="broker_position_closed",
             )
             return None
+        if match.status == "legacy_match":
+            position = set_paper_position_broker_id(
+                position.id,
+                int(match.row.get("position_id") or 0),
+            )
 
     return get_open_position(item.symbol.upper(), item.timeframe.upper())
 
@@ -97,7 +113,17 @@ def execute_paper_signal(
     source: str = "auto",
 ) -> ExecutionResult:
     demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
-    position = _refresh_open_position(watch_item, mark_price, demo_execution=demo_execution)
+    try:
+        position = _refresh_open_position(watch_item, mark_price, demo_execution=demo_execution)
+    except BrokerPositionIdentityError as exc:
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=None,
+            status="failed",
+            summary=str(exc),
+            mode="demo_enabled",
+            retryable=True,
+        )
 
     # Keep an already-open demo position protected at the broker even when the
     # current strategy result is no_trade or later fails a new-entry risk gate.
@@ -109,6 +135,7 @@ def execute_paper_signal(
                 direction=position.direction,
                 stop_loss=position.stop_loss,
                 take_profit=position.take_profit,
+                position_id=position.broker_position_id,
                 reference_price=mark_price,
             )
             if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
@@ -491,6 +518,7 @@ def execute_paper_signal(
                     direction=position.direction,
                     stop_loss=analysis.stop_loss,
                     take_profit=analysis.take_profit,
+                    position_id=position.broker_position_id,
                     reference_price=mark_price,
                 )
                 if broker_protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:

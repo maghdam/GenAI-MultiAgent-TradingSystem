@@ -204,6 +204,156 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
     assert sync_calls == []
 
 
+def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeypatch) -> None:
+    config = EngineConfig(
+        enabled=True,
+        demo_autotrade=True,
+        watchlist=[
+            WatchlistItem(
+                symbol="NAS100",
+                timeframe="M5",
+                strategy="breakout",
+                enabled=True,
+                trading_enabled=True,
+                lot_size=0.1,
+                params={},
+            )
+        ],
+    )
+    save_engine_config(config)
+    intent = create_order_intent(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        intent_type="open",
+        status="accepted",
+        confidence=0.8,
+        entry_price=29487.5,
+        stop_loss=29476.4,
+        take_profit=29511.7,
+        quantity=0.1,
+        rationale="test",
+        details={},
+    )
+    from backend.storage.repositories import update_order_intent_status
+
+    update_order_intent_status(
+        intent.id,
+        "executed",
+        {"broker_order": {"position_id": 56980461, "symbol": "NAS100", "quantity_lots": 0.1}},
+        reason="ctrader_demo_order_executed",
+    )
+    legacy = open_paper_position(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        quantity=0.1,
+        entry_price=29486.2,
+        stop_loss=29476.4,
+        take_profit=29511.7,
+    )
+
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.list_positions",
+        lambda: [
+            {
+                "symbol": "NAS100",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 29486.2,
+                "position_id": 56980461,
+            }
+        ],
+    )
+
+    result = recover_demo_broker_trackers(config)
+
+    assert result["recovered"] == 0
+    assert result["attached"] == 1
+    positions = list_paper_positions("open")
+    assert len(positions) == 1
+    assert positions[0].id == legacy.id
+    assert positions[0].broker_position_id == 56980461
+
+
+def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_position(monkeypatch) -> None:
+    config = EngineConfig(
+        enabled=True,
+        demo_autotrade=True,
+        watchlist=[
+            WatchlistItem(
+                symbol="XAUUSD",
+                timeframe="M5",
+                strategy="sma_cross",
+                enabled=True,
+                trading_enabled=True,
+                lot_size=0.1,
+                params={},
+            )
+        ],
+    )
+    save_engine_config(config)
+    opened = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        broker_position_id=111,
+    )
+
+    def _fake_bars(symbol: str, timeframe: str, bars: int):
+        import pandas as pd
+
+        return pd.DataFrame(
+            [{"close": 100.5}],
+            index=pd.to_datetime(["2026-09-18T18:55:00Z"], utc=True),
+        )
+
+    monkeypatch.setattr("backend.services.reconciler.get_bars", _fake_bars)
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.list_positions",
+        lambda: [
+            {
+                "symbol": "XAUUSD",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 100.0,
+                "position_id": 222,
+            }
+        ],
+    )
+    closed = []
+    monkeypatch.setattr(
+        "backend.services.reconciler.close_local_position_from_broker",
+        lambda position, **kwargs: closed.append(position.id),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.sync_demo_position_targets",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("same-side broker position with a different id must not be adopted")
+        ),
+    )
+
+    summary = reconcile_open_positions(reason="identity_test")
+
+    assert summary["closed"] == 1
+    assert closed == [opened.id]
+
+
 def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,

@@ -16,6 +16,7 @@ from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
 )
+from backend.services.broker_position_match import match_broker_position
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.storage.repositories import (
     add_paper_event,
@@ -28,6 +29,7 @@ from backend.storage.repositories import (
     log_incident,
     open_paper_position,
     save_runtime,
+    set_paper_position_broker_id,
 )
 
 
@@ -54,16 +56,33 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
         for item in cfg.watchlist
         if item.enabled and item.trading_enabled
     }
-    local_keys = {(p.symbol.upper(), p.direction) for p in local_rows}
+    local_broker_ids = {
+        int(p.broker_position_id)
+        for p in local_rows
+        if p.broker_position_id is not None and int(p.broker_position_id) > 0
+    }
 
     recovered = 0
+    attached = 0
     untracked = 0
     for row in broker_rows:
         symbol = str(row.get("symbol") or "").upper()
         direction = "long" if str(row.get("direction") or "").lower() == "buy" else "short"
-        if symbol not in watch_by_symbol or (symbol, direction) in local_keys:
+        if symbol not in watch_by_symbol:
             continue
         broker_position_id = int(row.get("position_id") or 0)
+        if broker_position_id <= 0:
+            untracked += 1
+            log_incident(
+                "error",
+                "ctrader_demo_broker_position_missing_id",
+                f"Broker demo position for {symbol} has no valid position id.",
+                {"broker_position": row, "automatic_adoption": False},
+            )
+            continue
+        if broker_position_id in local_broker_ids:
+            continue
+
         matching_intent = None
         for intent in intents:
             broker_order = intent.details.get("broker_order") if isinstance(intent.details, dict) else None
@@ -73,7 +92,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
                 intent_position_id = int(broker_order.get("position_id") or 0)
             except (TypeError, ValueError):
                 intent_position_id = 0
-            if intent_position_id == broker_position_id and broker_position_id > 0:
+            if intent_position_id == broker_position_id:
                 matching_intent = intent
                 break
 
@@ -84,6 +103,57 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
                 "ctrader_demo_untracked_broker_position",
                 f"Broker demo position {broker_position_id} for {symbol} has no local tracker.",
                 {"broker_position": row, "automatic_adoption": False},
+            )
+            continue
+
+        legacy_matches = [
+            p
+            for p in local_rows
+            if p.broker_position_id is None
+            and p.symbol.upper() == symbol
+            and p.direction == direction
+            and p.timeframe.upper() == matching_intent.timeframe.upper()
+            and p.strategy == matching_intent.strategy
+        ]
+        if len(legacy_matches) == 1:
+            legacy = legacy_matches[0]
+            updated = set_paper_position_broker_id(legacy.id, broker_position_id)
+            local_rows = [updated if p.id == legacy.id else p for p in local_rows]
+            local_broker_ids.add(broker_position_id)
+            attached += 1
+            add_trade_audit(
+                event_type="ctrader_demo_tracker_identity_attached",
+                symbol=symbol,
+                timeframe=updated.timeframe,
+                strategy=updated.strategy,
+                position_id=updated.id,
+                intent_id=matching_intent.id,
+                summary="Attached persisted cTrader position id to a legacy local tracker.",
+                details={"broker_position_id": broker_position_id},
+            )
+            continue
+
+        conflicting_local = next(
+            (
+                p
+                for p in local_rows
+                if p.symbol.upper() == symbol
+                and p.timeframe.upper() == matching_intent.timeframe.upper()
+            ),
+            None,
+        )
+        if conflicting_local is not None:
+            untracked += 1
+            log_incident(
+                "error",
+                "ctrader_demo_broker_position_identity_conflict",
+                f"Broker demo position {broker_position_id} conflicts with an existing local tracker.",
+                {
+                    "broker_position": row,
+                    "local_position_id": conflicting_local.id,
+                    "local_broker_position_id": conflicting_local.broker_position_id,
+                    "automatic_adoption": False,
+                },
             )
             continue
 
@@ -103,7 +173,8 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
             broker_position_id=broker_position_id,
         )
-        local_keys.add((symbol, direction))
+        local_rows.append(created)
+        local_broker_ids.add(broker_position_id)
         recovered += 1
         add_trade_audit(
             event_type="ctrader_demo_tracker_recovered",
@@ -122,6 +193,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
     return {
         "checked": len(broker_rows),
         "recovered": recovered,
+        "attached": attached,
         "untracked": untracked,
         "ready": True,
     }
@@ -199,17 +271,23 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
             if not demo_ready:
                 skipped += 1
                 continue
-            broker_match = next(
-                (
-                    row
-                    for row in broker_rows
-                    if str(row.get("symbol") or "").upper() == position.symbol.upper()
-                    and str(row.get("direction") or "").lower()
-                    == ("buy" if position.direction == "long" else "sell")
-                ),
-                None,
-            )
-            if broker_match is None:
+            match = match_broker_position(position, broker_rows)
+            if match.status in {"id_mismatch", "legacy_ambiguous"}:
+                skipped += 1
+                log_incident(
+                    "error",
+                    "ctrader_demo_position_identity_ambiguous",
+                    f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
+                    {
+                        "reason": reason,
+                        "position_id": position.id,
+                        "broker_position_id": position.broker_position_id,
+                        "match_status": match.status,
+                        "candidates": match.candidates,
+                    },
+                )
+                continue
+            if not match.matched:
                 close_local_position_from_broker(
                     position,
                     fallback_price=last_price,
@@ -217,13 +295,19 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 )
                 closed += 1
                 continue
+            if match.status == "legacy_match":
+                position = set_paper_position_broker_id(
+                    position.id,
+                    int(match.row.get("position_id") or 0),
+                )
+            broker_match = match.row
             try:
                 protection = sync_demo_position_targets(
                     symbol=position.symbol,
                     direction=position.direction,
                     stop_loss=position.stop_loss,
                     take_profit=position.take_profit,
-                    position_id=int(broker_match.get("position_id") or 0) or None,
+                    position_id=position.broker_position_id,
                     reference_price=last_price,
                 )
                 if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
