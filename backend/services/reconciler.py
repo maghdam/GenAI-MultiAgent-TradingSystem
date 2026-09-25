@@ -16,6 +16,7 @@ from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
 )
+from backend.services.broker_position_match import match_broker_position
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.storage.repositories import (
     add_paper_event,
@@ -28,6 +29,7 @@ from backend.storage.repositories import (
     log_incident,
     open_paper_position,
     save_runtime,
+    set_paper_position_broker_id,
 )
 
 
@@ -199,17 +201,23 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
             if not demo_ready:
                 skipped += 1
                 continue
-            broker_match = next(
-                (
-                    row
-                    for row in broker_rows
-                    if str(row.get("symbol") or "").upper() == position.symbol.upper()
-                    and str(row.get("direction") or "").lower()
-                    == ("buy" if position.direction == "long" else "sell")
-                ),
-                None,
-            )
-            if broker_match is None:
+            match = match_broker_position(position, broker_rows)
+            if match.status in {"id_mismatch", "legacy_ambiguous"}:
+                skipped += 1
+                log_incident(
+                    "error",
+                    "ctrader_demo_position_identity_ambiguous",
+                    f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
+                    {
+                        "reason": reason,
+                        "position_id": position.id,
+                        "broker_position_id": position.broker_position_id,
+                        "match_status": match.status,
+                        "candidates": match.candidates,
+                    },
+                )
+                continue
+            if not match.matched:
                 close_local_position_from_broker(
                     position,
                     fallback_price=last_price,
@@ -217,13 +225,19 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 )
                 closed += 1
                 continue
+            if match.status == "legacy_match":
+                position = set_paper_position_broker_id(
+                    position.id,
+                    int(match.row.get("position_id") or 0),
+                )
+            broker_match = match.row
             try:
                 protection = sync_demo_position_targets(
                     symbol=position.symbol,
                     direction=position.direction,
                     stop_loss=position.stop_loss,
                     take_profit=position.take_profit,
-                    position_id=int(broker_match.get("position_id") or 0) or None,
+                    position_id=position.broker_position_id,
                     reference_price=last_price,
                 )
                 if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
