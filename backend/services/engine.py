@@ -14,6 +14,7 @@ from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
 )
+from backend.services.broker_position_match import match_broker_position
 from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
     add_analysis,
@@ -27,6 +28,7 @@ from backend.storage.repositories import (
     log_incident,
     save_bar_state,
     save_runtime,
+    set_paper_position_broker_id,
 )
 from backend.strategies.registry import get_strategy
 
@@ -204,18 +206,29 @@ class V2Engine:
         if not position:
             return
 
-        expected_side = "buy" if position.direction == "long" else "sell"
-        broker_match = next(
-            (
-                row
-                for row in list_positions()
-                if str(row.get("symbol") or "").upper() == position.symbol.upper()
-                and str(row.get("direction") or "").lower() == expected_side
-            ),
-            None,
-        )
-        if broker_match is None:
+        match = match_broker_position(position, list_positions())
+        if match.status in {"id_mismatch", "legacy_ambiguous"}:
+            log_incident(
+                "error",
+                "ctrader_demo_position_identity_ambiguous",
+                f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
+                {
+                    "position_id": position.id,
+                    "broker_position_id": position.broker_position_id,
+                    "match_status": match.status,
+                    "candidates": match.candidates,
+                    "phase": "same_bar_maintenance",
+                },
+            )
             return
+        if not match.matched:
+            return
+        if match.status == "legacy_match":
+            position = set_paper_position_broker_id(
+                position.id,
+                int(match.row.get("position_id") or 0),
+            )
+        broker_match = match.row
 
         try:
             protection = sync_demo_position_targets(
@@ -223,7 +236,7 @@ class V2Engine:
                 direction=position.direction,
                 stop_loss=position.stop_loss,
                 take_profit=position.take_profit,
-                position_id=int(broker_match.get("position_id") or 0) or None,
+                position_id=position.broker_position_id,
                 reference_price=last_price,
             )
             if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
@@ -285,21 +298,32 @@ class V2Engine:
         status = get_broker_status()
         if not status.execution_ready:
             return
-        expected_side = "buy" if position.direction == "long" else "sell"
-        broker_match = next(
-            (
-                row
-                for row in list_positions()
-                if str(row.get("symbol") or "").upper() == position.symbol.upper()
-                and str(row.get("direction") or "").lower() == expected_side
-            ),
-            None,
-        )
-        if broker_match is None:
+        match = match_broker_position(position, list_positions())
+        if match.status in {"id_mismatch", "legacy_ambiguous"}:
+            log_incident(
+                "error",
+                "ctrader_demo_position_identity_ambiguous",
+                f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
+                {
+                    "position_id": position.id,
+                    "broker_position_id": position.broker_position_id,
+                    "match_status": match.status,
+                    "candidates": match.candidates,
+                    "phase": "same_bar_mark",
+                },
+            )
+            return
+        if not match.matched:
             close_local_position_from_broker(
                 position,
                 fallback_price=last_price,
                 fallback_reason="broker_position_closed",
+            )
+            return
+        if match.status == "legacy_match":
+            set_paper_position_broker_id(
+                position.id,
+                int(match.row.get("position_id") or 0),
             )
 
 engine = V2Engine()
