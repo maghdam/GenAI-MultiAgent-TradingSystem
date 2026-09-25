@@ -31,6 +31,7 @@ from backend.storage.repositories import (
     open_paper_position,
     update_order_intent_status,
     update_paper_position_targets,
+    set_paper_position_broker_id,
 )
 
 
@@ -44,6 +45,10 @@ class ExecutionResult:
     mode: str = "paper_only"
     broker_position_id: int | None = None
     retryable: bool = False
+
+
+class BrokerPositionIdentityError(RuntimeError):
+    pass
 
 
 def _refresh_open_position(
@@ -67,10 +72,11 @@ def _refresh_open_position(
     if status.execution_ready:
         match = match_broker_position(position, list_positions())
         if match.status in {"id_mismatch", "legacy_ambiguous"}:
+            message = f"Could not safely identify broker position for {position.symbol}:{position.timeframe}."
             log_incident(
                 "error",
                 "ctrader_demo_position_identity_ambiguous",
-                f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
+                message,
                 {
                     "position_id": position.id,
                     "broker_position_id": position.broker_position_id,
@@ -78,7 +84,7 @@ def _refresh_open_position(
                     "candidates": match.candidates,
                 },
             )
-            return position
+            raise BrokerPositionIdentityError(message)
         if not match.matched:
             close_local_position_from_broker(
                 position,
@@ -87,8 +93,6 @@ def _refresh_open_position(
             )
             return None
         if match.status == "legacy_match":
-            from backend.storage.repositories import set_paper_position_broker_id
-
             position = set_paper_position_broker_id(
                 position.id,
                 int(match.row.get("position_id") or 0),
@@ -109,7 +113,17 @@ def execute_paper_signal(
     source: str = "auto",
 ) -> ExecutionResult:
     demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
-    position = _refresh_open_position(watch_item, mark_price, demo_execution=demo_execution)
+    try:
+        position = _refresh_open_position(watch_item, mark_price, demo_execution=demo_execution)
+    except BrokerPositionIdentityError as exc:
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=None,
+            status="failed",
+            summary=str(exc),
+            mode="demo_enabled",
+            retryable=True,
+        )
 
     # Keep an already-open demo position protected at the broker even when the
     # current strategy result is no_trade or later fails a new-entry risk gate.
