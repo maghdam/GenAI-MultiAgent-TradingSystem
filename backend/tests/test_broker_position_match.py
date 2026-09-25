@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from backend.domain.models import PaperPosition
 from backend.services.broker_position_match import match_broker_position
 
@@ -17,6 +19,7 @@ def _position(*, broker_position_id: int | None) -> PaperPosition:
         current_price=100.0,
         stop_loss=99.0,
         take_profit=102.0,
+        opened_at=datetime.now(UTC).replace(tzinfo=None),
         broker_position_id=broker_position_id,
     )
 
