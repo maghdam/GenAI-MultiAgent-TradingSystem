@@ -431,6 +431,161 @@ def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> No
     assert incidents[0].code == "ctrader_demo_symbol_not_ready"
 
 
+def test_demo_existing_position_sync_uses_persisted_broker_position_id(monkeypatch) -> None:
+    open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        broker_position_id=111,
+    )
+    calls = []
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.list_positions",
+        lambda: [
+            {"position_id": 222, "symbol": "XAUUSD", "direction": "buy", "volume_lots": 0.1},
+            {"position_id": 111, "symbol": "XAUUSD", "direction": "buy", "volume_lots": 0.1},
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: calls.append(kwargs) or {"status": "already_synced", "verified": True, "position_id": 111},
+    )
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="no_trade",
+            confidence=0.0,
+            entry_price=100.0,
+            reasons=["no trade"],
+        ),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "rejected"
+    assert len(calls) == 1
+    assert calls[0]["position_id"] == 111
+
+
+def test_demo_existing_position_does_not_hijack_different_same_side_broker_position(monkeypatch) -> None:
+    opened = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        broker_position_id=111,
+    )
+    closed = []
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.list_positions",
+        lambda: [
+            {"position_id": 222, "symbol": "XAUUSD", "direction": "buy", "volume_lots": 0.1},
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.close_local_position_from_broker",
+        lambda position, **kwargs: closed.append(position.id),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: pytest.fail("different broker position id must not be used for protection"),
+    )
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="no_trade",
+            confidence=0.0,
+            entry_price=100.0,
+            reasons=["no trade"],
+        ),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "rejected"
+    assert closed == [opened.id]
+
+
+def test_demo_legacy_position_refuses_ambiguous_symbol_direction_identity(monkeypatch) -> None:
+    open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_status",
+        lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.list_positions",
+        lambda: [
+            {"position_id": 111, "symbol": "XAUUSD", "direction": "buy", "volume_lots": 0.1},
+            {"position_id": 222, "symbol": "XAUUSD", "direction": "buy", "volume_lots": 0.1},
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_demo_position_targets",
+        lambda **kwargs: pytest.fail("ambiguous legacy identity must block broker protection"),
+    )
+
+    result = execute_paper_signal(
+        config=_config(paper_autotrade=False, demo_autotrade=True),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="no_trade",
+            confidence=0.0,
+            entry_price=100.0,
+            reasons=["no trade"],
+        ),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is False
+    assert result.status == "failed"
+    assert result.retryable is True
+    incidents = list_incidents(5)
+    assert incidents[0].code == "ctrader_demo_position_identity_ambiguous"
+
+
 def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monkeypatch) -> None:
     open_paper_position(
         symbol="XAUUSD",
