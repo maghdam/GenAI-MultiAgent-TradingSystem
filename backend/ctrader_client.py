@@ -6,6 +6,9 @@ from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAApplicationAuthReq,
     ProtoOAAccountAuthReq,
     ProtoOAGetAccountListByAccessTokenReq,
+    ProtoOATraderReq,
+    ProtoOAAssetListReq,
+    ProtoOAGetPositionUnrealizedPnLReq,
     ProtoOASymbolsListReq,
     ProtoOASymbolByIdReq,
     ProtoOAAssetClassListReq,
@@ -787,6 +790,96 @@ def get_open_positions():
 
 def get_pending_orders():
     return get_reconcile_snapshot()["orders"]
+
+
+def _extract_response_or_raise(raw, label: str):
+    if isinstance(raw, dict) and raw.get("status") == "failed":
+        raise RuntimeError(f"{label} failed: {raw.get('error') or 'unknown error'}")
+    event = Protobuf.extract(raw)
+    if getattr(event, "__class__", type("x", (object,), {})).__name__ == "ProtoOAErrorRes" or hasattr(event, "errorCode"):
+        code = getattr(event, "errorCode", "ERR")
+        description = getattr(event, "description", "")
+        raise RuntimeError(f"{label} failed: {code} {description}".strip())
+    return event
+
+
+def _decode_money(raw, money_digits: int) -> float:
+    return float(raw or 0) / float(10 ** max(int(money_digits or 0), 0))
+
+
+def get_account_snapshot() -> dict[str, object]:
+    """Return authoritative monetary state for the authorized cTrader account."""
+    if not is_demo_account_confirmed():
+        reason = get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+        raise RuntimeError(f"cTrader account snapshot blocked: {reason}")
+
+    trader_raw = wait_for_deferred(
+        client.send(
+            ProtoOATraderReq(ctidTraderAccountId=ACCOUNT_ID),
+            responseTimeoutInSeconds=10,
+        ),
+        timeout=12,
+    )
+    trader_event = _extract_response_or_raise(trader_raw, "cTrader trader snapshot")
+    trader = getattr(trader_event, "trader", None)
+    if trader is None:
+        raise RuntimeError("cTrader trader snapshot did not include trader account data.")
+
+    money_digits = int(getattr(trader, "moneyDigits", 0) or 0)
+    balance = _decode_money(getattr(trader, "balance", 0), money_digits)
+    deposit_asset_id = int(getattr(trader, "depositAssetId", 0) or 0)
+    if deposit_asset_id <= 0:
+        raise RuntimeError("cTrader trader snapshot did not include a valid deposit asset id.")
+
+    assets_raw = wait_for_deferred(
+        client.send(
+            ProtoOAAssetListReq(ctidTraderAccountId=ACCOUNT_ID),
+            responseTimeoutInSeconds=10,
+        ),
+        timeout=12,
+    )
+    assets_event = _extract_response_or_raise(assets_raw, "cTrader asset list")
+    deposit_asset = next(
+        (
+            asset
+            for asset in list(getattr(assets_event, "asset", []) or [])
+            if int(getattr(asset, "assetId", 0) or 0) == deposit_asset_id
+        ),
+        None,
+    )
+    if deposit_asset is None:
+        raise RuntimeError(f"cTrader deposit asset {deposit_asset_id} was not returned by the asset list.")
+
+    currency = str(getattr(deposit_asset, "name", "") or "").strip().upper()
+    if not currency:
+        raise RuntimeError(f"cTrader deposit asset {deposit_asset_id} has no currency name.")
+
+    pnl_raw = wait_for_deferred(
+        client.send(
+            ProtoOAGetPositionUnrealizedPnLReq(ctidTraderAccountId=ACCOUNT_ID),
+            responseTimeoutInSeconds=10,
+        ),
+        timeout=12,
+    )
+    pnl_event = _extract_response_or_raise(pnl_raw, "cTrader unrealized P&L")
+    pnl_money_digits = int(getattr(pnl_event, "moneyDigits", 0) or 0)
+    unrealized_pnl = sum(
+        _decode_money(getattr(item, "netUnrealizedPnL", 0), pnl_money_digits)
+        for item in list(getattr(pnl_event, "positionUnrealizedPnL", []) or [])
+    )
+
+    return {
+        "account_id": int(ACCOUNT_ID),
+        "currency": currency,
+        "balance": float(balance),
+        "unrealized_pnl": float(unrealized_pnl),
+        "equity": float(balance + unrealized_pnl),
+        "money_digits": money_digits,
+        "deposit_asset_id": deposit_asset_id,
+        "source": "ctrader",
+        "verified": True,
+        "as_of": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = None, to_timestamp: int | None = None):
