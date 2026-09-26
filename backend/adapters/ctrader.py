@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 import backend.ctrader_client as ctd
 import pandas as pd
 
-from backend.domain.models import BrokerStatus, InstrumentSpec, SymbolLimits
+from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, InstrumentSpec, SymbolLimits
 from backend.services.runtime_state import external_dependency_state, market_data_dependency_state
 
 
@@ -42,6 +42,8 @@ class CTraderBrokerAdapter:
         self._thread_started = False
         self._symbol_cache: List[str] = []
         self._symbol_cache_count: int = 0
+        self._account_snapshot_cache: BrokerAccountSnapshot | None = None
+        self._account_snapshot_cached_at: float = 0.0
 
     def start_transport(self) -> bool:
         with self._thread_lock:
@@ -120,6 +122,54 @@ class CTraderBrokerAdapter:
             parsed = pd.Series(pd.to_datetime(merged, utc=True, errors="coerce"), index=source.index)
         return parsed
 
+    def get_account_snapshot(self, *, force: bool = False) -> BrokerAccountSnapshot:
+        if not ctd.is_demo_account_confirmed():
+            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+            return BrokerAccountSnapshot(
+                account_id=self._account_id_value(),
+                source="ctrader",
+                verified=False,
+                notes=[reason],
+            )
+
+        now = time.monotonic()
+        if (
+            not force
+            and self._account_snapshot_cache is not None
+            and (now - self._account_snapshot_cached_at) < 5.0
+        ):
+            return self._account_snapshot_cache
+
+        try:
+            raw = ctd.get_account_snapshot()
+            as_of_raw = raw.get("as_of")
+            as_of = datetime.fromisoformat(str(as_of_raw)) if as_of_raw else _utc_now()
+            snapshot = BrokerAccountSnapshot(
+                account_id=int(raw.get("account_id") or 0) or self._account_id_value(),
+                currency=str(raw.get("currency") or "").upper() or None,
+                balance=float(raw["balance"]) if raw.get("balance") is not None else None,
+                unrealized_pnl=float(raw["unrealized_pnl"]) if raw.get("unrealized_pnl") is not None else None,
+                equity=float(raw["equity"]) if raw.get("equity") is not None else None,
+                money_digits=int(raw["money_digits"]) if raw.get("money_digits") is not None else None,
+                deposit_asset_id=int(raw["deposit_asset_id"]) if raw.get("deposit_asset_id") is not None else None,
+                source="ctrader",
+                verified=bool(raw.get("verified")),
+                as_of=as_of,
+                notes=[],
+            )
+        except Exception as exc:
+            snapshot = BrokerAccountSnapshot(
+                account_id=self._account_id_value(),
+                source="ctrader",
+                verified=False,
+                as_of=_utc_now(),
+                notes=[str(exc)],
+            )
+
+        self._account_snapshot_cache = snapshot
+        self._account_snapshot_cached_at = now
+        return snapshot
+
     def get_status(self) -> BrokerStatus:
         notes: List[str] = []
         connected = self.connected()
@@ -151,6 +201,7 @@ class CTraderBrokerAdapter:
         if symbols_loaded == 0:
             notes.append("No broker symbols are loaded.")
         demo_confirmed = bool(ctd.is_demo_account_confirmed())
+        account_snapshot = self.get_account_snapshot() if demo_confirmed else None
         account_type = (
             "demo"
             if ctd.ACCOUNT_IS_DEMO is True
@@ -159,6 +210,9 @@ class CTraderBrokerAdapter:
         verification_error = ctd.get_account_verification_error()
         if verification_error and verification_error not in notes:
             notes.append(verification_error)
+        if account_snapshot is not None and not account_snapshot.verified:
+            snapshot_reason = "; ".join(account_snapshot.notes) or "cTrader monetary account snapshot is unavailable."
+            notes.append(f"account_snapshot_unavailable: {snapshot_reason}")
         if connected and not demo_confirmed:
             notes.append("Order execution is blocked until the connected account is confirmed as demo.")
         
@@ -188,6 +242,7 @@ class CTraderBrokerAdapter:
             account_type=account_type,
             demo_account_confirmed=demo_confirmed,
             execution_ready=execution_ready,
+            account_snapshot=account_snapshot,
             notes=notes,
         )
 
