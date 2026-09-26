@@ -150,8 +150,8 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   <span>
                     <strong>System auto-trade</strong>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--ta-text-muted)' }}>
-                      Allow the engine to place real orders on your cTrader demo account automatically.
-                      Also requires "Demo orders" enabled per symbol below.
+                      Allow the engine to place automatic orders on the connected cTrader account.
+                      This version executes only on verified demo accounts and also requires per-symbol "Auto-trade" below.
                     </span>
                   </span>
                 </label>
