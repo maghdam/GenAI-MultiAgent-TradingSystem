@@ -6,6 +6,7 @@ from typing import Dict, List
 from backend.domain.models import EngineConfig, StrategyAnalysis
 from backend.domain.models import SymbolLimits
 from backend.services.broker import get_instrument_spec, get_symbol_limits
+from backend.services.financial_units import MonetaryBasis, resolve_monetary_basis
 
 def _protocol_volume_per_lot(limits: SymbolLimits) -> float:
     """Infer protocol-volume units per lot from broker-derived limits.
@@ -67,19 +68,34 @@ def _decision_details(
     }
 
 
-def derive_auto_quantity(config: EngineConfig, analysis: StrategyAnalysis, mark_price: float | None) -> AutoSizingDecision:
+def derive_auto_quantity(
+    config: EngineConfig,
+    analysis: StrategyAnalysis,
+    mark_price: float | None,
+    monetary_basis: MonetaryBasis | None = None,
+) -> AutoSizingDecision:
     fallback_quantity = float(config.paper_trade_size or 1.0)
     entry_reference = float(analysis.entry_price if analysis.entry_price is not None else (mark_price or 0.0))
     stop_loss = analysis.stop_loss
     risk_pct = float(config.risk_per_trade_pct or 0.0)
+    basis = monetary_basis or resolve_monetary_basis(config)
     details: Dict[str, object] = {
         "sizing_mode": "fixed_fallback",
         "fallback_quantity": fallback_quantity,
         "risk_per_trade_pct": risk_pct,
         "entry_reference": entry_reference or None,
         "stop_loss": stop_loss,
+        **basis.as_details(),
     }
-    instrument = get_instrument_spec(analysis.symbol, config.account_currency)
+    if risk_pct > 0 and not basis.verified:
+        return AutoSizingDecision(
+            accepted=False,
+            requested_quantity=fallback_quantity,
+            reasons=["Automatic execution is blocked because the account monetary basis is not verified."],
+            details=details,
+        )
+
+    instrument = get_instrument_spec(analysis.symbol, basis.currency or config.account_currency)
     details["instrument_spec"] = instrument.model_dump(mode="json")
 
     if entry_reference <= 0 or stop_loss is None:
@@ -131,7 +147,7 @@ def derive_auto_quantity(config: EngineConfig, analysis: StrategyAnalysis, mark_
             details=details,
         )
 
-    equity_amount = float(config.paper_starting_equity_amount)
+    equity_amount = float(basis.equity_amount)
     risk_amount = equity_amount * (risk_pct / 100.0)
     loss_per_lot = stop_distance * float(cash_per_price_unit)
     requested_quantity = risk_amount / loss_per_lot
@@ -144,8 +160,8 @@ def derive_auto_quantity(config: EngineConfig, analysis: StrategyAnalysis, mark_
         accepted=True,
         requested_quantity=requested_quantity,
         reasons=[
-            f"Auto quantity derived from {risk_pct:.2f}% risk ({config.account_currency} {risk_amount:.2f}) "
-            f"and {config.account_currency} {loss_per_lot:.2f} loss per lot at the stop."
+            f"Auto quantity derived from {risk_pct:.2f}% risk ({basis.currency} {risk_amount:.2f}) "
+            f"and {basis.currency} {loss_per_lot:.2f} loss per lot at the stop."
         ],
         details=details,
     )
