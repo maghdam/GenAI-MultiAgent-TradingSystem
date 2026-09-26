@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
+from backend.domain.models import BrokerAccountSnapshot, EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.market_data import MarketDataError
 from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
@@ -12,6 +12,17 @@ from backend.storage.repositories import (
     save_engine_config,
     save_runtime,
 )
+
+
+def _verified_demo_snapshot() -> BrokerAccountSnapshot:
+    return BrokerAccountSnapshot(
+        account_id=123,
+        currency="CHF",
+        balance=20_000.0,
+        unrealized_pnl=0.0,
+        equity=20_000.0,
+        verified=True,
+    )
 
 
 def test_recover_runtime_state_rebuilds_active_watchlist() -> None:
@@ -157,6 +168,10 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
         lambda: type("S", (), {"execution_ready": True})(),
     )
     monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_account_snapshot",
+        _verified_demo_snapshot,
+    )
+    monkeypatch.setattr(
         "backend.services.reconciler.list_positions",
         lambda: [
             {
@@ -260,6 +275,10 @@ def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeyp
         lambda: type("S", (), {"execution_ready": True})(),
     )
     monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_account_snapshot",
+        _verified_demo_snapshot,
+    )
+    monkeypatch.setattr(
         "backend.services.reconciler.list_positions",
         lambda: [
             {
@@ -323,6 +342,10 @@ def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_pos
     monkeypatch.setattr(
         "backend.services.reconciler.get_broker_status",
         lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_account_snapshot",
+        _verified_demo_snapshot,
     )
     monkeypatch.setattr(
         "backend.services.reconciler.list_positions",
@@ -393,6 +416,10 @@ def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(mon
     monkeypatch.setattr(
         "backend.services.reconciler.get_broker_status",
         lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_account_snapshot",
+        _verified_demo_snapshot,
     )
     monkeypatch.setattr(
         "backend.services.reconciler.list_positions",
@@ -467,6 +494,10 @@ def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monke
     monkeypatch.setattr(
         "backend.services.reconciler.get_broker_status",
         lambda: type("S", (), {"execution_ready": True})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_account_snapshot",
+        _verified_demo_snapshot,
     )
     monkeypatch.setattr("backend.services.reconciler.list_positions", lambda: [broker_row])
     monkeypatch.setattr(
