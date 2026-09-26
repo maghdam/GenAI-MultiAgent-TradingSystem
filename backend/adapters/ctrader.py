@@ -44,6 +44,7 @@ class CTraderBrokerAdapter:
         self._symbol_cache_count: int = 0
         self._account_snapshot_cache: BrokerAccountSnapshot | None = None
         self._account_snapshot_cached_at: float = 0.0
+        self._conversion_rate_cache: Dict[tuple[str, str], tuple[float, float]] = {}
 
     def start_transport(self) -> bool:
         with self._thread_lock:
@@ -810,6 +811,42 @@ class CTraderBrokerAdapter:
                 return currency
         return None
 
+    def _conversion_rate_to_account(self, quote_currency: str | None, account_currency: str) -> float | None:
+        quote = str(quote_currency or "").strip().upper()
+        account = str(account_currency or "").strip().upper()
+        if not quote or not account:
+            return None
+        if quote == account:
+            return 1.0
+
+        key = (quote, account)
+        cached = self._conversion_rate_cache.get(key)
+        now = time.monotonic()
+        if cached is not None and (now - cached[1]) < 60.0:
+            return cached[0]
+
+        candidates = (
+            (f"{quote}{account}", False),
+            (f"{account}{quote}", True),
+        )
+        available = ctd.symbol_name_to_id or {}
+        for pair, invert in candidates:
+            if pair not in available:
+                continue
+            try:
+                rows = ctd.get_ohlc_data(pair, "M1", 1)
+                if not rows:
+                    continue
+                close = float(rows[-1]["close"])
+                if close <= 0:
+                    continue
+                rate = (1.0 / close) if invert else close
+                self._conversion_rate_cache[key] = (rate, now)
+                return rate
+            except Exception:
+                continue
+        return None
+
     def get_instrument_spec(self, symbol: str, account_currency: str = "USD") -> InstrumentSpec:
         sym = (symbol or "").strip().upper()
         account_ccy = (account_currency or "USD").strip().upper()
@@ -826,7 +863,7 @@ class CTraderBrokerAdapter:
         lot_size = ctd.symbol_lot_size_map.get(symbol_id)
         digits = ctd.symbol_digits_map.get(symbol_id)
         tick_size = (10.0 ** -int(digits)) if digits is not None else None
-        conversion = 1.0 if quote_ccy == account_ccy else None
+        conversion = self._conversion_rate_to_account(quote_ccy, account_ccy)
         cash_per_unit = float(lot_size) * conversion if lot_size and conversion else None
         notes: List[str] = []
         if not lot_size:
