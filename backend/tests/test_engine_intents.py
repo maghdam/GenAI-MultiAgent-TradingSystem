@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from backend.domain.models import EngineConfig, InstrumentSpec, StrategyAnalysis, SymbolLimits, WatchlistItem
+from backend.domain.models import BrokerAccountSnapshot, EngineConfig, InstrumentSpec, StrategyAnalysis, SymbolLimits, WatchlistItem
 from backend.services import engine as engine_module
 from backend.services.engine import V2Engine
 from backend.services.market_data import MarketDataError
@@ -76,6 +76,17 @@ def valued_xau_contract(monkeypatch):
     )
     monkeypatch.setattr("backend.services.quantity_rules.get_instrument_spec", lambda symbol, currency: spec)
     monkeypatch.setattr("backend.services.execution_engine.get_instrument_spec", lambda symbol, currency: spec)
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_account_snapshot",
+        lambda: BrokerAccountSnapshot(
+            account_id=123,
+            currency="USD",
+            balance=100_000.0,
+            unrealized_pnl=0.0,
+            equity=100_000.0,
+            verified=True,
+        ),
+    )
 
 
 def test_apply_paper_logic_opens_position_and_records_execution() -> None:
