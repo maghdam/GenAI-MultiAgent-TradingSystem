@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from backend.domain.models import EngineConfig, StrategyAnalysis, WatchlistItem
+from backend.domain.models import BrokerAccountSnapshot, EngineConfig, StrategyAnalysis, WatchlistItem
 from backend.services import engine as engine_module
 from backend.services.engine import V2Engine
 from backend.services.execution_engine import execute_paper_signal
@@ -61,6 +61,20 @@ def _mock_demo_ready(monkeypatch) -> None:
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_account_snapshot",
+        lambda: BrokerAccountSnapshot(
+            account_id=123,
+            currency="CHF",
+            balance=20_000.0,
+            unrealized_pnl=0.0,
+            equity=20_000.0,
+            money_digits=2,
+            deposit_asset_id=7,
+            source="ctrader",
+            verified=True,
+        ),
+    )
+    monkeypatch.setattr(
         "backend.services.execution_engine.sync_demo_position_targets",
         lambda **kwargs: {
             "status": "synced",
@@ -99,6 +113,111 @@ def test_per_symbol_lot_routes_verified_demo_order_and_tracks_position(monkeypat
     assert positions[0].quantity == 0.25
     intents = list_order_intents(5)
     assert intents[0].details["execution_mode"] == "ctrader_demo"
+
+
+def test_demo_execution_defers_when_broker_monetary_snapshot_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        lambda symbol: (True, "ready"),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_account_snapshot",
+        lambda: BrokerAccountSnapshot(
+            account_id=123,
+            source="ctrader",
+            verified=False,
+            notes=["account snapshot timeout"],
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.place_demo_market_order",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("order must not route without monetary truth")),
+    )
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch(),
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.action_taken is False
+    assert result.status == "deferred"
+    assert result.retryable is True
+    assert result.intent_id is None
+    assert "snapshot timeout" in result.summary
+    assert list_order_intents(5) == []
+
+
+def test_demo_risk_sizing_uses_broker_equity_and_currency(monkeypatch) -> None:
+    _mock_demo_ready(monkeypatch)
+    watch = _watch().model_copy(update={"lot_size": None})
+    config = _config().model_copy(update={"risk_per_trade_pct": 0.5})
+    captured = {}
+
+    from backend.domain.models import InstrumentSpec, SymbolLimits
+
+    broker_spec = InstrumentSpec(
+        symbol="XAUUSD",
+        source="ctrader_contract",
+        account_currency="CHF",
+        quote_currency="USD",
+        lot_size_units=100.0,
+        tick_size=0.01,
+        tick_value_per_lot=0.80,
+        cash_per_price_unit_per_lot=80.0,
+        conversion_rate_to_account=0.8,
+        valuation_ready=True,
+        verified=True,
+    )
+    monkeypatch.setattr("backend.services.execution_engine.get_instrument_spec", lambda symbol, currency: broker_spec)
+    monkeypatch.setattr("backend.services.quantity_rules.get_instrument_spec", lambda symbol, currency: broker_spec)
+    monkeypatch.setattr(
+        "backend.services.quantity_rules.get_symbol_limits",
+        lambda symbol: SymbolLimits(
+            symbol="XAUUSD",
+            source="broker",
+            min_lots=0.01,
+            step_lots=0.01,
+            max_lots=100.0,
+            min_api_units=100,
+            step_api_units=100,
+            max_api_units=1_000_000,
+            hard_min=True,
+            hard_step=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.place_demo_market_order",
+        lambda **kwargs: captured.update(kwargs) or {
+            "status": "executed",
+            "position_id": 321,
+            "account_type": "demo",
+        },
+    )
+
+    result = execute_paper_signal(
+        config=config,
+        watch_item=watch,
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "executed"
+    # CHF 20,000 * 0.5% = CHF 100 risk; CHF 80 loss per lot at a 1-point stop.
+    assert captured["quantity_lots"] == 1.25
+    positions = list_paper_positions("open")
+    assert positions[0].account_currency == "CHF"
+    assert positions[0].quantity == 1.25
+    intents = list_order_intents(5)
+    assert intents[0].details["monetary_basis_source"] == "ctrader"
+    assert intents[0].details["monetary_basis_currency"] == "CHF"
+    assert intents[0].details["monetary_basis_equity_amount"] == 20_000.0
+    assert intents[0].details["risk_amount"] == 100.0
 
 
 def test_unprotected_demo_order_is_closed_by_failsafe(monkeypatch) -> None:

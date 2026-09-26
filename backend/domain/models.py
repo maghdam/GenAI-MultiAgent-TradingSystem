@@ -26,6 +26,20 @@ def utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+class BrokerAccountSnapshot(BaseModel):
+    account_id: Optional[int] = None
+    currency: Optional[str] = None
+    balance: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    equity: Optional[float] = None
+    money_digits: Optional[int] = None
+    deposit_asset_id: Optional[int] = None
+    source: str = "ctrader"
+    verified: bool = False
+    as_of: Optional[datetime] = None
+    notes: List[str] = Field(default_factory=list)
+
+
 class BrokerStatus(BaseModel):
     connected: bool
     socket_connected: bool = False
@@ -42,6 +56,7 @@ class BrokerStatus(BaseModel):
     account_type: Literal["demo", "live", "unknown"] = "unknown"
     demo_account_confirmed: bool = False
     execution_ready: bool = False
+    account_snapshot: Optional["BrokerAccountSnapshot"] = None
     notes: List[str] = Field(default_factory=list)
 
 

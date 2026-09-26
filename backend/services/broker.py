@@ -4,11 +4,15 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from backend.adapters.ctrader import adapter
-from backend.domain.models import BrokerStatus, InstrumentSpec, SymbolLimits
+from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, InstrumentSpec, SymbolLimits
 
 
 def get_broker_status() -> BrokerStatus:
     return adapter.get_status()
+
+
+def get_broker_account_snapshot(*, force: bool = False) -> BrokerAccountSnapshot:
+    return adapter.get_account_snapshot(force=force)
 
 
 def list_positions() -> List[Dict[str, Any]]:

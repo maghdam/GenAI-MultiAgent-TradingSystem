@@ -6,7 +6,7 @@ from backend.domain.models import EngineConfig, ReadinessCheck
 from backend.services.broker import get_broker_status
 from backend.services.runtime_state import market_data_dependency_state
 from backend.storage.repositories import daily_realized_pnl
-from backend.services.financial_units import daily_loss_budget
+from backend.services.financial_units import daily_loss_budget, resolve_monetary_basis
 
 
 def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
@@ -27,7 +27,12 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         market_detail = f"Market data has not been probed yet for {probe_symbol}:{probe_timeframe}."
     else:
         market_detail = market_data_dependency_state.last_reason or f"Last market-data probe for {probe_symbol}:{probe_timeframe}."
-    loss_budget = daily_loss_budget(config, realized_today)
+    monetary_basis = resolve_monetary_basis(
+        config,
+        demo_execution=bool(config.demo_autotrade),
+        account_snapshot=broker.account_snapshot,
+    )
+    loss_budget = daily_loss_budget(config, realized_today, monetary_basis) if monetary_basis.verified else None
     checks = [
         ReadinessCheck(
             name="engine_enabled",
@@ -63,6 +68,15 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
             detail=f"{broker.symbols_loaded} symbols loaded." if broker.symbols_loaded > 0 else "No symbols loaded from broker.",
         ),
         ReadinessCheck(
+            name="account_monetary_basis",
+            ok=monetary_basis.verified,
+            detail=(
+                f"Risk basis = {monetary_basis.equity_amount:.2f} {monetary_basis.currency} from {monetary_basis.source}."
+                if monetary_basis.verified
+                else (monetary_basis.reason or "Account monetary basis is unavailable.")
+            ),
+        ),
+        ReadinessCheck(
             name="market_data_feed",
             ok=bool(market_ok),
             detail=market_detail,
@@ -74,11 +88,15 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         ),
         ReadinessCheck(
             name="daily_loss_limit",
-            ok=not loss_budget.breached,
+            ok=bool(loss_budget is not None and not loss_budget.breached),
             detail=(
-                f"Daily realized P&L = {loss_budget.realized_pnl_amount:.2f} {loss_budget.currency}; "
-                f"loss limit = {loss_budget.limit_amount:.2f} {loss_budget.currency} "
-                f"({loss_budget.limit_percent:.2f}% of {loss_budget.starting_equity_amount:.2f})."
+                (
+                    f"Daily realized P&L = {loss_budget.realized_pnl_amount:.2f} {loss_budget.currency}; "
+                    f"loss limit = {loss_budget.limit_amount:.2f} {loss_budget.currency} "
+                    f"({loss_budget.limit_percent:.2f}% of {loss_budget.starting_equity_amount:.2f})."
+                )
+                if loss_budget is not None
+                else "Daily loss limit cannot be verified until the account monetary basis is available."
             ),
         ),
     ]

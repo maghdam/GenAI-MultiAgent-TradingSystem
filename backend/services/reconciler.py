@@ -6,12 +6,14 @@ from typing import Any, Dict
 from backend.domain.models import EngineConfig
 from backend.services.broker import (
     close_demo_position,
+    get_broker_account_snapshot,
     get_broker_status,
     get_instrument_spec,
     list_positions,
     sync_demo_position_targets,
 )
 from backend.services.market_data import MarketDataError, get_bars
+from backend.services.financial_units import resolve_monetary_basis
 from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
@@ -47,6 +49,21 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
     status = get_broker_status()
     if not status.execution_ready:
         return {"checked": 0, "recovered": 0, "untracked": 0, "ready": False}
+
+    monetary_basis = resolve_monetary_basis(
+        cfg,
+        demo_execution=True,
+        account_snapshot=get_broker_account_snapshot(),
+    )
+    if not monetary_basis.verified:
+        return {
+            "checked": 0,
+            "recovered": 0,
+            "attached": 0,
+            "untracked": 0,
+            "ready": False,
+            "reason": monetary_basis.reason,
+        }
 
     broker_rows = list_positions()
     local_rows = list_paper_positions("open")
@@ -158,7 +175,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             continue
 
         watch = watch_by_symbol[symbol]
-        instrument = get_instrument_spec(symbol, cfg.account_currency)
+        instrument = get_instrument_spec(symbol, monetary_basis.currency)
         created = open_paper_position(
             symbol=symbol,
             timeframe=matching_intent.timeframe or watch.timeframe,
@@ -168,7 +185,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             entry_price=float(row.get("entry_price") or matching_intent.entry_price or 0.0),
             stop_loss=matching_intent.stop_loss,
             take_profit=matching_intent.take_profit,
-            account_currency=cfg.account_currency,
+            account_currency=monetary_basis.currency,
             cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
             instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
             broker_position_id=broker_position_id,

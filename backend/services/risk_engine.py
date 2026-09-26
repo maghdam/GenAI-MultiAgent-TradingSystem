@@ -6,7 +6,7 @@ from typing import Dict, List
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.storage.repositories import daily_realized_pnl, daily_trade_count, list_paper_positions
-from backend.services.financial_units import daily_loss_budget
+from backend.services.financial_units import MonetaryBasis, daily_loss_budget, resolve_monetary_basis
 from backend.services.strategy_lifecycle import paper_execution_gate
 
 
@@ -195,6 +195,7 @@ def evaluate_risk(
     bar_timestamp: datetime | None,
     bar_snapshot: Dict[str, object] | None,
     source: str = "auto",
+    monetary_basis: MonetaryBasis | None = None,
 ) -> RiskDecision:
     now = datetime.now(UTC).replace(tzinfo=None)
     open_positions = list_paper_positions("open")
@@ -259,8 +260,14 @@ def evaluate_risk(
         decision.reasons.append(level_error)
         return decision
 
+    basis = monetary_basis or resolve_monetary_basis(config)
+    decision.details.update(basis.as_details())
+    if not basis.verified:
+        decision.reasons.append("Account monetary basis is not verified.")
+        return decision
+
     pnl_today = daily_realized_pnl()
-    loss_budget = daily_loss_budget(config, pnl_today)
+    loss_budget = daily_loss_budget(config, pnl_today, basis)
     decision.details.update(loss_budget.as_details())
     if loss_budget.breached:
         decision.reasons.append("Daily loss cap reached.")

@@ -69,6 +69,58 @@ def test_account_list_blocks_live_account_without_authorizing(monkeypatch) -> No
     assert sent == []
 
 
+def test_account_snapshot_decodes_balance_currency_and_unrealized_pnl(monkeypatch) -> None:
+    sent = []
+
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd.client, "send", lambda request, **kwargs: sent.append(request) or request)
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: deferred)
+
+    def _extract(request):
+        name = request.__class__.__name__
+        if name == "ProtoOATraderReq":
+            return SimpleNamespace(
+                trader=SimpleNamespace(
+                    balance=2_000_000,
+                    moneyDigits=2,
+                    depositAssetId=7,
+                )
+            )
+        if name == "ProtoOAAssetListReq":
+            return SimpleNamespace(
+                asset=[
+                    SimpleNamespace(assetId=7, name="CHF", displayName="Swiss Franc"),
+                    SimpleNamespace(assetId=8, name="USD", displayName="US Dollar"),
+                ]
+            )
+        if name == "ProtoOAGetPositionUnrealizedPnLReq":
+            return SimpleNamespace(
+                moneyDigits=2,
+                positionUnrealizedPnL=[
+                    SimpleNamespace(positionId=1, netUnrealizedPnL=-125),
+                    SimpleNamespace(positionId=2, netUnrealizedPnL=75),
+                ],
+            )
+        raise AssertionError(f"unexpected request {name}")
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", _extract)
+
+    snapshot = ctd.get_account_snapshot()
+
+    assert [request.__class__.__name__ for request in sent] == [
+        "ProtoOATraderReq",
+        "ProtoOAAssetListReq",
+        "ProtoOAGetPositionUnrealizedPnLReq",
+    ]
+    assert snapshot["account_id"] == 123
+    assert snapshot["currency"] == "CHF"
+    assert snapshot["balance"] == pytest.approx(20_000.0)
+    assert snapshot["unrealized_pnl"] == pytest.approx(-0.50)
+    assert snapshot["equity"] == pytest.approx(19_999.50)
+    assert snapshot["verified"] is True
+
+
 def test_demo_order_is_blocked_without_verified_demo_account(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: False)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: "account type unknown")
