@@ -156,6 +156,29 @@ def test_get_instrument_spec_uses_broker_contract_for_usd_account(monkeypatch) -
     assert spec.tick_value_per_lot == 0.01
 
 
+def test_get_instrument_spec_converts_usd_quote_into_chf_account(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.adapters.ctrader.ctd.symbol_name_to_id",
+        {"XAUUSD": 7, "USDCHF": 8},
+    )
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_lot_size_map", {7: 100.0})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_digits_map", {7: 2})
+    monkeypatch.setattr(
+        "backend.adapters.ctrader.ctd.get_ohlc_data",
+        lambda symbol, tf, n: [{"close": 0.8}] if symbol == "USDCHF" else [],
+    )
+
+    spec = CTraderBrokerAdapter().get_instrument_spec("XAUUSD", "CHF")
+
+    assert spec.valuation_ready is True
+    assert spec.verified is True
+    assert spec.account_currency == "CHF"
+    assert spec.quote_currency == "USD"
+    assert spec.conversion_rate_to_account == 0.8
+    assert spec.cash_per_price_unit_per_lot == 80.0
+    assert spec.tick_value_per_lot == 0.8
+
+
 def test_get_instrument_spec_blocks_unavailable_currency_conversion(monkeypatch) -> None:
     monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_name_to_id", {"EURJPY": 9})
     monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_lot_size_map", {9: 100_000.0})
