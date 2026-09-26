@@ -6,6 +6,7 @@ from uuid import uuid4
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
     close_demo_position,
+    get_broker_account_snapshot,
     get_broker_status,
     get_demo_symbol_execution_readiness,
     get_instrument_spec,
@@ -19,6 +20,7 @@ from backend.services.broker_ledger import (
     close_local_position_from_broker,
 )
 from backend.services.broker_position_match import match_broker_position
+from backend.services.financial_units import resolve_monetary_basis
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
@@ -239,10 +241,43 @@ def execute_paper_signal(
                 retryable=True,
             )
 
-    instrument = get_instrument_spec(analysis.symbol, config.account_currency)
+    monetary_basis = resolve_monetary_basis(config)
+    if demo_execution and analysis.signal != "no_trade":
+        account_snapshot = get_broker_account_snapshot()
+        monetary_basis = resolve_monetary_basis(
+            config,
+            demo_execution=True,
+            account_snapshot=account_snapshot,
+        )
+        if not monetary_basis.verified:
+            reason = monetary_basis.reason or "cTrader account monetary snapshot is unavailable."
+            log_incident(
+                "warning",
+                "ctrader_demo_account_snapshot_not_ready",
+                f"Deferred cTrader demo execution for {analysis.symbol}:{analysis.timeframe}",
+                {"reason": reason, **monetary_basis.as_details(), "retryable": True},
+            )
+            add_trade_audit(
+                event_type="ctrader_demo_order_deferred",
+                symbol=analysis.symbol,
+                timeframe=analysis.timeframe,
+                strategy=analysis.strategy,
+                summary="Demo order deferred until broker monetary account data is verified.",
+                details={"reason": reason, **monetary_basis.as_details()},
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=None,
+                status="deferred",
+                summary=reason,
+                mode="demo_enabled",
+                retryable=True,
+            )
+
+    instrument = get_instrument_spec(analysis.symbol, monetary_basis.currency or config.account_currency)
     configured_quantity = watch_item.lot_size if source != "manual" else None
     sizing = (
-        derive_auto_quantity(config, analysis, mark_price)
+        derive_auto_quantity(config, analysis, mark_price, monetary_basis=monetary_basis)
         if source != "manual" and configured_quantity is None and quantity is None
         else None
     )
@@ -387,6 +422,7 @@ def execute_paper_signal(
         bar_timestamp=bar_timestamp,
         bar_snapshot=bar_snapshot,
         source=source,
+        monetary_basis=monetary_basis,
     )
     flipped = False
     intent_quantity = position.quantity if position and position.direction == analysis.signal else trade_quantity
@@ -830,7 +866,7 @@ def execute_paper_signal(
         entry_price=analysis.entry_price or mark_price,
         stop_loss=analysis.stop_loss,
         take_profit=analysis.take_profit,
-        account_currency=config.account_currency,
+        account_currency=monetary_basis.currency or config.account_currency,
         cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
         instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
         broker_position_id=(
