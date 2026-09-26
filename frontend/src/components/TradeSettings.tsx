@@ -84,7 +84,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
         <div className="ta-overlay__header">
           <div>
             <h2 className="ta-overlay__title">Trade setup</h2>
-            <div className="mi-muted">Choose per-symbol signal generation, strategy, lot size, and demo-order permission.</div>
+            <div className="mi-muted">Choose per-symbol signal generation, strategy, lot size, and automatic-order permission.</div>
           </div>
           <button className="ta-btn ta-btn--ghost ta-btn--icon" type="button" onClick={onClose}>✕</button>
         </div>
@@ -148,10 +148,10 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                     onChange={(e) => setConfig({ ...config, demo_autotrade: e.target.checked })}
                   />
                   <span>
-                    <strong>System demo auto-trade</strong>
+                    <strong>System auto-trade</strong>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--ta-text-muted)' }}>
-                      Allow the engine to place real orders on your cTrader demo account automatically.
-                      Also requires "Demo orders" enabled per symbol below.
+                      Allow the engine to place automatic orders on the connected cTrader account.
+                      This version executes only on verified demo accounts and also requires per-symbol "Auto-trade" below.
                     </span>
                   </span>
                 </label>
@@ -160,8 +160,8 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
               <div className="ta-settings-section">Watchlist</div>
               <div className={demoConfirmed ? 'v2-banner v2-banner-good' : 'v2-banner v2-banner-bad'} style={{ marginBottom: 12 }}>
                 {demoConfirmed
-                  ? 'Connected cTrader account is confirmed as demo. Orders still require the System demo-autotrade switch.'
-                  : 'Demo orders are blocked until cTrader confirms the connected account is a demo account.'}
+                  ? 'Connected account: Demo. Automatic execution still requires System auto-trade and per-symbol Auto-trade.'
+                  : 'Automatic execution is blocked because this version only permits verified cTrader demo accounts.'}
               </div>
               {config.watchlist.map((item, index) => (
                 <div className="ta-watch-item" key={`${index}-${item.symbol}-${item.timeframe}`}>
@@ -192,9 +192,9 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                       if (Number.isFinite(value) && value > 0) updateWatchItem(index, { lot_size: value });
                     }}
                   />
-                  <label className="ta-watch-control" title="Permit cTrader demo orders for this row">
+                  <label className="ta-watch-control" title="Permit automatic order execution for this symbol">
                     <input type="checkbox" checked={item.trading_enabled} onChange={(event) => updateWatchItem(index, { trading_enabled: event.target.checked })} />
-                    <span>Demo orders</span>
+                    <span>Auto-trade</span>
                   </label>
                   <button className="ta-btn ta-btn--danger ta-btn--sm ta-btn--icon" type="button" onClick={() => setConfig({ ...config, watchlist: config.watchlist.filter((_, itemIndex) => itemIndex !== index) })}>✕</button>
                 </div>
