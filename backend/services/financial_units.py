@@ -31,7 +31,7 @@ def resolve_monetary_basis(
 ) -> MonetaryBasis:
     if not demo_execution:
         return MonetaryBasis(
-            currency=basis.currency.upper(),
+            currency=config.account_currency.upper(),
             equity_amount=float(config.paper_starting_equity_amount),
             source="paper_config",
             verified=True,
@@ -112,7 +112,7 @@ def daily_loss_budget(
     realized = float(realized_pnl_amount)
     loss_percent = max(0.0, -realized / equity * 100.0)
     return DailyLossBudget(
-        currency=config.account_currency.upper(),
+        currency=basis.currency.upper(),
         starting_equity_amount=equity,
         limit_percent=limit_percent,
         limit_amount=limit_amount,
