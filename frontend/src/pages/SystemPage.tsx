@@ -137,7 +137,7 @@ export default function SystemPage() {
               <div className="v2-form-grid v2-form-grid-wide">
                 <label className="v2-toggle"><input type="checkbox" checked={draft.kill_switch} onChange={(event) => setDraft({ ...draft, kill_switch: event.target.checked })} />Kill switch</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.paper_autotrade} onChange={(event) => setDraft({ ...draft, paper_autotrade: event.target.checked })} />Paper autotrade</label>
-                <label className="v2-toggle"><input type="checkbox" checked={draft.demo_autotrade} onChange={(event) => setDraft({ ...draft, demo_autotrade: event.target.checked })} />cTrader demo autotrade</label>
+                <label className="v2-toggle"><input type="checkbox" checked={draft.demo_autotrade} onChange={(event) => setDraft({ ...draft, demo_autotrade: event.target.checked })} />cTrader auto-trade</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.require_stops} onChange={(event) => setDraft({ ...draft, require_stops: event.target.checked })} />Require protective stops</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.session_filter_enabled} onChange={(event) => setDraft({ ...draft, session_filter_enabled: event.target.checked })} />Restrict trading session</label>
                 <label>Minimum signal quality<input type="number" min="0" max="1" step="0.05" value={draft.min_confidence} onChange={updateNumber('min_confidence', 0.6, 0, 1)} /></label>
