@@ -140,7 +140,27 @@ export default function SystemPage() {
                 <label className="v2-toggle"><input type="checkbox" checked={draft.demo_autotrade} onChange={(event) => setDraft({ ...draft, demo_autotrade: event.target.checked })} />cTrader auto-trade</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.require_stops} onChange={(event) => setDraft({ ...draft, require_stops: event.target.checked })} />Require protective stops</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.session_filter_enabled} onChange={(event) => setDraft({ ...draft, session_filter_enabled: event.target.checked })} />Restrict trading session</label>
-                <label>Minimum signal quality<input type="number" min="0" max="1" step="0.05" value={draft.min_confidence} onChange={updateNumber('min_confidence', 0.6, 0, 1)} /></label>
+                <label>
+                  <span>
+                    Minimum signal strength{' '}
+                    <span
+                      title="Deterministic strategy-strength threshold used by the execution gate. It is not a calibrated win probability; signals below this value are rejected."
+                      aria-label="Signal strength threshold information"
+                    >
+                      ⓘ
+                    </span>
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={draft.min_confidence}
+                    onChange={updateNumber('min_confidence', 0.6, 0, 1)}
+                    title="Signals below this deterministic strategy-strength threshold are rejected."
+                  />
+                  <small style={{ color: 'var(--ta-text-muted)' }}>Strategy-strength threshold; not a win probability.</small>
+                </label>
                 <label>Risk per trade (%)<input type="number" min="0.01" max="5" step="0.05" value={draft.risk_per_trade_pct} onChange={updateNumber('risk_per_trade_pct', 0.5, 0.01, 5)} /></label>
                 <label>Daily loss limit (%)<input type="number" min="0.1" max="20" step="0.1" value={draft.daily_loss_limit_pct} onChange={updateNumber('daily_loss_limit_pct', 2, 0.1, 20)} /></label>
                 <label>Maximum daily trades<input type="number" min="1" max="100" step="1" value={draft.max_daily_trades} onChange={updateNumber('max_daily_trades', 12, 1, 100)} /></label>
