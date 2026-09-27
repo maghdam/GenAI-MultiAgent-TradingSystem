@@ -68,27 +68,27 @@ def _journal_rejection_summary(
         try:
             confidence = float(evidence.get("confidence", analysis.confidence))
             minimum = float(evidence["min_confidence"])
-            return f"Rejected — confidence {confidence:.0%} < minimum {minimum:.0%}."
+            return f"Rejected - confidence {confidence:.0%} < minimum {minimum:.0%}."
         except (KeyError, TypeError, ValueError):
             pass
 
     if "inside cooldown" in lowered:
         try:
             minutes = int(evidence["cooldown_minutes"])
-            return f"Rejected — {analysis.symbol} in {minutes}-minute cooldown."
+            return f"Rejected - {analysis.symbol} in {minutes}-minute cooldown."
         except (KeyError, TypeError, ValueError):
-            return f"Rejected — {analysis.symbol} is still in cooldown."
+            return f"Rejected - {analysis.symbol} is still in cooldown."
 
     if "market bar is stale" in lowered:
-        return f"Rejected — stale {analysis.timeframe} market bar."
+        return f"Rejected - stale {analysis.timeframe} market bar."
 
     if "max daily trade count" in lowered:
-        return "Rejected — max daily trade count reached."
+        return "Rejected - max daily trade count reached."
 
     if "daily loss cap" in lowered:
-        return "Rejected — daily loss cap reached."
+        return "Rejected - daily loss cap reached."
 
-    return f"Rejected — {reason.rstrip('.')}."
+    return f"Rejected - {reason.rstrip('.')}."
 
 
 def _refresh_open_position(
