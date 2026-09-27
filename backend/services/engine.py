@@ -60,6 +60,11 @@ class V2Engine:
         runtime.running = False
         save_runtime(runtime)
 
+    async def restart(self) -> None:
+        """Restart the runtime loop using the normal startup recovery path."""
+        await self.stop()
+        await self.start()
+
     def wake(self) -> None:
         self._wake.set()
 

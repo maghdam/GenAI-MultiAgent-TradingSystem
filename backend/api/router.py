@@ -508,6 +508,13 @@ async def v2_engine_stop() -> dict:
     return {"ok": True, "enabled": saved.enabled}
 
 
+@router.post("/engine/restart")
+async def v2_engine_restart() -> dict:
+    await engine.restart()
+    config = _current_config()
+    return {"ok": True, "enabled": config.enabled, "restarted": True}
+
+
 @router.post("/engine/scan")
 async def v2_engine_scan() -> dict:
     summary = await engine.run_once()
