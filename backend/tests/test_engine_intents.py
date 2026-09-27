@@ -150,10 +150,45 @@ def test_apply_paper_logic_rejects_signal_and_records_reason() -> None:
     audits = list_trade_audits(10)
     assert len(audits) == 1
     assert audits[0].event_type == "paper_signal_rejected"
+    assert audits[0].summary == "Rejected — Paper autotrade is disabled."
 
     incidents = list_incidents(5)
     assert len(incidents) == 1
     assert incidents[0].code == "signal_rejected"
+
+
+def test_trade_journal_rejection_summary_includes_confidence_threshold() -> None:
+    result = execute_paper_signal(
+        config=_config(min_confidence=0.60),
+        watch_item=_watch_item(),
+        analysis=_analysis(confidence=0.54),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "rejected"
+    audits = list_trade_audits(5)
+    assert len(audits) == 1
+    assert audits[0].summary == "Rejected — confidence 54% < minimum 60%."
+
+
+def test_trade_journal_rejection_summary_names_stale_timeframe() -> None:
+    stale_bar = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=20)
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch_item(),
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=stale_bar,
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "rejected"
+    audits = list_trade_audits(5)
+    assert len(audits) == 1
+    assert audits[0].summary == "Rejected — stale M5 market bar."
 
 
 def test_execute_paper_signal_rejects_invalid_long_protective_levels() -> None:
