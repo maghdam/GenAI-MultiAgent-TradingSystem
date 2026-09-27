@@ -53,12 +53,16 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
             name="demo_execution",
             ok=not config.demo_autotrade or broker.execution_ready,
             detail=(
-                "cTrader demo account is confirmed and eligible for execution."
+                "cTrader demo account and monetary risk basis are verified for execution."
                 if broker.execution_ready
                 else (
                     "Demo execution is off."
                     if not config.demo_autotrade
-                    else "Demo execution is blocked until cTrader confirms the connected account is demo."
+                    else (
+                        "Demo execution is blocked until cTrader confirms the connected account is demo."
+                        if not broker.demo_account_confirmed
+                        else "Demo execution is blocked until cTrader provides a verified account currency and positive equity."
+                    )
                 )
             ),
         ),
