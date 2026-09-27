@@ -298,13 +298,23 @@ Test every operator control against backend behavior.
 - [x] GitHub CI.
 
 ### 3.4 Status truthfulness
-- [ ] Connected.
-- [ ] Demo confirmed.
-- [ ] Execution ready.
-- [ ] Symbol metadata ready.
-- [ ] Engine scanning.
-- [ ] Model ready.
-- [ ] Incidents reflect actual current faults, not stale state.
+- [x] Connected.
+- [x] Demo confirmed.
+- [x] Execution ready.
+- [x] Symbol metadata ready.
+- [x] Engine scanning.
+- [x] Model ready.
+- [x] Incidents reflect actual current faults, not stale state.
+
+**Verification**
+- [x] Focused status-truthfulness acceptance tests.
+- [x] Connected, demo-confirmed, execution-ready, symbol-metadata, engine-scanning, and model-ready flags are derived from current broker/runtime/model state.
+- [x] Engine scanning is sourced from `runtime.loop_active`, not merely `config.enabled`.
+- [x] Current incidents are derived from present faults; historical incidents remain separate audit history.
+- [x] Runtime recovery clears stale persisted `last_error` state.
+- [x] Local full backend regression suite.
+- [x] Local frontend production build.
+- [x] GitHub CI.
 
 ---
 
@@ -538,9 +548,10 @@ Add one row after every completed task.
 | 2026-09-27 | System engine lifecycle controls | Add explicit runtime-loop Restart and acceptance-test Start, Stop, Restart, one-shot Scan, Recover, and Reconcile | ✅ Focused/full backend tests + frontend build + CI; real open-demo backend restart pending | PR #24 | Phase 3.2 |
 | 2026-09-27 | System safety controls | Expose per-symbol position cap on System page and acceptance-test all Phase 3.2 safety gates | ✅ 11 focused tests + full backend suite + frontend build + CI | PR #25 | Phase 3.3 |
 | 2026-09-27 | Persistence acceptance | Move runtime SQLite DB to OS-local state, preserve legacy data via one-time migration, and verify config/watchlist persistence plus Git hygiene | ✅ 6 focused tests + full backend suite + resolved-path/tracked-state checks + CI | PR #26 | Phase 3.4 |
+| 2026-09-27 | Status truthfulness | Separate current status/current incidents from readiness and history; derive engine scanning from runtime loop activity and clear stale recovery errors | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #27 | Phase 4.1 |
 
 ---
 
 ## 14. Next item
 
-**Phase 3.4 — Status truthfulness acceptance audit: Connected, Demo confirmed, Execution ready, Symbol metadata ready, Engine scanning, Model ready, and incidents reflecting actual current faults rather than stale state. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 4.1 — Build & Test / Strategy Studio LLM research workflow acceptance audit: chat request, strategy drafting, provider/model selection, failure/fallback path, save strategy, and reload saved strategy. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
