@@ -136,18 +136,32 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
     if (!positions.length) return <div className="ta-panel__empty">No open positions</div>;
     return positions.map((p) => {
       const pnl = p.unrealized_pnl || 0;
+      const realized = p.realized_pnl || 0;
+      const brokerBacked = p.broker_position_id != null;
       return (
         <div key={p.id} className="ta-position">
-          <span className={`ta-pill ${p.direction === 'long' ? 'ta-pill--long' : 'ta-pill--short'}`}>
-            {p.direction === 'long' ? '↑' : '↓'} {p.direction}
-          </span>
-          <span className="ta-position__symbol">{p.symbol}</span>
-          <span className="ta-position__detail">{p.timeframe}</span>
-          <span className="ta-position__detail">qty {p.quantity.toFixed(2)}</span>
-          <span className="ta-position__detail">@ {formatPrice(p.entry_price)}</span>
-          <span className={`ta-position__pnl ${pnl >= 0 ? 'ta-position__pnl--profit' : 'ta-position__pnl--loss'}`}>
-            {formatPnl(pnl)}
-          </span>
+          <div className="ta-position__row">
+            <span className={`ta-pill ${p.direction === 'long' ? 'ta-pill--long' : 'ta-pill--short'}`}>
+              {p.direction === 'long' ? '↑' : '↓'} {p.direction}
+            </span>
+            <span className="ta-position__symbol">{p.symbol}</span>
+            <span className="ta-position__detail">{p.timeframe}</span>
+            <span className="ta-position__detail">qty {p.quantity.toFixed(2)}</span>
+            <span className={`ta-position__pnl ${pnl >= 0 ? 'ta-position__pnl--profit' : 'ta-position__pnl--loss'}`}>
+              {formatPnl(pnl)} {p.account_currency}
+            </span>
+          </div>
+          <div className="ta-position__meta">
+            <span>local #{p.id}</span>
+            <span>{brokerBacked ? `cTrader #${p.broker_position_id}` : 'paper only'}</span>
+            <span>entry {formatPrice(p.entry_price)}</span>
+            {realized !== 0 && (
+              <span>
+                realized {formatPnl(realized)} {p.account_currency}
+                {p.realized_pnl_source?.startsWith('ctrader_deal') ? ' · broker' : ''}
+              </span>
+            )}
+          </div>
         </div>
       );
     });
