@@ -372,6 +372,12 @@ class ReadinessCheck(BaseModel):
     detail: str
 
 
+class ActiveIncident(BaseModel):
+    level: IncidentLevel
+    code: str
+    message: str
+
+
 class EngineRuntime(BaseModel):
     running: bool = False
     loop_active: bool = False
@@ -392,6 +398,8 @@ class EngineStatus(BaseModel):
     config: EngineConfig
     runtime: EngineRuntime
     readiness: List[ReadinessCheck] = Field(default_factory=list)
+    status_truth: List[ReadinessCheck] = Field(default_factory=list)
+    active_incidents: List[ActiveIncident] = Field(default_factory=list)
     strategies: List[StrategyInfo] = Field(default_factory=list)
     recent_incidents: List[IncidentRecord] = Field(default_factory=list)
     recent_analyses: List[StrategyAnalysis] = Field(default_factory=list)

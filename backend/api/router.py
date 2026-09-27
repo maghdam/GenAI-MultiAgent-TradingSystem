@@ -11,9 +11,12 @@ from backend.adapters.ctrader import adapter as broker_adapter
 from backend.calendar import get_next_event
 from backend.config import SETTINGS
 from backend.domain.models import (
+    ActiveIncident,
     AnalyzeRequest,
+    BrokerStatus,
     ConfluenceReplayResponse,
     EngineConfig,
+    EngineRuntime,
     EngineStatus,
     EventRefreshResponse,
     EventCalibrationResponse,
@@ -22,6 +25,7 @@ from backend.domain.models import (
     ManualOrderRequest,
     MarketIntelligenceResponse,
     MarketEventInput,
+    ReadinessCheck,
     SymbolLimits,
     StudioTaskRequest,
     StudioTaskResponse,
@@ -111,6 +115,162 @@ async def _get_cached_ollama_ready() -> bool:
     return ready
 
 
+def _status_truth_checks(
+    config: EngineConfig,
+    broker: BrokerStatus,
+    runtime: EngineRuntime,
+) -> list[ReadinessCheck]:
+    if runtime.loop_active:
+        engine_detail = "Engine loop is actively scanning."
+    elif not config.enabled:
+        engine_detail = "Engine is disabled by operator configuration."
+    elif config.kill_switch:
+        engine_detail = "Engine scanning is paused by the kill switch."
+    elif not runtime.active_watchlist:
+        engine_detail = "Engine has no enabled watchlist rows to scan."
+    else:
+        engine_detail = "Engine is enabled but the scan loop is not active."
+
+    return [
+        ReadinessCheck(
+            name="connected",
+            ok=broker.socket_connected,
+            detail="cTrader socket is connected." if broker.socket_connected else "cTrader socket is not connected.",
+        ),
+        ReadinessCheck(
+            name="demo_confirmed",
+            ok=broker.demo_account_confirmed,
+            detail=(
+                "Connected cTrader account is confirmed as demo."
+                if broker.demo_account_confirmed
+                else "Connected account has not been confirmed as demo."
+            ),
+        ),
+        ReadinessCheck(
+            name="execution_ready",
+            ok=broker.execution_ready,
+            detail=(
+                "cTrader demo execution prerequisites are verified."
+                if broker.execution_ready
+                else "cTrader demo execution prerequisites are not fully verified."
+            ),
+        ),
+        ReadinessCheck(
+            name="symbol_metadata_ready",
+            ok=broker.symbols_loaded > 0,
+            detail=(
+                f"{broker.symbols_loaded} broker symbols are loaded."
+                if broker.symbols_loaded > 0
+                else "Broker symbol metadata is not loaded."
+            ),
+        ),
+        ReadinessCheck(
+            name="engine_scanning",
+            ok=runtime.loop_active,
+            detail=engine_detail,
+        ),
+        ReadinessCheck(
+            name="model_ready",
+            ok=runtime.ollama_ready,
+            detail=(
+                "Configured Ollama model is reachable and installed."
+                if runtime.ollama_ready
+                else "Configured Ollama model is not currently ready."
+            ),
+        ),
+    ]
+
+
+def _active_status_incidents(
+    config: EngineConfig,
+    broker: BrokerStatus,
+    runtime: EngineRuntime,
+) -> list[ActiveIncident]:
+    incidents: list[ActiveIncident] = []
+    startup_disabled = any(
+        "startup disabled by APP_START_CTRADER_ON_BOOT" in note
+        for note in broker.notes
+    )
+
+    if not broker.socket_connected and not startup_disabled:
+        incidents.append(
+            ActiveIncident(
+                level="warning",
+                code="broker_disconnected",
+                message="cTrader socket is currently disconnected.",
+            )
+        )
+    elif broker.socket_connected and not broker.account_authorized:
+        incidents.append(
+            ActiveIncident(
+                level="error",
+                code="broker_not_authorized",
+                message=broker.auth_error or "cTrader account is currently not authorized.",
+            )
+        )
+
+    if broker.socket_connected and broker.symbols_loaded <= 0:
+        incidents.append(
+            ActiveIncident(
+                level="warning",
+                code="symbol_metadata_unavailable",
+                message="Broker symbol metadata is currently unavailable.",
+            )
+        )
+
+    if config.demo_autotrade and broker.socket_connected:
+        if not broker.demo_account_confirmed:
+            incidents.append(
+                ActiveIncident(
+                    level="error",
+                    code="demo_account_not_confirmed",
+                    message="Automatic execution is enabled but the connected account is not confirmed as demo.",
+                )
+            )
+        elif not broker.execution_ready:
+            incidents.append(
+                ActiveIncident(
+                    level="error",
+                    code="demo_execution_not_ready",
+                    message="The demo account is confirmed, but execution prerequisites are not currently ready.",
+                )
+            )
+
+    if (
+        config.enabled
+        and runtime.active_watchlist
+        and not runtime.loop_active
+        and not config.kill_switch
+    ):
+        incidents.append(
+            ActiveIncident(
+                level="warning",
+                code="engine_not_scanning",
+                message="The engine is enabled with an active watchlist, but the scan loop is not active.",
+            )
+        )
+
+    if not runtime.ollama_ready:
+        incidents.append(
+            ActiveIncident(
+                level="warning",
+                code="model_not_ready",
+                message="The configured Ollama model is not currently ready.",
+            )
+        )
+
+    if runtime.last_error:
+        incidents.append(
+            ActiveIncident(
+                level="error",
+                code="engine_runtime_error",
+                message=runtime.last_error,
+            )
+        )
+
+    return incidents
+
+
 async def _status_payload() -> EngineStatus:
     config = _current_config()
     broker = await asyncio.to_thread(get_broker_status)
@@ -118,6 +278,8 @@ async def _status_payload() -> EngineStatus:
     readiness = await asyncio.to_thread(build_readiness, config)
     runtime = load_runtime()
     runtime.ollama_ready = await _get_cached_ollama_ready()
+    status_truth = _status_truth_checks(config, broker, runtime)
+    active_incidents = _active_status_incidents(config, broker, runtime)
 
     paper_positions = list_paper_positions("open")
     broker_rows = None
@@ -135,6 +297,8 @@ async def _status_payload() -> EngineStatus:
         config=config,
         runtime=runtime,
         readiness=readiness,
+        status_truth=status_truth,
+        active_incidents=active_incidents,
         strategies=strategies,
         recent_incidents=list_incidents(8),
         recent_analyses=list_recent_analyses(8),

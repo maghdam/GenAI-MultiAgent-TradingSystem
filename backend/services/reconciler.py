@@ -223,6 +223,7 @@ def recover_runtime_state(config: EngineConfig | None = None) -> Dict[str, Any]:
     runtime = load_runtime()
     runtime.running = cfg.enabled
     runtime.loop_active = False
+    runtime.last_error = None
     runtime.active_watchlist = [f"{item.symbol.upper()}:{item.timeframe.upper()}" for item in cfg.watchlist if item.enabled]
     runtime.last_reconcile_at = datetime.now(UTC).replace(tzinfo=None)
     runtime.last_reconcile_summary = f"runtime_recovered watchlist={len(runtime.active_watchlist)} enabled={cfg.enabled}"
