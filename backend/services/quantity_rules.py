@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Dict, List
 
 from backend.domain.models import EngineConfig, StrategyAnalysis
@@ -45,6 +46,20 @@ class AutoSizingDecision:
     requested_quantity: float
     reasons: List[str] = field(default_factory=list)
     details: Dict[str, object] = field(default_factory=dict)
+
+
+def _lot_decimals(step_lots: float) -> int:
+    """Match cTrader-style lot display while preserving finer broker steps."""
+    try:
+        exponent = Decimal(str(step_lots)).normalize().as_tuple().exponent
+        broker_decimals = max(0, -int(exponent))
+    except (InvalidOperation, TypeError, ValueError):
+        broker_decimals = 2
+    return max(2, min(8, broker_decimals))
+
+
+def _format_lots(value: float, limits: SymbolLimits) -> str:
+    return f"{float(value):.{_lot_decimals(limits.step_lots)}f}"
 
 
 def _decision_details(
@@ -210,7 +225,7 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
                 accepted=False,
                 requested_quantity=requested_quantity,
                 final_quantity=None,
-                reasons=[f"Requested quantity is below the symbol minimum of {limits.min_lots:.4f} lots."],
+                reasons=[f"Requested quantity is below the symbol minimum of {_format_lots(limits.min_lots, limits)} lots."],
                 details=details,
             )
         if requested_api_units > max_api_units:
@@ -218,7 +233,7 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
                 accepted=False,
                 requested_quantity=requested_quantity,
                 final_quantity=None,
-                reasons=[f"Requested quantity exceeds the symbol maximum of {limits.max_lots:.4f} lots."],
+                reasons=[f"Requested quantity exceeds the symbol maximum of {_format_lots(limits.max_lots, limits)} lots."],
                 details=details,
             )
         if (requested_api_units - min_api_units) % step_api_units:
@@ -226,7 +241,7 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
                 accepted=False,
                 requested_quantity=requested_quantity,
                 final_quantity=None,
-                reasons=[f"Requested quantity must align to the symbol step size of {limits.step_lots:.4f} lots."],
+                reasons=[f"Requested quantity must align to the symbol step size of {_format_lots(limits.step_lots, limits)} lots."],
                 details=details,
             )
         return QuantityDecision(
@@ -258,7 +273,7 @@ def evaluate_order_quantity(symbol: str, quantity: float, source: str) -> Quanti
     )
     reasons = ["Quantity fits the symbol limits."]
     if final_api_units != requested_api_units:
-        reasons = [f"Quantity was normalized to {final_quantity:.4f} lots to fit symbol limits."]
+        reasons = [f"Quantity was normalized to {_format_lots(final_quantity, limits)} lots to fit symbol limits."]
     return QuantityDecision(
         accepted=True,
         requested_quantity=requested_quantity,
