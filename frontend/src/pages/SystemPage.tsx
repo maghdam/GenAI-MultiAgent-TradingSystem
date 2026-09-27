@@ -167,6 +167,7 @@ export default function SystemPage() {
                 <label>Daily loss limit (%)<input type="number" min="0.1" max="20" step="0.1" value={draft.daily_loss_limit_pct} onChange={updateNumber('daily_loss_limit_pct', 2, 0.1, 20)} /></label>
                 <label>Maximum daily trades<input type="number" min="1" max="100" step="1" value={draft.max_daily_trades} onChange={updateNumber('max_daily_trades', 12, 1, 100)} /></label>
                 <label>Maximum open positions<input type="number" min="1" max="20" step="1" value={draft.max_open_positions} onChange={updateNumber('max_open_positions', 3, 1, 20)} /></label>
+                <label>Maximum positions per symbol<input type="number" min="1" max="20" step="1" value={draft.max_positions_per_symbol} onChange={updateNumber('max_positions_per_symbol', 1, 1, 20)} /></label>
                 <label>Cooldown (minutes)<input type="number" min="0" max="1440" step="1" value={draft.cooldown_minutes} onChange={updateNumber('cooldown_minutes', 30, 0, 1440)} /></label>
                 <label>Session start (UTC)<input type="number" min="0" max="23" step="1" value={draft.session_start_hour_utc} onChange={updateNumber('session_start_hour_utc', 6, 0, 23)} disabled={!draft.session_filter_enabled} /></label>
                 <label>Session end (UTC)<input type="number" min="0" max="23" step="1" value={draft.session_end_hour_utc} onChange={updateNumber('session_end_hour_utc', 21, 0, 23)} disabled={!draft.session_filter_enabled} /></label>
