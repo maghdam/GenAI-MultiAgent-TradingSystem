@@ -154,3 +154,20 @@ def signals(df: pd.DataFrame) -> pd.Series:
 
     with pytest.raises(StrategySandboxError, match="0.5s execution limit"):
         run_strategy_source(source, _bars(), timeout_seconds=10.0)
+
+
+def test_strategy_sandbox_enforces_child_memory_resource_limit(monkeypatch):
+    monkeypatch.setenv("STRATEGY_SANDBOX_MEMORY_MB", "128")
+    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "5")
+    source = """
+import pandas as pd
+
+def signals(df: pd.DataFrame) -> pd.Series:
+    holder = [0] * 20000000
+    while len(holder) > 0:
+        pass
+    return pd.Series(0.0, index=df.index)
+"""
+
+    with pytest.raises(StrategySandboxError, match="memory resource limit"):
+        run_strategy_source(source, _bars(), timeout_seconds=5.0)
