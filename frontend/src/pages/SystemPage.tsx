@@ -5,6 +5,7 @@ import {
   getV2Status,
   reconcileV2Engine,
   recoverV2Engine,
+  restartV2Engine,
   scanV2Engine,
   setV2Config,
   startV2Engine,
@@ -19,7 +20,7 @@ const formatTime = (value?: string | null) => formatBackendLocalDateTime(value);
 export default function SystemPage() {
   const [status, setStatus] = useState<V2Status | null>(null);
   const [draft, setDraft] = useState<V2Config | null>(null);
-  const [busy, setBusy] = useState<'save' | 'engine' | 'scan' | 'recover' | 'reconcile' | ''>('');
+  const [busy, setBusy] = useState<'save' | 'engine' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
   const [error, setError] = useState('');
 
   const load = async (syncDraft = false) => {
@@ -104,6 +105,7 @@ export default function SystemPage() {
               <button className="btn" type="button" onClick={() => run('recover', recoverV2Engine)} disabled={busy !== ''}>{busy === 'recover' ? 'Recovering…' : 'Recover'}</button>
               <button className="btn" type="button" onClick={() => run('reconcile', reconcileV2Engine)} disabled={busy !== ''}>{busy === 'reconcile' ? 'Reconciling…' : 'Reconcile'}</button>
               <button className="btn" type="button" onClick={() => run('scan', scanV2Engine)} disabled={busy !== ''}>{busy === 'scan' ? 'Scanning…' : 'Run one scan'}</button>
+              <button className="btn" type="button" onClick={() => run('restart', restartV2Engine)} disabled={busy !== ''}>{busy === 'restart' ? 'Restarting…' : 'Restart engine'}</button>
               <button className={`btn ${status?.config.enabled ? 'danger' : 'primary'}`} type="button" onClick={toggleEngine} disabled={busy !== ''}>{busy === 'engine' ? 'Updating…' : status?.config.enabled ? 'Stop engine' : 'Start engine'}</button>
             </div>
           </div>
