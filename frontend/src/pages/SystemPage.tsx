@@ -71,8 +71,8 @@ export default function SystemPage() {
       <AppNav
         right={(
           <>
-            <span className="ta-status"><span className={`ta-status__dot ta-status__dot--${status?.broker.ready ? 'ok' : 'bad'}`} />Broker {status?.broker.ready ? 'ready' : 'not ready'}</span>
-            <span className="ta-status"><span className={`ta-status__dot ta-status__dot--${status?.config.enabled ? 'ok' : 'wait'}`} />Engine {status?.config.enabled ? 'enabled' : 'disabled'}</span>
+            <span className="ta-status"><span className={`ta-status__dot ta-status__dot--${status?.broker.socket_connected ? 'ok' : 'bad'}`} />Broker {status?.broker.socket_connected ? 'connected' : 'disconnected'}</span>
+            <span className="ta-status"><span className={`ta-status__dot ta-status__dot--${status?.runtime.loop_active ? 'ok' : 'wait'}`} />Engine {status?.runtime.loop_active ? 'scanning' : 'not scanning'}</span>
           </>
         )}
       />
@@ -110,6 +110,16 @@ export default function SystemPage() {
             </div>
           </div>
 
+          <h3 style={{ margin: '16px 0 10px' }}>Current status</h3>
+          <div className="v2-checklist">
+            {(status?.status_truth ?? []).map((item) => (
+              <div className={`v2-check ${item.ok ? 'good' : 'bad'}`} key={item.name}>
+                <strong>{item.name.replaceAll('_', ' ')}</strong>
+                <span>{item.detail}</span>
+              </div>
+            ))}
+          </div>
+          <h3 style={{ margin: '18px 0 10px' }}>Readiness gates</h3>
           <div className="v2-checklist">
             {(status?.readiness ?? []).map((item) => (
               <div className={`v2-check ${item.ok ? 'good' : 'bad'}`} key={item.name}>
@@ -218,7 +228,20 @@ export default function SystemPage() {
           </section>
 
           <section className="v2-panel">
-            <div className="v2-panel-head"><h2>Incidents</h2></div>
+            <div className="v2-panel-head"><h2>Current incidents</h2></div>
+            <div className="v2-feed">
+              {(status?.active_incidents ?? []).map((item) => (
+                <article className="v2-feed-card" key={item.code}>
+                  <div className="v2-feed-head"><strong>{item.level} · {item.code}</strong><span>current</span></div>
+                  <p>{item.message}</p>
+                </article>
+              ))}
+              {!status?.active_incidents.length && <div className="v2-empty">No current incidents.</div>}
+            </div>
+          </section>
+
+          <section className="v2-panel">
+            <div className="v2-panel-head"><h2>Incident history</h2></div>
             <div className="v2-feed">
               {(status?.recent_incidents ?? []).slice(0, 10).map((item) => (
                 <article className="v2-feed-card" key={item.id}>
@@ -226,7 +249,7 @@ export default function SystemPage() {
                   <p>{item.message}</p>
                 </article>
               ))}
-              {!status?.recent_incidents.length && <div className="v2-empty">No incidents.</div>}
+              {!status?.recent_incidents.length && <div className="v2-empty">No incident history.</div>}
             </div>
           </section>
         </div>
