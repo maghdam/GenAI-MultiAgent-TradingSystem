@@ -489,6 +489,48 @@ def test_closed_position_summary_uses_ctrader_deal_price_and_money_digits(monkey
 
 
 
+def test_position_close_deals_decode_volume_and_costs(monkeypatch) -> None:
+    detail = SimpleNamespace(
+        grossProfit=1250,
+        swap=-25,
+        commission=-50,
+        pnlConversionFee=-10,
+        closedVolume=1000,
+        moneyDigits=2,
+    )
+    deal = SimpleNamespace(
+        dealId=1991,
+        executionPrice=2500.5,
+        executionTimestamp=1790186686611,
+        filledVolume=1000,
+        volume=1000,
+        moneyDigits=2,
+        closePositionDetail=detail,
+        tradeData=SimpleNamespace(symbolId=7),
+    )
+
+    monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
+    monkeypatch.setattr(ctd, "symbol_lot_size_map", {7: 100.0})
+    monkeypatch.setattr(ctd, "get_deals_by_position_id", lambda position_id, **kwargs: [deal])
+
+    rows = CTraderBrokerAdapter().get_position_close_deals(
+        12345,
+        symbol="XAUUSD",
+        opened_at_hint=datetime.now(UTC).replace(tzinfo=None),
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["deal_id"] == 1991
+    assert row["closed_volume_api"] == pytest.approx(1000.0)
+    assert row["closed_volume_lots"] == pytest.approx(0.1)
+    assert row["gross_profit"] == pytest.approx(12.50)
+    assert row["swap"] == pytest.approx(-0.25)
+    assert row["commission"] == pytest.approx(-0.50)
+    assert row["pnl_conversion_fee"] == pytest.approx(-0.10)
+    assert row["net_profit"] == pytest.approx(11.65)
+
+
 def test_deal_history_uses_ctrader_sdk_response_timeout_keyword(monkeypatch) -> None:
     captured = {}
 
