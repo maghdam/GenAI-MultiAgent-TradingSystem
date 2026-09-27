@@ -103,8 +103,9 @@ def reconcile_open_demo_position_ledger(
 ) -> Dict[str, Any]:
     """Synchronize partial broker closes into the immutable local deal ledger.
 
-    The local remaining quantity is reduced only after the newly observed
-    broker-volume reduction is backed by close-deal volume from cTrader.
+    History is queried only when the broker reports less remaining volume than
+    the local tracker. This keeps normal reconciliation lightweight while
+    repeatedly retrying a partial close until its authoritative deal appears.
     """
     broker_position_id = int(
         broker_position.get("position_id")
@@ -121,6 +122,26 @@ def reconcile_open_demo_position_ledger(
         return {"status": "unavailable", "reason": "Broker remaining quantity is unavailable."}
     if remaining_quantity <= 0:
         return {"status": "unavailable", "reason": "Broker remaining quantity is not positive."}
+
+    local_quantity = float(position.quantity)
+    tolerance = 1e-8
+    reduction = local_quantity - remaining_quantity
+    if remaining_quantity > local_quantity + tolerance:
+        return {
+            "status": "volume_increase_mismatch",
+            "broker_position_id": broker_position_id,
+            "local_quantity": local_quantity,
+            "remaining_quantity": remaining_quantity,
+        }
+    if reduction <= tolerance:
+        return {
+            "status": "in_sync",
+            "broker_position_id": broker_position_id,
+            "remaining_quantity": remaining_quantity,
+            "realized_pnl": float(position.realized_pnl),
+            "inserted_deals": 0,
+            "deal_ids": [],
+        }
 
     before_rows = list_broker_deals(local_position_id=position.id)
     before_closed_lots = sum(float(row.get("closed_volume_lots") or 0.0) for row in before_rows)
@@ -141,65 +162,40 @@ def reconcile_open_demo_position_ledger(
     all_rows = list_broker_deals(local_position_id=position.id)
     total_closed_lots = sum(float(row.get("closed_volume_lots") or 0.0) for row in all_rows)
     realized_pnl = broker_realized_pnl_for_position(position.id)
-
-    local_quantity = float(position.quantity)
-    tolerance = 1e-8
-    reduction = local_quantity - remaining_quantity
-    if reduction > tolerance:
-        newly_closed_lots = max(0.0, total_closed_lots - before_closed_lots)
-        crash_recovery = (
-            position.realized_pnl_source != "ctrader_deal_partial"
-            and total_closed_lots + tolerance >= reduction
-        )
-        if newly_closed_lots + tolerance < reduction and not crash_recovery:
-            return {
-                "status": "pending_deal_history",
-                "broker_position_id": broker_position_id,
-                "local_quantity": local_quantity,
-                "remaining_quantity": remaining_quantity,
-                "observed_reduction": reduction,
-                "newly_closed_lots": newly_closed_lots,
-                "total_closed_lots": total_closed_lots,
-                "inserted_deals": recorded["inserted"],
-                "deal_ids": recorded["deal_ids"],
-            }
-
-        updated = update_open_paper_position_from_broker_partial(
-            position.id,
-            remaining_quantity=remaining_quantity,
-            realized_pnl=realized_pnl,
-            broker_position_id=broker_position_id,
-        )
+    newly_closed_lots = max(0.0, total_closed_lots - before_closed_lots)
+    crash_recovery = (
+        position.realized_pnl_source != "ctrader_deal_partial"
+        and total_closed_lots + tolerance >= reduction
+    )
+    if newly_closed_lots + tolerance < reduction and not crash_recovery:
         return {
-            "status": "partial_close_synced",
-            "broker_position_id": broker_position_id,
-            "previous_quantity": local_quantity,
-            "remaining_quantity": float(updated.quantity),
-            "realized_pnl": float(updated.realized_pnl),
-            "inserted_deals": recorded["inserted"],
-            "deal_ids": recorded["deal_ids"],
-            "total_closed_lots": total_closed_lots,
-        }
-
-    if remaining_quantity > local_quantity + tolerance:
-        return {
-            "status": "volume_increase_mismatch",
+            "status": "pending_deal_history",
             "broker_position_id": broker_position_id,
             "local_quantity": local_quantity,
             "remaining_quantity": remaining_quantity,
+            "observed_reduction": reduction,
+            "newly_closed_lots": newly_closed_lots,
+            "total_closed_lots": total_closed_lots,
             "inserted_deals": recorded["inserted"],
             "deal_ids": recorded["deal_ids"],
         }
 
+    updated = update_open_paper_position_from_broker_partial(
+        position.id,
+        remaining_quantity=remaining_quantity,
+        realized_pnl=realized_pnl,
+        broker_position_id=broker_position_id,
+    )
     return {
-        "status": "in_sync",
+        "status": "partial_close_synced",
         "broker_position_id": broker_position_id,
-        "remaining_quantity": remaining_quantity,
-        "realized_pnl": realized_pnl,
+        "previous_quantity": local_quantity,
+        "remaining_quantity": float(updated.quantity),
+        "realized_pnl": float(updated.realized_pnl),
         "inserted_deals": recorded["inserted"],
         "deal_ids": recorded["deal_ids"],
+        "total_closed_lots": total_closed_lots,
     }
-
 
 def close_local_position_from_broker(
     position: PaperPosition,
