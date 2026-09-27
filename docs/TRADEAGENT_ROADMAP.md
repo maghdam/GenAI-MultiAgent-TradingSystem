@@ -197,17 +197,22 @@ Internal `confidence` values remain deterministic strategy-strength heuristics, 
 
 ### 2.3 Position panel broker truth
 **Priority:** P1  
-**Status:** 🟨
+**Status:** ✅
 
 Show:
 - [x] broker position ID,
-- [ ] broker entry (current UI still shows the tracked/local entry),
-- [ ] current broker SL/TP,
+- [x] broker entry from a read-only matched cTrader snapshot,
+- [x] current broker SL/TP,
 - [x] quantity,
-- [ ] protection status,
+- [x] protection status,
 - [x] account-currency unrealized P&L from the tracked position,
 - [x] broker-sourced realized P&L for partial closes when available,
-- [ ] last synchronization timestamp.
+- [x] last successful broker snapshot timestamp,
+- [x] explicit broker identity/sync status without falling back to local values when a persisted cTrader position ID is not found.
+
+**Verification**
+- [x] Focused broker-truth/API tests, full backend suite, frontend production build, and CI.
+- [ ] Real cTrader field observation on the next normal TradeAgent-managed open demo position.
 
 ### 2.4 Journal filtering / drill-down
 **Priority:** P2  
@@ -493,9 +498,10 @@ Add one row after every completed task.
 | 2026-09-27 | Trade Journal rejection reasons | Replace generic rejection summary with actionable operator-facing reason | ✅ Focused/full tests + runtime rejected-order field check + CI | PR #19 | Phase 2.2 |
 | 2026-09-27 | Lot display precision | Align operator-facing lot values with cTrader-style precision (0.01 rather than 0.0100; preserve finer broker steps) | ✅ Focused tests + full backend suite + API regression + CI | PR #20 | None |
 | 2026-09-27 | Signal strength semantics | Relabel heuristic confidence as signal strength, explain the threshold, and update rejection wording without changing schema/execution behavior | ✅ Frontend production build + full backend suite + CI | PR #21 | Phase 2.3 |
+| 2026-09-27 | Position broker truth | Read-only cTrader snapshot exposes broker entry, SL/TP, protection, sync time, and identity status without mutating the local ledger | ✅ Focused tests + full backend suite + frontend build + CI; real open-demo field observation pending | PR #22 | Phase 2.4 |
 
 ---
 
 ## 14. Next item
 
-**Phase 2.3 — finish broker-truth fields in the Positions panel: broker entry, current broker SL/TP, protection status, and last synchronization timestamp. Phase 1.4 real partial-close verification remains pending until the next normal TradeAgent-managed demo position is available.**
+**Phase 2.4 — Journal filtering / drill-down. Phase 1.4 real partial-close verification and Phase 2.3 real broker-truth field observation remain pending until the next normal TradeAgent-managed demo position is available.**
