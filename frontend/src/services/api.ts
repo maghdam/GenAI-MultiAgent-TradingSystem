@@ -847,6 +847,16 @@ export const stopV2Engine = async (): Promise<{ ok: boolean; enabled: boolean }>
   return response.json();
 };
 
+export const restartV2Engine = async (): Promise<{ ok: boolean; enabled: boolean; restarted: boolean }> => {
+  const response = await authFetch('/api/engine/restart', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to restart engine: ${response.status} ${response.statusText}`);
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
 export const scanV2Engine = async (): Promise<{ ok: boolean; summary: string }> => {
   const response = await authFetch('/api/engine/scan', { method: 'POST' });
   if (!response.ok) {
