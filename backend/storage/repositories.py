@@ -1204,6 +1204,186 @@ def get_position_by_id(position_id: int) -> PaperPosition:
     return _row_to_position(row)
 
 
+def list_broker_deals(
+    *,
+    local_position_id: int | None = None,
+    broker_position_id: int | None = None,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if local_position_id is not None:
+        clauses.append("local_position_id = ?")
+        params.append(int(local_position_id))
+    if broker_position_id is not None:
+        clauses.append("broker_position_id = ?")
+        params.append(int(broker_position_id))
+
+    sql = """
+        SELECT deal_id, broker_position_id, local_position_id, symbol, account_currency,
+               execution_price, execution_at, closed_volume_api, closed_volume_lots,
+               gross_profit, swap, commission, pnl_conversion_fee, net_profit,
+               created_at, source
+        FROM broker_deals
+    """
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY execution_at, deal_id"
+
+    with get_db() as db:
+        rows = db.execute(sql, tuple(params)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def record_broker_deals(
+    *,
+    local_position_id: int,
+    broker_position_id: int,
+    symbol: str,
+    account_currency: str,
+    deals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    inserted_ids: list[int] = []
+    inserted_net_profit = 0.0
+    inserted_closed_lots = 0.0
+    inserted_closed_api = 0.0
+    now = _utcnow().isoformat()
+
+    with get_db() as db:
+        for deal in deals:
+            deal_id = int(deal.get("deal_id") or 0)
+            if deal_id <= 0:
+                continue
+            execution_at = deal.get("execution_at")
+            if getattr(execution_at, "isoformat", None):
+                execution_at = execution_at.isoformat()
+            execution_at = str(execution_at or now)
+            closed_volume_api = float(deal.get("closed_volume_api") or 0.0)
+            closed_volume_lots = deal.get("closed_volume_lots")
+            closed_volume_lots_value = (
+                float(closed_volume_lots)
+                if closed_volume_lots is not None
+                else None
+            )
+            net_profit = float(deal.get("net_profit") or 0.0)
+
+            cur = db.execute(
+                """
+                INSERT OR IGNORE INTO broker_deals(
+                    deal_id, broker_position_id, local_position_id, symbol, account_currency,
+                    execution_price, execution_at, closed_volume_api, closed_volume_lots,
+                    gross_profit, swap, commission, pnl_conversion_fee, net_profit,
+                    created_at, source
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ctrader')
+                """,
+                (
+                    deal_id,
+                    int(broker_position_id),
+                    int(local_position_id),
+                    symbol.upper(),
+                    account_currency.upper(),
+                    float(deal.get("execution_price") or 0.0),
+                    execution_at,
+                    closed_volume_api,
+                    closed_volume_lots_value,
+                    float(deal.get("gross_profit") or 0.0),
+                    float(deal.get("swap") or 0.0),
+                    float(deal.get("commission") or 0.0),
+                    float(deal.get("pnl_conversion_fee") or 0.0),
+                    net_profit,
+                    now,
+                ),
+            )
+            if cur.rowcount:
+                inserted_ids.append(deal_id)
+                inserted_net_profit += net_profit
+                inserted_closed_api += closed_volume_api
+                inserted_closed_lots += float(closed_volume_lots_value or 0.0)
+        db.commit()
+
+    return {
+        "inserted": len(inserted_ids),
+        "deal_ids": inserted_ids,
+        "net_profit": inserted_net_profit,
+        "closed_volume_api": inserted_closed_api,
+        "closed_volume_lots": inserted_closed_lots,
+    }
+
+
+def broker_realized_pnl_for_position(local_position_id: int) -> float:
+    with get_db() as db:
+        row = db.execute(
+            """
+            SELECT COALESCE(SUM(net_profit), 0) AS total
+            FROM broker_deals
+            WHERE local_position_id = ?
+            """,
+            (int(local_position_id),),
+        ).fetchone()
+    return float((row["total"] if row else 0.0) or 0.0)
+
+
+def update_open_paper_position_from_broker_partial(
+    position_id: int,
+    *,
+    remaining_quantity: float,
+    realized_pnl: float,
+    broker_position_id: int,
+) -> PaperPosition:
+    position = get_position_by_id(position_id)
+    if position.status != "open":
+        return position
+    remaining = float(remaining_quantity)
+    if remaining <= 0:
+        raise ValueError("Partial-close reconciliation requires a positive remaining quantity.")
+
+    current_price = float(position.current_price if position.current_price is not None else position.entry_price)
+    signed_move = (
+        current_price - position.entry_price
+        if position.direction == "long"
+        else position.entry_price - current_price
+    )
+    unrealized = signed_move * remaining * position.cash_per_price_unit_per_lot
+
+    with get_db() as db:
+        db.execute(
+            """
+            UPDATE paper_positions
+            SET quantity = ?,
+                realized_pnl = ?,
+                unrealized_pnl = ?,
+                broker_position_id = ?,
+                realized_pnl_source = 'ctrader_deal_partial'
+            WHERE id = ? AND status = 'open'
+            """,
+            (
+                remaining,
+                float(realized_pnl),
+                float(unrealized),
+                int(broker_position_id),
+                int(position_id),
+            ),
+        )
+        db.commit()
+
+    add_trade_audit(
+        event_type="ctrader_demo_partial_close_reconciled",
+        symbol=position.symbol,
+        timeframe=position.timeframe,
+        strategy=position.strategy,
+        position_id=position.id,
+        summary="Reconciled broker partial close and remaining open quantity.",
+        details={
+            "broker_position_id": int(broker_position_id),
+            "previous_quantity": float(position.quantity),
+            "remaining_quantity": remaining,
+            "realized_pnl": float(realized_pnl),
+            "realized_pnl_source": "ctrader_deal_partial",
+        },
+    )
+    return get_position_by_id(position_id)
+
+
 def update_paper_position_mark(position_id: int, current_price: float, unrealized_pnl: float) -> None:
     with get_db() as db:
         db.execute(
@@ -1400,17 +1580,40 @@ def reconcile_closed_paper_position_from_broker(
 
 
 def daily_realized_pnl() -> float:
+    """Return realized P&L without double counting broker-backed closes.
+
+    Pure-paper rows remain sourced from paper_positions. Once any authoritative
+    broker deals exist for a local position, those immutable deal rows replace
+    the aggregate paper-position value and also account for partial closes while
+    the position is still open.
+    """
     today = _utcnow().date().isoformat()
     with get_db() as db:
-        row = db.execute(
+        paper_row = db.execute(
             """
-            SELECT COALESCE(SUM(realized_pnl), 0) AS total
-            FROM paper_positions
-            WHERE status = 'closed' AND substr(closed_at, 1, 10) = ?
+            SELECT COALESCE(SUM(p.realized_pnl), 0) AS total
+            FROM paper_positions p
+            WHERE p.status = 'closed'
+              AND substr(p.closed_at, 1, 10) = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM broker_deals d
+                  WHERE d.local_position_id = p.id
+              )
             """,
             (today,),
         ).fetchone()
-    return float((row["total"] if row else 0.0) or 0.0)
+        broker_row = db.execute(
+            """
+            SELECT COALESCE(SUM(net_profit), 0) AS total
+            FROM broker_deals
+            WHERE substr(execution_at, 1, 10) = ?
+            """,
+            (today,),
+        ).fetchone()
+
+    paper_total = float((paper_row["total"] if paper_row else 0.0) or 0.0)
+    broker_total = float((broker_row["total"] if broker_row else 0.0) or 0.0)
+    return paper_total + broker_total
 
 
 def daily_trade_count() -> int:
