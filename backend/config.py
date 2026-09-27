@@ -7,6 +7,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
+LEGACY_DB_PATH = DATA_DIR / "tradeagent.db"
 
 
 def resolve_db_path() -> Path:
