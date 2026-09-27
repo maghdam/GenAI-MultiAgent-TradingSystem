@@ -216,18 +216,28 @@ Show:
 
 ### 2.4 Journal filtering / drill-down
 **Priority:** P2  
-**Status:** ⬜
+**Status:** ✅
 
 Filters:
-- execution only,
-- rejected signals,
-- protection incidents,
-- symbol,
-- strategy,
-- date,
-- broker vs paper.
+- [x] execution only,
+- [x] rejected signals,
+- [x] protection incidents,
+- [x] symbol,
+- [x] strategy,
+- [x] local date,
+- [x] broker vs paper.
 
-Row expansion should show intent/risk reasons and broker details.
+Drill-down:
+- [x] linked intent type/status,
+- [x] intent/risk/quantity/sizing reasons,
+- [x] broker execution/protection/close details when available,
+- [x] raw audit details,
+- [x] demo-backed `paper_position_*` rows remain classified as broker-backed when broker metadata is present.
+
+**Verification**
+- [x] Local frontend production build.
+- [x] Local full backend regression suite.
+- [x] GitHub CI frontend production build + full backend suite.
 
 ---
 
@@ -499,9 +509,10 @@ Add one row after every completed task.
 | 2026-09-27 | Lot display precision | Align operator-facing lot values with cTrader-style precision (0.01 rather than 0.0100; preserve finer broker steps) | ✅ Focused tests + full backend suite + API regression + CI | PR #20 | None |
 | 2026-09-27 | Signal strength semantics | Relabel heuristic confidence as signal strength, explain the threshold, and update rejection wording without changing schema/execution behavior | ✅ Frontend production build + full backend suite + CI | PR #21 | Phase 2.3 |
 | 2026-09-27 | Position broker truth | Read-only cTrader snapshot exposes broker entry, SL/TP, protection, sync time, and identity status without mutating the local ledger | ✅ Focused tests + full backend suite + frontend build + CI; real open-demo field observation pending | PR #22 | Phase 2.4 |
+| 2026-09-27 | Trade Journal filtering / drill-down | Add execution/rejection/protection, symbol, strategy, date, and broker-vs-paper filters plus expandable intent/risk/broker details | ✅ Local frontend build + full backend suite + CI | PR #23 | Phase 3.1 |
 
 ---
 
 ## 14. Next item
 
-**Phase 2.4 — Journal filtering / drill-down. Phase 1.4 real partial-close verification and Phase 2.3 real broker-truth field observation remain pending until the next normal TradeAgent-managed demo position is available.**
+**Phase 3.1 — System page engine lifecycle acceptance audit: Start, Stop, Restart, one-shot scan, Recover, Reconcile, and backend restart while a broker position is open. Phase 1.4 real partial-close verification and Phase 2.3 real broker-truth field observation remain pending until the next normal TradeAgent-managed demo position is available.**
