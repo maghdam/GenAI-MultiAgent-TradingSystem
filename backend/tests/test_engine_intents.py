@@ -170,7 +170,7 @@ def test_trade_journal_rejection_summary_includes_confidence_threshold() -> None
     assert result.status == "rejected"
     audits = list_trade_audits(5)
     assert len(audits) == 1
-    assert audits[0].summary == "Rejected - confidence 54% < minimum 60%."
+    assert audits[0].summary == "Rejected - signal strength 54% < minimum 60%."
 
 
 def test_trade_journal_rejection_summary_names_stale_timeframe() -> None:

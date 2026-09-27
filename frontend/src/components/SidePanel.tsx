@@ -13,9 +13,15 @@ function formatTimestamp(value?: string | null): string {
   return formatBackendLocalTime(value);
 }
 
-function formatConfidence(value?: number): string {
+function formatSignalStrength(value?: number): string {
   if (value == null || Number.isNaN(value)) return '–';
   return `${Math.round(value * 100)}%`;
+}
+
+function signalStrengthHelp(minimum?: number): string {
+  const meaning = 'Deterministic strategy-strength score from the active strategy; it is not a calibrated win probability.';
+  if (minimum == null || Number.isNaN(minimum)) return meaning;
+  return `${meaning} Current execution threshold: ${formatSignalStrength(minimum)}.`;
 }
 
 function formatPrice(value?: number | null): string {
@@ -117,11 +123,15 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
             <span className="ta-signal__strategy">{a.strategy}</span>
             <span className="ta-signal__meta" style={{ marginLeft: 'auto' }}>{formatTimestamp(a.created_at)}</span>
           </div>
-          <div className="ta-confidence">
+          <div
+            className="ta-confidence"
+            title={signalStrengthHelp(status?.config.min_confidence)}
+            aria-label={`Signal strength ${formatSignalStrength(a.confidence)}`}
+          >
             <div className="ta-confidence__bar">
               <div className={`ta-confidence__fill ${fillClass}`} style={{ width: `${Math.round((a.confidence ?? 0) * 100)}%` }} />
             </div>
-            <span>{formatConfidence(a.confidence)}</span>
+            <span>Strength {formatSignalStrength(a.confidence)}</span>
           </div>
           {a.reasons?.length > 0 && (
             <div className="ta-signal__reasons">{a.reasons.join(' · ')}</div>
@@ -182,7 +192,9 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
             <span className={`ta-pill ${statusClass}`}>{i.status}</span>
             <span className="ta-intent__symbol">{i.symbol}</span>
             <span className="ta-intent__detail">{i.intent_type}</span>
-            <span className="ta-intent__detail">{formatConfidence(i.confidence)}</span>
+            <span className="ta-intent__detail" title={signalStrengthHelp(status?.config.min_confidence)}>
+              strength {formatSignalStrength(i.confidence)}
+            </span>
             <span className="ta-intent__detail" style={{ marginLeft: 'auto' }}>{formatTimestamp(i.created_at)}</span>
           </div>
           <div className="ta-intent__meta">

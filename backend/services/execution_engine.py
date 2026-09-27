@@ -64,11 +64,11 @@ def _journal_rejection_summary(
     reason = next((str(value).strip() for value in reasons if str(value).strip()), "Execution gate rejected the signal.")
     lowered = reason.lower()
 
-    if "confidence is below" in lowered:
+    if "signal strength is below" in lowered or "confidence is below" in lowered:
         try:
             confidence = float(evidence.get("confidence", analysis.confidence))
             minimum = float(evidence["min_confidence"])
-            return f"Rejected - confidence {confidence:.0%} < minimum {minimum:.0%}."
+            return f"Rejected - signal strength {confidence:.0%} < minimum {minimum:.0%}."
         except (KeyError, TypeError, ValueError):
             pass
 

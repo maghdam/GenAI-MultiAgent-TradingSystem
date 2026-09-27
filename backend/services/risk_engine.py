@@ -227,7 +227,7 @@ def evaluate_risk(
         return decision
 
     if analysis.confidence < config.min_confidence:
-        decision.reasons.append("Confidence is below the configured minimum.")
+        decision.reasons.append("Signal strength is below the configured minimum.")
         decision.details["confidence"] = analysis.confidence
         decision.details["min_confidence"] = config.min_confidence
         return decision
