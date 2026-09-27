@@ -5,11 +5,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import psutil
 
 from backend.services.strategy_policy import validate_strategy_source
 
@@ -62,6 +64,55 @@ def _configured_max_timeout_seconds() -> float:
         return 30.0
 
 
+def _configured_memory_limit_bytes() -> int:
+    try:
+        memory_mb = max(64, int(os.getenv("STRATEGY_SANDBOX_MEMORY_MB", "512")))
+    except Exception:
+        memory_mb = 512
+    return memory_mb * 1024 * 1024
+
+
+def _process_tree_rss(process: subprocess.Popen[str]) -> int:
+    try:
+        parent = psutil.Process(process.pid)
+        processes = [parent, *parent.children(recursive=True)]
+    except (psutil.Error, OSError):
+        return 0
+
+    total = 0
+    for item in processes:
+        try:
+            total += int(item.memory_info().rss)
+        except (psutil.Error, OSError):
+            continue
+    return total
+
+
+def _kill_process_tree(process: subprocess.Popen[str]) -> None:
+    try:
+        parent = psutil.Process(process.pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            try:
+                child.kill()
+            except (psutil.Error, OSError):
+                pass
+        try:
+            parent.kill()
+        except (psutil.Error, OSError):
+            pass
+    except (psutil.Error, OSError):
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+    try:
+        process.wait(timeout=2)
+    except Exception:
+        pass
+
+
 def run_strategy_source(
     source: str,
     frame: pd.DataFrame,
@@ -92,25 +143,63 @@ def run_strategy_source(
     requested_timeout = max(0.5, float(timeout_seconds))
     effective_timeout = min(requested_timeout, _configured_max_timeout_seconds())
 
+    memory_limit_bytes = _configured_memory_limit_bytes()
+    payload_text = json.dumps(payload, separators=(",", ":"))
+
     with tempfile.TemporaryDirectory(prefix="tradeagent-strategy-") as workdir:
-        try:
-            result = subprocess.run(
+        stdout_path = Path(workdir) / "stdout.txt"
+        stderr_path = Path(workdir) / "stderr.txt"
+        with stdout_path.open("w+", encoding="utf-8") as stdout_file, stderr_path.open(
+            "w+", encoding="utf-8"
+        ) as stderr_file:
+            process = subprocess.Popen(
                 [sys.executable, "-I", "-c", _RUNNER],
-                input=json.dumps(payload, separators=(",", ":")),
+                stdin=subprocess.PIPE,
+                stdout=stdout_file,
+                stderr=stderr_file,
                 text=True,
-                capture_output=True,
-                timeout=effective_timeout,
                 cwd=Path(workdir),
                 env=safe_env,
-                check=False,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise StrategySandboxError(f"Strategy exceeded the {effective_timeout:.1f}s execution limit.") from exc
-    if result.returncode != 0:
-        error = (result.stderr or "isolated strategy process failed").strip().splitlines()[-1]
+            if process.stdin is None:
+                _kill_process_tree(process)
+                raise StrategySandboxError("Strategy sandbox could not open child-process input.")
+
+            try:
+                process.stdin.write(payload_text)
+                process.stdin.close()
+            except (BrokenPipeError, OSError) as exc:
+                _kill_process_tree(process)
+                raise StrategySandboxError("Strategy sandbox child process exited before receiving input.") from exc
+
+            deadline = time.monotonic() + effective_timeout
+            while process.poll() is None:
+                if time.monotonic() >= deadline:
+                    _kill_process_tree(process)
+                    raise StrategySandboxError(
+                        f"Strategy exceeded the {effective_timeout:.1f}s execution limit."
+                    )
+
+                rss = _process_tree_rss(process)
+                if rss > memory_limit_bytes:
+                    _kill_process_tree(process)
+                    limit_mb = memory_limit_bytes // (1024 * 1024)
+                    raise StrategySandboxError(
+                        f"Strategy exceeded the {limit_mb} MB memory resource limit."
+                    )
+                time.sleep(0.02)
+
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout = stdout_file.read()
+            stderr = stderr_file.read()
+            returncode = int(process.returncode or 0)
+
+    if returncode != 0:
+        error = (stderr or "isolated strategy process failed").strip().splitlines()[-1]
         raise StrategySandboxError(error[:500])
     try:
-        response = json.loads(result.stdout)
+        response = json.loads(stdout)
         if response.get("ok") is not True:
             raise ValueError("sandbox response did not report success")
         values = response["values"]
