@@ -164,7 +164,21 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
           <div className="ta-position__meta">
             <span>local #{p.id}</span>
             <span>{brokerBacked ? `cTrader #${p.broker_position_id}` : 'paper only'}</span>
-            <span>entry {formatPrice(p.entry_price)}</span>
+            {brokerBacked ? (
+              <>
+                <span>broker entry {formatPrice(p.broker_entry_price)}</span>
+                <span>tracked entry {formatPrice(p.entry_price)}</span>
+                <span>SL {formatPrice(p.broker_stop_loss)} · TP {formatPrice(p.broker_take_profit)}</span>
+                <span>protection {p.broker_protection_status ?? 'unavailable'}</span>
+                <span>
+                  {p.broker_last_synced_at
+                    ? `synced ${formatTimestamp(p.broker_last_synced_at)}`
+                    : `broker state ${p.broker_sync_status ?? 'unavailable'}`}
+                </span>
+              </>
+            ) : (
+              <span>entry {formatPrice(p.entry_price)}</span>
+            )}
             {realized !== 0 && (
               <span>
                 realized {formatPnl(realized)} {p.account_currency}
