@@ -43,12 +43,30 @@ def close_demo_position(**kwargs) -> Dict[str, Any]:
     return adapter.close_demo_position(**kwargs)
 
 
+def get_position_close_deals(
+    position_id: int,
+    *,
+    symbol: str | None = None,
+    opened_at_hint: datetime | None = None,
+) -> List[Dict[str, Any]]:
+    return adapter.get_position_close_deals(
+        position_id,
+        symbol=symbol,
+        opened_at_hint=opened_at_hint,
+    )
+
+
 def get_closed_position_summary(
     position_id: int,
     *,
     closed_at_hint: datetime | None = None,
+    symbol: str | None = None,
 ) -> Dict[str, Any] | None:
-    return adapter.get_closed_position_summary(position_id, closed_at_hint=closed_at_hint)
+    return adapter.get_closed_position_summary(
+        position_id,
+        closed_at_hint=closed_at_hint,
+        symbol=symbol,
+    )
 
 
 def place_demo_market_order(**kwargs) -> Dict[str, Any]:

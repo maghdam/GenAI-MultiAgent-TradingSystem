@@ -3,14 +3,22 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from backend.domain.models import PaperPosition
-from backend.services.broker import get_broker_status, get_closed_position_summary
+from backend.services.broker import (
+    get_broker_status,
+    get_closed_position_summary,
+    get_position_close_deals,
+)
 from backend.storage.repositories import (
+    broker_realized_pnl_for_position,
     close_paper_position,
+    list_broker_deals,
     list_order_intents,
     list_paper_positions,
     list_trade_audits,
+    record_broker_deals,
     reconcile_closed_paper_position_from_broker,
     set_paper_position_broker_id,
+    update_open_paper_position_from_broker_partial,
 )
 
 
@@ -70,6 +78,125 @@ def _broker_summary_details(summary: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _persist_summary_deals(
+    position: PaperPosition,
+    broker_position_id: int,
+    summary: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    if not isinstance(summary, dict):
+        return {"inserted": 0, "deal_ids": [], "net_profit": 0.0, "closed_volume_lots": 0.0}
+    deals = summary.get("deals")
+    if not isinstance(deals, list) or not deals:
+        return {"inserted": 0, "deal_ids": [], "net_profit": 0.0, "closed_volume_lots": 0.0}
+    return record_broker_deals(
+        local_position_id=position.id,
+        broker_position_id=int(broker_position_id),
+        symbol=position.symbol,
+        account_currency=position.account_currency,
+        deals=deals,
+    )
+
+
+def reconcile_open_demo_position_ledger(
+    position: PaperPosition,
+    broker_position: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Synchronize partial broker closes into the immutable local deal ledger.
+
+    History is queried only when the broker reports less remaining volume than
+    the local tracker. This keeps normal reconciliation lightweight while
+    repeatedly retrying a partial close until its authoritative deal appears.
+    """
+    broker_position_id = int(
+        broker_position.get("position_id")
+        or position.broker_position_id
+        or resolve_broker_position_id(position)
+        or 0
+    )
+    if broker_position_id <= 0:
+        return {"status": "unavailable", "reason": "Broker position id is unavailable."}
+
+    try:
+        remaining_quantity = float(broker_position.get("volume_lots"))
+    except (TypeError, ValueError):
+        return {"status": "unavailable", "reason": "Broker remaining quantity is unavailable."}
+    if remaining_quantity <= 0:
+        return {"status": "unavailable", "reason": "Broker remaining quantity is not positive."}
+
+    local_quantity = float(position.quantity)
+    tolerance = 1e-8
+    reduction = local_quantity - remaining_quantity
+    if remaining_quantity > local_quantity + tolerance:
+        return {
+            "status": "volume_increase_mismatch",
+            "broker_position_id": broker_position_id,
+            "local_quantity": local_quantity,
+            "remaining_quantity": remaining_quantity,
+        }
+    if reduction <= tolerance:
+        return {
+            "status": "in_sync",
+            "broker_position_id": broker_position_id,
+            "remaining_quantity": remaining_quantity,
+            "realized_pnl": float(position.realized_pnl),
+            "inserted_deals": 0,
+            "deal_ids": [],
+        }
+
+    before_rows = list_broker_deals(local_position_id=position.id)
+    before_closed_lots = sum(float(row.get("closed_volume_lots") or 0.0) for row in before_rows)
+
+    deals = get_position_close_deals(
+        broker_position_id,
+        symbol=position.symbol,
+        opened_at_hint=position.opened_at,
+    )
+    recorded = record_broker_deals(
+        local_position_id=position.id,
+        broker_position_id=broker_position_id,
+        symbol=position.symbol,
+        account_currency=position.account_currency,
+        deals=deals,
+    )
+
+    all_rows = list_broker_deals(local_position_id=position.id)
+    total_closed_lots = sum(float(row.get("closed_volume_lots") or 0.0) for row in all_rows)
+    realized_pnl = broker_realized_pnl_for_position(position.id)
+    newly_closed_lots = max(0.0, total_closed_lots - before_closed_lots)
+    crash_recovery = (
+        position.realized_pnl_source != "ctrader_deal_partial"
+        and total_closed_lots + tolerance >= reduction
+    )
+    if newly_closed_lots + tolerance < reduction and not crash_recovery:
+        return {
+            "status": "pending_deal_history",
+            "broker_position_id": broker_position_id,
+            "local_quantity": local_quantity,
+            "remaining_quantity": remaining_quantity,
+            "observed_reduction": reduction,
+            "newly_closed_lots": newly_closed_lots,
+            "total_closed_lots": total_closed_lots,
+            "inserted_deals": recorded["inserted"],
+            "deal_ids": recorded["deal_ids"],
+        }
+
+    updated = update_open_paper_position_from_broker_partial(
+        position.id,
+        remaining_quantity=remaining_quantity,
+        realized_pnl=realized_pnl,
+        broker_position_id=broker_position_id,
+    )
+    return {
+        "status": "partial_close_synced",
+        "broker_position_id": broker_position_id,
+        "previous_quantity": local_quantity,
+        "remaining_quantity": float(updated.quantity),
+        "realized_pnl": float(updated.realized_pnl),
+        "inserted_deals": recorded["inserted"],
+        "deal_ids": recorded["deal_ids"],
+        "total_closed_lots": total_closed_lots,
+    }
+
 def close_local_position_from_broker(
     position: PaperPosition,
     *,
@@ -85,10 +212,12 @@ def close_local_position_from_broker(
             summary = get_closed_position_summary(
                 broker_position_id,
                 closed_at_hint=position.closed_at,
+                symbol=position.symbol,
             )
         except Exception:
             summary = None
         if summary and summary.get("exit_price") is not None:
+            _persist_summary_deals(position, broker_position_id, summary)
             return close_paper_position(
                 position.id,
                 float(summary["exit_price"]),
@@ -131,11 +260,13 @@ def close_local_position_after_broker_close(
             summary = get_closed_position_summary(
                 broker_position_id,
                 closed_at_hint=position.closed_at,
+                symbol=position.symbol,
             )
         except Exception:
             summary = None
 
     if isinstance(summary, dict) and summary.get("exit_price") is not None:
+        _persist_summary_deals(position, broker_position_id, summary)
         return close_paper_position(
             position.id,
             float(summary["exit_price"]),
@@ -195,6 +326,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
             summary = get_closed_position_summary(
                 broker_position_id,
                 closed_at_hint=position.closed_at,
+                symbol=position.symbol,
             )
         except Exception as exc:
             unavailable += 1
@@ -219,6 +351,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
             )
             continue
 
+        _persist_summary_deals(position, broker_position_id, summary)
         reconcile_closed_paper_position_from_broker(
             position.id,
             exit_price=float(summary["exit_price"]),

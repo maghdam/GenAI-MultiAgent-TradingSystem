@@ -13,6 +13,7 @@ from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
+    reconcile_open_demo_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
@@ -229,6 +230,33 @@ class V2Engine:
                 int(match.row.get("position_id") or 0),
             )
         broker_match = match.row
+        ledger_sync = reconcile_open_demo_position_ledger(position, broker_match)
+        if ledger_sync.get("status") == "partial_close_synced":
+            position = get_open_position(item.symbol.upper(), item.timeframe.upper()) or position
+            add_trade_audit(
+                event_type="ctrader_demo_partial_close_synced",
+                symbol=position.symbol,
+                timeframe=position.timeframe,
+                strategy=position.strategy,
+                position_id=position.id,
+                summary="Synchronized broker partial close during same-bar maintenance.",
+                details=ledger_sync,
+            )
+        elif ledger_sync.get("status") == "pending_deal_history":
+            log_incident(
+                "warning",
+                "ctrader_demo_partial_close_history_pending",
+                f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
+                {"position_id": position.id, **ledger_sync, "phase": "same_bar_maintenance"},
+            )
+        elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+            log_incident(
+                "error",
+                "ctrader_demo_volume_reconciliation_failed",
+                f"Could not reconcile broker volume for {position.symbol}:{position.timeframe}.",
+                {"position_id": position.id, **ledger_sync, "phase": "same_bar_maintenance"},
+            )
+            return
 
         try:
             protection = sync_demo_position_targets(
@@ -321,9 +349,35 @@ class V2Engine:
             )
             return
         if match.status == "legacy_match":
-            set_paper_position_broker_id(
+            position = set_paper_position_broker_id(
                 position.id,
                 int(match.row.get("position_id") or 0),
+            )
+
+        ledger_sync = reconcile_open_demo_position_ledger(position, match.row)
+        if ledger_sync.get("status") == "partial_close_synced":
+            add_trade_audit(
+                event_type="ctrader_demo_partial_close_synced",
+                symbol=position.symbol,
+                timeframe=position.timeframe,
+                strategy=position.strategy,
+                position_id=position.id,
+                summary="Synchronized broker partial close during mark reconciliation.",
+                details=ledger_sync,
+            )
+        elif ledger_sync.get("status") == "pending_deal_history":
+            log_incident(
+                "warning",
+                "ctrader_demo_partial_close_history_pending",
+                f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
+                {"position_id": position.id, **ledger_sync, "phase": "same_bar_mark"},
+            )
+        elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+            log_incident(
+                "error",
+                "ctrader_demo_volume_reconciliation_failed",
+                f"Could not reconcile broker volume for {position.symbol}:{position.timeframe}.",
+                {"position_id": position.id, **ledger_sync, "phase": "same_bar_mark"},
             )
 
 engine = V2Engine()

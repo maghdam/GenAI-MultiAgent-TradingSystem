@@ -112,6 +112,41 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS broker_deals (
+                deal_id INTEGER PRIMARY KEY,
+                broker_position_id INTEGER NOT NULL,
+                local_position_id INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                account_currency TEXT NOT NULL,
+                execution_price REAL NOT NULL,
+                execution_at TEXT NOT NULL,
+                closed_volume_api REAL NOT NULL,
+                closed_volume_lots REAL,
+                gross_profit REAL NOT NULL,
+                swap REAL NOT NULL,
+                commission REAL NOT NULL,
+                pnl_conversion_fee REAL NOT NULL,
+                net_profit REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'ctrader',
+                FOREIGN KEY(local_position_id) REFERENCES paper_positions(id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_broker_deals_local_position
+            ON broker_deals(local_position_id, execution_at, deal_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_broker_deals_broker_position
+            ON broker_deals(broker_position_id, execution_at, deal_id)
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS paper_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,

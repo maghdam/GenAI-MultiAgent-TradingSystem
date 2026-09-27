@@ -520,66 +520,18 @@ class CTraderBrokerAdapter:
             "ack": ack_payload,
         }
 
-    def get_closed_position_summary(
+    def _normalize_closing_deals(
         self,
-        position_id: int,
+        deals: list[Any],
         *,
-        closed_at_hint: datetime | None = None,
-    ) -> Dict[str, Any] | None:
-        """Return authoritative broker close price/P&L for a closed position.
-
-        cTrader rejects excessively wide historical boundaries. We only need
-        the closing deal, so query a narrow window around the locally observed
-        broker disappearance time. For immediate closes, use a recent window.
-        """
-        now_utc = _utc_now()
-        if closed_at_hint is not None:
-            hint = closed_at_hint
-            if hint.tzinfo is None:
-                hint = hint.replace(tzinfo=UTC)
-            else:
-                hint = hint.astimezone(UTC)
-            window_start = hint - timedelta(days=1)
-            # cTrader rejects a historical toTimestamp that lies in the future.
-            # Recent locally observed closes therefore need their +1 day window
-            # clamped to the current UTC time.
-            window_end = min(hint + timedelta(days=1), now_utc)
-            if window_start >= window_end:
-                window_start = window_end - timedelta(days=2)
-        else:
-            window_end = now_utc
-            window_start = window_end - timedelta(days=2)
-
-        deals = ctd.get_deals_by_position_id(
-            int(position_id),
-            from_timestamp=int(window_start.timestamp() * 1000),
-            to_timestamp=int(window_end.timestamp() * 1000),
+        symbol_hint: str | None = None,
+    ) -> list[Dict[str, Any]]:
+        rows: list[Dict[str, Any]] = []
+        hinted_symbol_id = (
+            (ctd.symbol_name_to_id or {}).get(str(symbol_hint or "").strip().upper())
+            if symbol_hint
+            else None
         )
-        closing: list[tuple[Any, Any]] = []
-        for deal in deals:
-            detail = getattr(deal, "closePositionDetail", None)
-            has_detail = False
-            try:
-                has_detail = bool(deal.HasField("closePositionDetail"))
-            except Exception:
-                try:
-                    has_detail = detail is not None and bool(detail.ListFields())
-                except Exception:
-                    has_detail = detail is not None
-            if detail is not None and has_detail:
-                closing.append((deal, detail))
-
-        if not closing:
-            return None
-
-        total_weight = 0.0
-        weighted_exit = 0.0
-        gross_profit = 0.0
-        swap = 0.0
-        commission = 0.0
-        pnl_conversion_fee = 0.0
-        latest_ts_ms = 0
-        deal_ids: list[int] = []
 
         def _money_digits(deal: Any, detail: Any) -> int:
             for obj in (detail, deal):
@@ -595,55 +547,178 @@ class CTraderBrokerAdapter:
                             pass
             return 2
 
-        for deal, detail in closing:
+        for deal in deals:
+            detail = getattr(deal, "closePositionDetail", None)
+            has_detail = False
+            try:
+                has_detail = bool(deal.HasField("closePositionDetail"))
+            except Exception:
+                try:
+                    has_detail = detail is not None and bool(detail.ListFields())
+                except Exception:
+                    has_detail = detail is not None
+            if detail is None or not has_detail:
+                continue
+
+            try:
+                deal_id = int(getattr(deal, "dealId", 0) or 0)
+            except (TypeError, ValueError):
+                deal_id = 0
+            if deal_id <= 0:
+                continue
+
             digits = _money_digits(deal, detail)
             scale = float(10 ** max(0, digits))
-            gross_profit += float(getattr(detail, "grossProfit", 0) or 0) / scale
-            swap += float(getattr(detail, "swap", 0) or 0) / scale
-            commission += float(getattr(detail, "commission", 0) or 0) / scale
-            pnl_conversion_fee += float(getattr(detail, "pnlConversionFee", 0) or 0) / scale
-
-            weight = float(
+            gross_profit = float(getattr(detail, "grossProfit", 0) or 0) / scale
+            swap = float(getattr(detail, "swap", 0) or 0) / scale
+            commission = float(getattr(detail, "commission", 0) or 0) / scale
+            pnl_conversion_fee = float(getattr(detail, "pnlConversionFee", 0) or 0) / scale
+            closed_volume_api = float(
                 getattr(detail, "closedVolume", 0)
                 or getattr(deal, "filledVolume", 0)
                 or getattr(deal, "volume", 0)
                 or 0
             )
-            price = float(getattr(deal, "executionPrice", 0.0) or 0.0)
-            if weight > 0 and price > 0:
-                weighted_exit += price * weight
-                total_weight += weight
 
-            latest_ts_ms = max(
-                latest_ts_ms,
-                int(getattr(deal, "executionTimestamp", 0) or 0),
+            trade_data = getattr(deal, "tradeData", None)
+            symbol_id = getattr(trade_data, "symbolId", None) if trade_data is not None else None
+            if symbol_id in (None, 0):
+                symbol_id = hinted_symbol_id
+
+            closed_volume_lots = None
+            if symbol_id not in (None, 0) and closed_volume_api > 0:
+                try:
+                    closed_volume_lots = ctd.protocol_volume_to_lots(
+                        int(symbol_id),
+                        closed_volume_api,
+                    )
+                except Exception:
+                    closed_volume_lots = None
+
+            execution_ts_ms = int(getattr(deal, "executionTimestamp", 0) or 0)
+            execution_at = (
+                datetime.fromtimestamp(execution_ts_ms / 1000.0, tz=UTC).replace(tzinfo=None)
+                if execution_ts_ms > 0
+                else _utc_now().replace(tzinfo=None)
             )
-            try:
-                deal_ids.append(int(getattr(deal, "dealId", 0) or 0))
-            except (TypeError, ValueError):
-                pass
+            execution_price = float(getattr(deal, "executionPrice", 0.0) or 0.0)
+            rows.append(
+                {
+                    "deal_id": deal_id,
+                    "execution_price": execution_price,
+                    "execution_at": execution_at,
+                    "closed_volume_api": closed_volume_api,
+                    "closed_volume_lots": (
+                        float(closed_volume_lots)
+                        if closed_volume_lots is not None
+                        else None
+                    ),
+                    "gross_profit": gross_profit,
+                    "swap": swap,
+                    "commission": commission,
+                    "pnl_conversion_fee": pnl_conversion_fee,
+                    "net_profit": gross_profit + swap + commission + pnl_conversion_fee,
+                }
+            )
+        return rows
 
+    def get_position_close_deals(
+        self,
+        position_id: int,
+        *,
+        symbol: str | None = None,
+        opened_at_hint: datetime | None = None,
+    ) -> list[Dict[str, Any]]:
+        """Return normalized cTrader closing deals for an open or closed position."""
+        now_utc = _utc_now()
+        window_end = now_utc
+        window_start = now_utc - timedelta(days=2)
+        if opened_at_hint is not None:
+            hint = opened_at_hint
+            if hint.tzinfo is None:
+                hint = hint.replace(tzinfo=UTC)
+            else:
+                hint = hint.astimezone(UTC)
+            # Keep the request bounded because the cTrader history endpoint can
+            # reject very wide ranges. Real-time reconciliation runs frequently,
+            # so a two-day floor covers newly observed partial closes while an
+            # earlier opening hint still widens the range for recent positions.
+            window_start = max(hint - timedelta(days=1), now_utc - timedelta(days=7))
+
+        deals = ctd.get_deals_by_position_id(
+            int(position_id),
+            from_timestamp=int(window_start.timestamp() * 1000),
+            to_timestamp=int(window_end.timestamp() * 1000),
+        )
+        return self._normalize_closing_deals(deals, symbol_hint=symbol)
+
+    def get_closed_position_summary(
+        self,
+        position_id: int,
+        *,
+        closed_at_hint: datetime | None = None,
+        symbol: str | None = None,
+    ) -> Dict[str, Any] | None:
+        """Return authoritative broker close price/P&L for a closed position."""
+        now_utc = _utc_now()
+        if closed_at_hint is not None:
+            hint = closed_at_hint
+            if hint.tzinfo is None:
+                hint = hint.replace(tzinfo=UTC)
+            else:
+                hint = hint.astimezone(UTC)
+            window_start = hint - timedelta(days=1)
+            window_end = min(hint + timedelta(days=1), now_utc)
+            if window_start >= window_end:
+                window_start = window_end - timedelta(days=2)
+        else:
+            window_end = now_utc
+            window_start = window_end - timedelta(days=2)
+
+        deals = ctd.get_deals_by_position_id(
+            int(position_id),
+            from_timestamp=int(window_start.timestamp() * 1000),
+            to_timestamp=int(window_end.timestamp() * 1000),
+        )
+        closing = self._normalize_closing_deals(deals, symbol_hint=symbol)
+        if not closing:
+            return None
+
+        total_weight = sum(float(row.get("closed_volume_api") or 0.0) for row in closing)
+        weighted_exit = sum(
+            float(row.get("execution_price") or 0.0) * float(row.get("closed_volume_api") or 0.0)
+            for row in closing
+            if float(row.get("execution_price") or 0.0) > 0
+        )
         exit_price = weighted_exit / total_weight if total_weight > 0 else None
-        closed_at = None
-        if latest_ts_ms > 0:
-            closed_at = datetime.fromtimestamp(latest_ts_ms / 1000.0, tz=UTC).replace(tzinfo=None)
-
-        # Monetary fields from ClosePositionDetail are denominated in the
-        # account deposit currency and are signed broker values.
-        net_profit = gross_profit + swap + commission + pnl_conversion_fee
+        gross_profit = sum(float(row.get("gross_profit") or 0.0) for row in closing)
+        swap = sum(float(row.get("swap") or 0.0) for row in closing)
+        commission = sum(float(row.get("commission") or 0.0) for row in closing)
+        pnl_conversion_fee = sum(float(row.get("pnl_conversion_fee") or 0.0) for row in closing)
+        net_profit = sum(float(row.get("net_profit") or 0.0) for row in closing)
+        latest = max(
+            (row.get("execution_at") for row in closing if row.get("execution_at") is not None),
+            default=None,
+        )
 
         return {
             "status": "found",
             "position_id": int(position_id),
             "exit_price": exit_price,
-            "closed_at": closed_at,
+            "closed_at": latest,
             "gross_profit": gross_profit,
             "swap": swap,
             "commission": commission,
             "pnl_conversion_fee": pnl_conversion_fee,
             "net_profit": net_profit,
             "closed_volume_api": total_weight,
-            "deal_ids": [deal_id for deal_id in deal_ids if deal_id > 0],
+            "closed_volume_lots": sum(
+                float(row.get("closed_volume_lots") or 0.0)
+                for row in closing
+                if row.get("closed_volume_lots") is not None
+            ),
+            "deal_ids": [int(row["deal_id"]) for row in closing],
+            "deals": closing,
         }
 
     def close_demo_position(

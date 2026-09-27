@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
-from backend.services.broker_ledger import reconcile_closed_demo_history
+from backend.services.broker_ledger import (
+    close_local_position_from_broker,
+    reconcile_closed_demo_history,
+    reconcile_open_demo_position_ledger,
+)
 from backend.storage.repositories import (
     close_paper_position,
     create_order_intent,
+    daily_realized_pnl,
+    list_broker_deals,
     list_paper_positions,
     list_trade_audits,
     open_paper_position,
+    record_broker_deals,
     update_order_intent_status,
 )
 
@@ -198,3 +205,237 @@ def test_closed_history_does_not_double_count_same_broker_position(monkeypatch) 
     assert result["reconciled"] == 1
     assert result["duplicate_broker_id"] == 1
     assert len(calls) == 1
+
+
+
+def _deal(
+    *,
+    deal_id: int,
+    closed_lots: float,
+    net_profit: float,
+    price: float = 100.5,
+    gross_profit: float | None = None,
+    swap: float = 0.0,
+    commission: float = 0.0,
+    conversion_fee: float = 0.0,
+) -> dict:
+    gross = net_profit - swap - commission - conversion_fee if gross_profit is None else gross_profit
+    return {
+        "deal_id": deal_id,
+        "execution_price": price,
+        "execution_at": datetime.now(UTC).replace(tzinfo=None),
+        "closed_volume_api": closed_lots * 10_000,
+        "closed_volume_lots": closed_lots,
+        "gross_profit": gross,
+        "swap": swap,
+        "commission": commission,
+        "pnl_conversion_fee": conversion_fee,
+        "net_profit": net_profit,
+    }
+
+
+def test_broker_deal_ledger_is_idempotent_and_preserves_costs() -> None:
+    position = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.3,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        account_currency="CHF",
+        broker_position_id=700001,
+    )
+    deal = _deal(
+        deal_id=91001,
+        closed_lots=0.1,
+        net_profit=-5.75,
+        gross_profit=-5.0,
+        swap=-0.20,
+        commission=-0.50,
+        conversion_fee=-0.05,
+    )
+
+    first = record_broker_deals(
+        local_position_id=position.id,
+        broker_position_id=700001,
+        symbol="XAUUSD",
+        account_currency="CHF",
+        deals=[deal],
+    )
+    second = record_broker_deals(
+        local_position_id=position.id,
+        broker_position_id=700001,
+        symbol="XAUUSD",
+        account_currency="CHF",
+        deals=[deal],
+    )
+
+    assert first["inserted"] == 1
+    assert second["inserted"] == 0
+    rows = list_broker_deals(local_position_id=position.id)
+    assert len(rows) == 1
+    assert rows[0]["deal_id"] == 91001
+    assert rows[0]["gross_profit"] == pytest.approx(-5.0)
+    assert rows[0]["swap"] == pytest.approx(-0.20)
+    assert rows[0]["commission"] == pytest.approx(-0.50)
+    assert rows[0]["pnl_conversion_fee"] == pytest.approx(-0.05)
+    assert rows[0]["net_profit"] == pytest.approx(-5.75)
+    assert daily_realized_pnl() == pytest.approx(-5.75)
+
+
+def test_partial_close_reduces_local_quantity_and_books_broker_pnl(monkeypatch) -> None:
+    position = open_paper_position(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        quantity=0.3,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        account_currency="CHF",
+        broker_position_id=700002,
+    )
+    calls = []
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_position_close_deals",
+        lambda broker_position_id, **kwargs: calls.append((broker_position_id, kwargs)) or [
+            _deal(
+                deal_id=92001,
+                closed_lots=0.1,
+                net_profit=12.30,
+                gross_profit=13.00,
+                commission=-0.60,
+                conversion_fee=-0.10,
+            )
+        ],
+    )
+
+    result = reconcile_open_demo_position_ledger(
+        position,
+        {
+            "position_id": 700002,
+            "symbol": "NAS100",
+            "direction": "buy",
+            "volume_lots": 0.2,
+        },
+    )
+
+    assert result["status"] == "partial_close_synced"
+    assert result["inserted_deals"] == 1
+    assert len(calls) == 1
+    updated = list_paper_positions("open")[0]
+    assert updated.quantity == pytest.approx(0.2)
+    assert updated.realized_pnl == pytest.approx(12.30)
+    assert updated.realized_pnl_source == "ctrader_deal_partial"
+    assert daily_realized_pnl() == pytest.approx(12.30)
+
+    # Same remaining broker quantity must be cheap and idempotent: no history query.
+    result2 = reconcile_open_demo_position_ledger(
+        updated,
+        {
+            "position_id": 700002,
+            "symbol": "NAS100",
+            "direction": "buy",
+            "volume_lots": 0.2,
+        },
+    )
+    assert result2["status"] == "in_sync"
+    assert len(calls) == 1
+    assert len(list_broker_deals(local_position_id=position.id)) == 1
+
+
+def test_partial_close_waits_for_authoritative_deal_before_reducing_quantity(monkeypatch) -> None:
+    position = open_paper_position(
+        symbol="US30",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        quantity=0.3,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        account_currency="CHF",
+        broker_position_id=700003,
+    )
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_position_close_deals",
+        lambda broker_position_id, **kwargs: [],
+    )
+
+    result = reconcile_open_demo_position_ledger(
+        position,
+        {
+            "position_id": 700003,
+            "symbol": "US30",
+            "direction": "buy",
+            "volume_lots": 0.2,
+        },
+    )
+
+    assert result["status"] == "pending_deal_history"
+    still_open = list_paper_positions("open")[0]
+    assert still_open.quantity == pytest.approx(0.3)
+    assert still_open.realized_pnl == pytest.approx(0.0)
+
+
+def test_final_close_after_partial_does_not_double_count_realized_pnl(monkeypatch) -> None:
+    position = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.3,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        account_currency="CHF",
+        broker_position_id=700004,
+    )
+    first_deal = _deal(deal_id=93001, closed_lots=0.1, net_profit=10.0, price=101.0)
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_position_close_deals",
+        lambda broker_position_id, **kwargs: [first_deal],
+    )
+    partial = reconcile_open_demo_position_ledger(
+        position,
+        {"position_id": 700004, "symbol": "XAUUSD", "direction": "buy", "volume_lots": 0.2},
+    )
+    assert partial["status"] == "partial_close_synced"
+
+    second_deal = _deal(deal_id=93002, closed_lots=0.2, net_profit=20.0, price=102.0)
+    summary = {
+        "status": "found",
+        "position_id": 700004,
+        "exit_price": (101.0 * 0.1 + 102.0 * 0.2) / 0.3,
+        "closed_at": datetime.now(UTC).replace(tzinfo=None),
+        "gross_profit": 30.0,
+        "swap": 0.0,
+        "commission": 0.0,
+        "pnl_conversion_fee": 0.0,
+        "net_profit": 30.0,
+        "closed_volume_api": 3000.0,
+        "closed_volume_lots": 0.3,
+        "deal_ids": [93001, 93002],
+        "deals": [first_deal, second_deal],
+    }
+    monkeypatch.setattr(
+        "backend.services.broker_ledger.get_closed_position_summary",
+        lambda broker_position_id, **kwargs: summary,
+    )
+
+    current = list_paper_positions("open")[0]
+    closed = close_local_position_from_broker(
+        current,
+        fallback_price=102.0,
+        fallback_reason="broker_position_closed",
+    )
+
+    assert closed.status == "closed"
+    assert closed.realized_pnl == pytest.approx(30.0)
+    assert closed.realized_pnl_source == "ctrader_deal"
+    rows = list_broker_deals(local_position_id=position.id)
+    assert [row["deal_id"] for row in rows] == [93001, 93002]
+    assert daily_realized_pnl() == pytest.approx(30.0)
