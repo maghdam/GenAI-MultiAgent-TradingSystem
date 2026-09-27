@@ -74,6 +74,10 @@ LAST_AUTH_ATTEMPT_AT = None
 ACCOUNT_IS_DEMO: bool | None = None
 ACCOUNT_VERIFICATION_ERROR: str | None = None
 
+_asset_name_cache: dict[int, str] = {}
+_asset_cache_account_id: int | None = None
+_asset_cache_lock = threading.Lock()
+
 _PRICE_FACTOR = 100_000
 _PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurement units.
 
@@ -482,6 +486,7 @@ def app_auth_cb(_):
 
 def _on_connected(_):
     global CONNECTED, AUTHORIZED, AUTH_ERROR, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
+    _clear_asset_cache()
     CONNECTED = True
     AUTHORIZED = False
     AUTH_ERROR = None
@@ -492,6 +497,7 @@ def _on_connected(_):
 
 def _on_disconnected(c, reason):
     global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
+    _clear_asset_cache()
     CONNECTED = False
     AUTHORIZED = False
     ACCOUNT_IS_DEMO = None
@@ -505,6 +511,7 @@ def _log_event(event) -> None:
         "ProtoOASymbolsListRes": "symbol",
         "ProtoOASymbolByIdRes": "symbol",
         "ProtoOAAssetClassListRes": "assetClass",
+        "ProtoOAAssetListRes": "asset",
     }
     if name in large_collection_attrs:
         attr_name = large_collection_attrs[name]
@@ -803,6 +810,57 @@ def _extract_response_or_raise(raw, label: str):
     return event
 
 
+def _clear_asset_cache() -> None:
+    global _asset_cache_account_id
+    with _asset_cache_lock:
+        _asset_name_cache.clear()
+        _asset_cache_account_id = None
+
+
+def _get_deposit_currency(deposit_asset_id: int) -> str:
+    """Resolve the account deposit currency with a session-scoped asset cache."""
+    global _asset_cache_account_id
+
+    account_id = int(ACCOUNT_ID)
+    asset_id = int(deposit_asset_id)
+    with _asset_cache_lock:
+        if _asset_cache_account_id == account_id:
+            cached = _asset_name_cache.get(asset_id)
+            if cached:
+                return cached
+        else:
+            _asset_name_cache.clear()
+            _asset_cache_account_id = None
+
+        assets_raw = wait_for_deferred(
+            client.send(
+                ProtoOAAssetListReq(ctidTraderAccountId=account_id),
+                responseTimeoutInSeconds=10,
+            ),
+            timeout=12,
+        )
+        assets_event = _extract_response_or_raise(assets_raw, "cTrader asset list")
+        names: dict[int, str] = {}
+        for asset in list(getattr(assets_event, "asset", []) or []):
+            try:
+                current_id = int(getattr(asset, "assetId", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            current_name = str(getattr(asset, "name", "") or "").strip().upper()
+            if current_id > 0 and current_name:
+                names[current_id] = current_name
+
+        _asset_name_cache.clear()
+        _asset_name_cache.update(names)
+        _asset_cache_account_id = account_id
+        currency = _asset_name_cache.get(asset_id)
+        if not currency:
+            raise RuntimeError(
+                f"cTrader deposit asset {asset_id} was not returned by the asset list."
+            )
+        return currency
+
+
 def _decode_money(raw, money_digits: int) -> float:
     return float(raw or 0) / float(10 ** max(int(money_digits or 0), 0))
 
@@ -831,28 +889,7 @@ def get_account_snapshot() -> dict[str, object]:
     if deposit_asset_id <= 0:
         raise RuntimeError("cTrader trader snapshot did not include a valid deposit asset id.")
 
-    assets_raw = wait_for_deferred(
-        client.send(
-            ProtoOAAssetListReq(ctidTraderAccountId=ACCOUNT_ID),
-            responseTimeoutInSeconds=10,
-        ),
-        timeout=12,
-    )
-    assets_event = _extract_response_or_raise(assets_raw, "cTrader asset list")
-    deposit_asset = next(
-        (
-            asset
-            for asset in list(getattr(assets_event, "asset", []) or [])
-            if int(getattr(asset, "assetId", 0) or 0) == deposit_asset_id
-        ),
-        None,
-    )
-    if deposit_asset is None:
-        raise RuntimeError(f"cTrader deposit asset {deposit_asset_id} was not returned by the asset list.")
-
-    currency = str(getattr(deposit_asset, "name", "") or "").strip().upper()
-    if not currency:
-        raise RuntimeError(f"cTrader deposit asset {deposit_asset_id} has no currency name.")
+    currency = _get_deposit_currency(deposit_asset_id)
 
     pnl_raw = wait_for_deferred(
         client.send(
