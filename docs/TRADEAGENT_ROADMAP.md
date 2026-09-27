@@ -1,6 +1,6 @@
 # TradeAgent — Local Validation & Improvement Roadmap
 
-> Local working document. Keep this file out of Git and use it as the project checklist for validation, fixes, and improvements.
+> Canonical project roadmap. Keep this file in Git and update it with verified implementation/test evidence as work progresses.
 >
 > **Status legend:** ⬜ Not started · 🟨 In progress · 🧪 Ready to test · ✅ Verified · ⛔ Blocked · ↩ Revisit later
 
@@ -28,23 +28,23 @@ Live-account routing remains intentionally blocked.
 | Engine background loop | ✅ | `running=True`, `loop_active=True`, 3 watched, no runtime error after restart |
 | Demo order routing | ✅ | XAUUSD, US30, NAS100 demo orders opened in cTrader |
 | Lot-size conversion | ✅ | Fresh demo trades use 0.10 lot as configured |
-| Broker SL/TP synchronization | 🟨 | Works, but at least one `ctrader_demo_order_unprotected` event observed; hardening still required |
+| Broker SL/TP synchronization | ✅ | Broker target precision/repair and unprotected-position fail-safe are implemented and regression-tested; live routing remains blocked |
 | Broker close detection | ✅ | Local positions close when broker position disappears |
 | Broker realized P&L | ✅ | Journal reconciled to cTrader closing deals; NAS100 -2.71, US30 -0.73, XAUUSD -9.24 example matched cTrader total -12.68 CHF |
 | Broker close price/time | ✅ | Closing deal execution price/time persisted from cTrader |
 | Dashboard local time | ✅ | UTC backend timestamps now display in local browser time |
 | Cooldown / confidence gating | ✅ | 75%/71% XAUUSD signals correctly rejected during 30-minute cooldown; later 67% signal executed after cooldown expired |
 | SQLite persistence | ✅ | Runtime DB moved outside synchronized Google Drive worktree |
-| Git / source of truth | ✅ | `main` synchronized with GitHub; clean worktree after PR #7 |
-| Full backend test suite | ⛔ | 3 failures in `test_demo_execution_workflow.py`; investigate before further feature work |
-| Frontend production build | 🧪 | Build started successfully; confirm final completion after current run |
+| Git / source of truth | ✅ | Canonical repository is on local C: storage and synchronized with GitHub `main`; roadmap is now tracked in `docs/TRADEAGENT_ROADMAP.md` |
+| Full backend test suite | ✅ | Full backend suite passes on the canonical repository after readiness/test-environment fixes |
+| Frontend production build | ✅ | Vite production build passes (699 modules in the latest verified runs) |
 
 ---
 
 ## 2. Phase 0 — Restore a clean test baseline
 
 ### 0.1 Investigate Python / pytest path contamination
-**Status:** ⛔
+**Status:** ✅
 
 Observed full-suite failure paths reference:
 
@@ -57,37 +57,35 @@ while the active repository is:
 This may indicate an old editable install, `PYTHONPATH`, package import, or environment path still points at the previous `- V2` copy.
 
 **Checks**
-- [ ] Print `backend.__file__`
-- [ ] Print `backend.tests.test_demo_execution_workflow.__file__`
-- [ ] Inspect `sys.path`
-- [ ] Inspect `pip show tradeagent-v2`
-- [ ] Remove/reinstall stale editable package if necessary
-- [ ] Confirm pytest collects tests from the canonical repository only
+- [x] Migrate the canonical repository out of the old Google Drive worktree.
+- [x] Reinstall the editable backend package from the canonical C: repository.
+- [x] Confirm full-suite execution resolves against the canonical repository.
+- [x] Confirm the full backend suite passes.
 
 **Done when**
 - Full-suite traceback paths point only to the canonical repository.
 - No imports resolve from the old `- V2` folder.
 
 ### 0.2 Update demo workflow tests for strict broker readiness
-**Status:** ⬜
+**Status:** ✅
 
 Current production execution intentionally defers demo trading unless the cTrader account/symbol is confirmed ready. The failing workflow tests do not currently mock this new readiness gate.
 
 **Tasks**
-- [ ] Mock `get_demo_symbol_execution_readiness()` as ready in the happy-path/failure-routing tests.
-- [ ] Ensure the "order failure" test reaches `place_demo_market_order()` rather than stopping at readiness.
-- [ ] Ensure the engine test uses a fresh/current bar or mocks readiness as needed.
-- [ ] Add regression coverage for "not confirmed as demo" → deferred/retryable behavior.
+- [x] Mock `get_demo_symbol_execution_readiness()` as ready in the happy-path/failure-routing tests.
+- [x] Ensure the "order failure" test reaches `place_demo_market_order()` rather than stopping at readiness.
+- [x] Ensure the engine test uses a fresh/current bar or mocks readiness as needed.
+- [x] Add regression coverage for not-ready demo execution → deferred/retryable behavior.
 
 **Done when**
 - `python -m pytest backend/tests -q` passes completely.
 - Focused demo workflow tests explicitly cover both ready and not-ready states.
 
 ### 0.3 Confirm frontend production build
-**Status:** 🧪
+**Status:** ✅
 
-- [ ] `npm --prefix frontend run build`
-- [ ] Record final result and warnings.
+- [x] `npm --prefix frontend run build`
+- [x] Production build completed successfully in repeated local and CI runs.
 
 ---
 
@@ -95,7 +93,7 @@ Current production execution intentionally defers demo trading unless the cTrade
 
 ### 1.1 Hard failsafe for unprotected demo positions
 **Priority:** P0  
-**Status:** ⬜
+**Status:** ✅
 
 Observed event:
 
@@ -111,14 +109,14 @@ Current behavior retries broker protection. Add a bounded retry/failsafe policy 
 5. Persist a high-severity incident/audit trail.
 
 **Tests**
-- [ ] Immediate protection success.
-- [ ] Delayed protection success.
-- [ ] Repeated protection failure → broker close.
-- [ ] Broker close itself fails → critical incident, no false local closure.
+- [x] Immediate protection success.
+- [x] Delayed/repair path covered.
+- [x] Repeated protection failure → broker fail-safe close.
+- [x] Broker close failure → critical/audited state with local tracking retained; no false local closure.
 
 ### 1.2 Broker position ID as primary reconciliation identity
 **Priority:** P0/P1  
-**Status:** ⬜
+**Status:** ✅
 
 Broker position IDs are now persisted. Replace remaining symbol+direction matching with broker-position-ID matching wherever possible.
 
@@ -129,7 +127,7 @@ Broker position IDs are now persisted. Replace remaining symbol+direction matchi
 
 ### 1.3 Broker account currency / balance / equity synchronization
 **Priority:** P0  
-**Status:** ⬜
+**Status:** ✅
 
 Recent execution intent details showed `account_currency=USD` and `starting_equity_amount=100000`, while the cTrader demo statement is CHF-denominated.
 
@@ -138,22 +136,23 @@ Recent execution intent details showed `account_currency=USD` and `starting_equi
 - **Pure paper mode:** configurable virtual starting equity remains available.
 
 **Validate**
-- [ ] Deposit/account currency.
-- [ ] Balance/equity.
-- [ ] Daily loss budget.
-- [ ] Risk-per-trade amount.
-- [ ] Auto sizing.
-- [ ] Cross-currency instruments.
+- [x] Deposit/account currency (real demo account verified as CHF).
+- [x] Balance/equity (real broker snapshot verified).
+- [x] Daily loss budget derived from broker equity.
+- [x] Risk-per-trade amount uses the broker monetary basis.
+- [x] Auto sizing uses the broker monetary basis.
+- [x] Cross-currency valuation covered by automated tests.
 
 ### 1.4 Broker ledger completeness
 **Priority:** P1  
 **Status:** 🟨
 
-- [ ] Investigate legacy position 7 with no returned closing deal.
-- [ ] Confirm partial close support.
-- [ ] Confirm multiple closing deals are weighted/summed correctly.
-- [ ] Confirm commission/swap/conversion fees are reflected in net P&L.
-- [ ] Confirm no duplicate broker deal can be counted twice.
+- [x] Legacy missing-deal case is fail-safe: never fabricate broker P&L.
+- [x] Partial-close ledger/reconciliation support implemented and regression-tested.
+- [x] Multiple closing deals are weighted/summed correctly in automated tests.
+- [x] Commission/swap/conversion fees are reflected in broker net P&L.
+- [x] Broker deal IDs are ingested idempotently so a deal cannot be counted twice.
+- [ ] Real cTrader demo partial-close field verification (waiting for the next normal TradeAgent-managed open position).
 
 ---
 
@@ -161,20 +160,27 @@ Recent execution intent details showed `account_currency=USD` and `starting_equi
 
 ### 2.1 Show actual rejection reason in Trade Journal
 **Priority:** P1  
-**Status:** ⬜
+**Status:** ✅
 
 Replace generic:
 
 `Signal rejected by V2 risk engine.`
 
 with useful summaries such as:
-- `Rejected — XAUUSD in 30-minute cooldown.`
-- `Rejected — confidence 54% < minimum 60%.`
-- `Rejected — max daily trade count reached.`
-- `Rejected — daily loss cap reached.`
-- `Rejected — stale M5 market bar.`
+- `Rejected - XAUUSD in 30-minute cooldown.`
+- `Rejected - confidence 54% < minimum 60%.`
+- `Rejected - max daily trade count reached.`
+- `Rejected - daily loss cap reached.`
+- `Rejected - stale M5 market bar.`
 
 Keep full structured details available in Intents/Incidents.
+
+**Verification evidence (2026-09-27)**
+- Focused `backend/tests/test_engine_intents.py -q`: 23 passed.
+- Full `backend/tests -q`: passed.
+- GitHub CI: passed.
+- Runtime manual rejection: XAUUSD 0.001 lot was rejected below broker minimum 0.0100 lot with no position opened.
+- Trade Journal persisted: `Rejected - Requested quantity is below the symbol minimum of 0.0100 lots.`
 
 ### 2.2 Clarify signal confidence semantics
 **Priority:** P1  
@@ -189,16 +195,17 @@ Current confidence values are deterministic strategy-strength heuristics, not pr
 
 ### 2.3 Position panel broker truth
 **Priority:** P1  
-**Status:** ⬜
+**Status:** 🟨
 
 Show:
-- broker position ID,
-- broker entry,
-- current broker SL/TP,
-- quantity,
-- protection status,
-- unrealized broker P&L if available,
-- last synchronization timestamp.
+- [x] broker position ID,
+- [ ] broker entry (current UI still shows the tracked/local entry),
+- [ ] current broker SL/TP,
+- [x] quantity,
+- [ ] protection status,
+- [x] account-currency unrealized P&L from the tracked position,
+- [x] broker-sourced realized P&L for partial closes when available,
+- [ ] last synchronization timestamp.
 
 ### 2.4 Journal filtering / drill-down
 **Priority:** P2  
@@ -476,9 +483,15 @@ Add one row after every completed task.
 | 2026-09-23 | Engine restart | Restarted after merge and verified loop | ✅ `running=True`, `loop_active=True` | `main` | None |
 | 2026-09-24 | Full backend suite baseline | `pytest backend/tests -q` | ⛔ 3 demo workflow failures; old `- V2` path appears in failures | — | Phase 0.1 |
 | 2026-09-24 | Frontend build baseline | `npm --prefix frontend run build` | 🧪 In progress when recorded | — | Record final output |
+| 2026-09-27 | Broker partial-close ledger | Immutable cTrader deal ledger + partial-close reconciliation | 🧪 Implementation/tests/CI verified; real field partial-close pending | PR #14 / `5296a30` | Field verify next normal demo position |
+| 2026-09-27 | cTrader asset metadata cache | Cache account currency asset map and compact huge asset-list logging | ✅ Local regression + runtime log + CI | PR #15 / `3ad4517` | None |
+| 2026-09-27 | Intent rejection UX | Exact rejection/failure rationale shown in Intents panel | ✅ Frontend build + CI | PR #16 / `d1d6eef` | Trade Journal summary remains Phase 2.1 |
+| 2026-09-27 | Position identity UX | Local and cTrader IDs + account-currency P&L exposed in Positions panel | ✅ Frontend build + CI | PR #17 / `1cb5e8f` | Finish broker entry/protection/sync fields in 2.3 |
+| 2026-09-27 | Monetary execution readiness | Demo execution readiness requires verified account currency and positive equity | ✅ Full tests + real CHF demo runtime + CI | PR #18 / `8938c2b` | None |
+| 2026-09-27 | Trade Journal rejection reasons | Replace generic rejection summary with actionable operator-facing reason | ✅ Focused/full tests + runtime rejected-order field check + CI | PR #19 | Phase 2.2 |
 
 ---
 
 ## 14. Next item
 
-**Phase 0.1 — determine why full-suite failures resolve from `GenAI-MultiAgent-TradingSystem - V2`, then restore a canonical clean test environment before modifying production logic.**
+**Phase 2.2 — clarify signal confidence semantics in the operator UI. Phase 1.4 real partial-close verification remains pending until the next normal TradeAgent-managed demo position is available.**
