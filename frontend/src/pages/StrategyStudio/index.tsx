@@ -3,6 +3,7 @@ import {
   backtestV2SavedStrategy,
   executeV2StudioTask,
   getV2StudioModels,
+  getV2StudioStrategySource,
   getV2StrategyLifecycle,
   listV2StudioStrategyFiles,
   promoteV2StrategyLifecycle,
@@ -351,6 +352,29 @@ export default function StrategyStudioPage() {
     }
   };
 
+  const loadSavedStrategy = async () => {
+    if (!savedStrategy || isLoading) return;
+    setIsLoading(true);
+    try {
+      const loaded = await getV2StudioStrategySource(savedStrategy);
+      setDraftCode(loaded.source);
+      setLastResult({ stdout: loaded.source, source: 'saved', strategy: loaded.strategy });
+      setView('auto');
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: `Loaded saved strategy ${loaded.strategy} into the editable draft.`,
+      }]);
+    } catch (e: any) {
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        type: 'error',
+        content: e?.message || 'Failed to load saved strategy.',
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const saveStrategy = async () => {
     const code = draftCode;
     if (!code || isLoading) return;
@@ -604,6 +628,7 @@ export default function StrategyStudioPage() {
               <option value="">Select saved strategy…</option>
               {availableSaved.map(name => (<option key={name} value={name}>{name}</option>))}
             </select>
+            <button className="btn" type="button" onClick={loadSavedStrategy} disabled={isLoading || !savedStrategy}>Load Saved</button>
             <button className="btn" type="button" onClick={saveStrategy} disabled={isLoading || !draftCode}>Save Strategy</button>
             <button className="btn" type="button" onClick={() => setView('auto')} disabled={view === 'auto'}>Formatted</button>
             <button className="btn" type="button" onClick={() => setView('raw')} disabled={view === 'raw'}>Raw JSON</button>

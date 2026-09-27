@@ -50,7 +50,7 @@ from backend.services.position_truth import attach_broker_truth
 from backend.services.risk import build_readiness
 from backend.services import model_service
 from backend.services import studio_llm
-from backend.services.studio_backtests import list_saved_strategy_files, run_saved_strategy_backtest
+from backend.services.studio_backtests import load_saved_strategy_source, list_saved_strategy_files, run_saved_strategy_backtest
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -542,6 +542,11 @@ async def v2_studio_models(provider: str | None = None) -> dict:
 @router.get("/studio/strategy-files")
 async def v2_studio_strategy_files() -> dict:
     return list_saved_strategy_files()
+
+
+@router.get("/studio/strategy-file/{strategy}")
+async def v2_studio_strategy_file(strategy: str) -> dict:
+    return load_saved_strategy_source(strategy)
 
 
 @router.get("/studio/backtest")

@@ -718,6 +718,16 @@ export const listV2StudioStrategyFiles = async (): Promise<string[]> => {
   return files.map((file) => (typeof file === 'string' && file.toLowerCase().endsWith('.py') ? file.slice(0, -3) : file));
 };
 
+export const getV2StudioStrategySource = async (
+  strategy: string,
+): Promise<{ strategy: string; filename: string; source: string }> => {
+  const response = await authFetch(`/api/studio/strategy-file/${encodeURIComponent(strategy)}`);
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Failed to load saved strategy: ${response.status} ${response.statusText}`));
+  }
+  return response.json();
+};
+
 export const backtestV2SavedStrategy = async (
   strategy: string,
   symbol: string,
