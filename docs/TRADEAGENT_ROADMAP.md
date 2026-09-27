@@ -246,13 +246,20 @@ Drill-down:
 Test every operator control against backend behavior.
 
 ### 3.1 Engine lifecycle
-- [ ] Start.
-- [ ] Stop.
-- [ ] Restart.
-- [ ] One-shot scan.
-- [ ] Recover.
-- [ ] Reconcile.
+- [x] Start.
+- [x] Stop.
+- [x] Restart.
+- [x] One-shot scan.
+- [x] Recover.
+- [x] Reconcile.
 - [ ] Restart backend while broker position is open.
+
+**Verification**
+- [x] Focused lifecycle/API tests.
+- [x] Local full backend regression suite.
+- [x] Local frontend production build.
+- [x] GitHub CI.
+- [ ] Real cTrader demo field check: restart the backend while a normal TradeAgent-managed broker position is open and confirm recovery/reconciliation preserves broker identity and protection truth.
 
 ### 3.2 Safety controls
 - [ ] Kill switch.
@@ -510,9 +517,10 @@ Add one row after every completed task.
 | 2026-09-27 | Signal strength semantics | Relabel heuristic confidence as signal strength, explain the threshold, and update rejection wording without changing schema/execution behavior | ✅ Frontend production build + full backend suite + CI | PR #21 | Phase 2.3 |
 | 2026-09-27 | Position broker truth | Read-only cTrader snapshot exposes broker entry, SL/TP, protection, sync time, and identity status without mutating the local ledger | ✅ Focused tests + full backend suite + frontend build + CI; real open-demo field observation pending | PR #22 | Phase 2.4 |
 | 2026-09-27 | Trade Journal filtering / drill-down | Add execution/rejection/protection, symbol, strategy, date, and broker-vs-paper filters plus expandable intent/risk/broker details | ✅ Local frontend build + full backend suite + CI | PR #23 | Phase 3.1 |
+| 2026-09-27 | System engine lifecycle controls | Add explicit runtime-loop Restart and acceptance-test Start, Stop, Restart, one-shot Scan, Recover, and Reconcile | ✅ Focused/full backend tests + frontend build + CI; real open-demo backend restart pending | PR #24 | Phase 3.2 |
 
 ---
 
 ## 14. Next item
 
-**Phase 3.1 — System page engine lifecycle acceptance audit: Start, Stop, Restart, one-shot scan, Recover, Reconcile, and backend restart while a broker position is open. Phase 1.4 real partial-close verification and Phase 2.3 real broker-truth field observation remain pending until the next normal TradeAgent-managed demo position is available.**
+**Phase 3.2 — System page safety-control acceptance audit. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
