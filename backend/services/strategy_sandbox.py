@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from backend.services.strategy_policy import validate_strategy_source
@@ -36,13 +37,29 @@ result = namespace["signals"](frame, **payload.get("params", {}))
 if not isinstance(result, pd.Series):
     raise TypeError("signals(df, ...) must return a pandas Series")
 result = result.reindex(frame.index).fillna(0.0)
-values = [float(value) for value in result.tolist()]
-sys.stdout.write(json.dumps({"ok": True, "values": values}, separators=(",", ":")))
+values = np.asarray(result.tolist(), dtype=float)
+if not np.isfinite(values).all():
+    raise ValueError("signals(df, ...) returned non-finite values")
+sys.stdout.write(json.dumps({"ok": True, "values": values.tolist()}, separators=(",", ":")))
 '''
 
 
 class StrategySandboxError(RuntimeError):
     pass
+
+
+def _configured_max_bars() -> int:
+    try:
+        return max(100, int(os.getenv("STRATEGY_SANDBOX_MAX_BARS", "20000")))
+    except Exception:
+        return 20_000
+
+
+def _configured_max_timeout_seconds() -> float:
+    try:
+        return max(0.5, float(os.getenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "30")))
+    except Exception:
+        return 30.0
 
 
 def run_strategy_source(
@@ -55,6 +72,12 @@ def run_strategy_source(
     normalized = validate_strategy_source(source)
     if frame is None or frame.empty:
         raise StrategySandboxError("Strategy sandbox requires non-empty market data.")
+
+    max_bars = _configured_max_bars()
+    if len(frame.index) > max_bars:
+        raise StrategySandboxError(
+            f"Strategy sandbox input exceeds the {max_bars} bar resource limit."
+        )
     columns = [column for column in ("open", "high", "low", "close", "volume") if column in frame.columns]
     payload = {
         "source": normalized,
@@ -66,6 +89,9 @@ def run_strategy_source(
         key: value for key, value in os.environ.items()
         if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH"}
     }
+    requested_timeout = max(0.5, float(timeout_seconds))
+    effective_timeout = min(requested_timeout, _configured_max_timeout_seconds())
+
     with tempfile.TemporaryDirectory(prefix="tradeagent-strategy-") as workdir:
         try:
             result = subprocess.run(
@@ -73,21 +99,28 @@ def run_strategy_source(
                 input=json.dumps(payload, separators=(",", ":")),
                 text=True,
                 capture_output=True,
-                timeout=max(0.5, float(timeout_seconds)),
+                timeout=effective_timeout,
                 cwd=Path(workdir),
                 env=safe_env,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise StrategySandboxError(f"Strategy exceeded the {timeout_seconds:.1f}s execution limit.") from exc
+            raise StrategySandboxError(f"Strategy exceeded the {effective_timeout:.1f}s execution limit.") from exc
     if result.returncode != 0:
         error = (result.stderr or "isolated strategy process failed").strip().splitlines()[-1]
         raise StrategySandboxError(error[:500])
     try:
         response = json.loads(result.stdout)
+        if response.get("ok") is not True:
+            raise ValueError("sandbox response did not report success")
         values = response["values"]
+        if not isinstance(values, list):
+            raise TypeError("sandbox response values must be a list")
+        numeric = np.asarray(values, dtype=float)
     except Exception as exc:
         raise StrategySandboxError("Strategy sandbox returned an invalid response.") from exc
-    if len(values) != len(frame.index):
+    if len(numeric) != len(frame.index):
         raise StrategySandboxError("Strategy output length does not match the input bars.")
-    return pd.Series(values, index=frame.index, dtype=float)
+    if not np.isfinite(numeric).all():
+        raise StrategySandboxError("Strategy output contains non-finite values.")
+    return pd.Series(numeric, index=frame.index, dtype=float)
