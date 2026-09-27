@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from backend.domain.models import ConfluenceReplayMetrics, ConfluenceReplayResponse, SymbolLimits
+from backend.domain.models import BrokerStatus, ConfluenceReplayMetrics, ConfluenceReplayResponse, PaperPosition, SymbolLimits
 
 
 def test_v2_status_exposes_new_risk_and_audit_fields(monkeypatch) -> None:
@@ -32,6 +32,78 @@ def test_v2_status_exposes_new_risk_and_audit_fields(monkeypatch) -> None:
     assert "session_end_hour_utc" in config
     assert "market_data_feed" in readiness_names
     assert any("startup disabled" in note for note in payload["broker"]["notes"])
+
+
+def test_v2_status_exposes_matched_broker_position_truth(monkeypatch) -> None:
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
+    monkeypatch.setattr(
+        "backend.api.router.get_broker_status",
+        lambda: BrokerStatus(
+            connected=True,
+            socket_connected=True,
+            account_authorized=True,
+            symbols_loaded=1,
+            open_positions=1,
+            pending_orders=0,
+            ready=True,
+            market_data_ready=True,
+            broker_mode="demo",
+            account_id=123,
+            account_type="demo",
+            demo_account_confirmed=True,
+            execution_ready=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.api.router.list_paper_positions",
+        lambda status=None: [
+            PaperPosition(
+                id=1,
+                symbol="XAUUSD",
+                timeframe="M5",
+                strategy="sma_cross",
+                direction="long",
+                quantity=0.1,
+                status="open",
+                entry_price=29487.5,
+                stop_loss=29470.0,
+                take_profit=29520.0,
+                opened_at=pd.Timestamp("2026-09-27T12:00:00").to_pydatetime(),
+                broker_position_id=900001,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.api.router.list_positions",
+        lambda: [
+            {
+                "symbol": "XAUUSD",
+                "direction": "buy",
+                "volume_lots": 0.1,
+                "entry_price": 29486.2,
+                "stop_loss": 29471.0,
+                "take_profit": 29518.0,
+                "position_id": 900001,
+            }
+        ],
+    )
+
+    from backend.app import app
+
+    with TestClient(app) as client:
+        response = client.get("/api/status")
+
+    assert response.status_code == 200
+    position = response.json()["paper_positions"][0]
+    assert position["entry_price"] == 29487.5
+    assert position["broker_entry_price"] == 29486.2
+    assert position["broker_stop_loss"] == 29471.0
+    assert position["broker_take_profit"] == 29518.0
+    assert position["broker_protection_status"] == "protected"
+    assert position["broker_sync_status"] == "id_match"
+    assert position["broker_last_synced_at"] is not None
 
 
 def test_v2_market_status_reports_feed_unavailable_without_booting_services(monkeypatch) -> None:
