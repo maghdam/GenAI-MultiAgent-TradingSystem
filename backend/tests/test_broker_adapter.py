@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.adapters.ctrader import CTraderBrokerAdapter
+from backend.domain.models import BrokerAccountSnapshot
 
 
 def test_start_transport_is_idempotent(monkeypatch) -> None:
@@ -86,6 +87,75 @@ def test_get_status_reports_degraded_reads_without_crashing(monkeypatch) -> None
     assert status.account_id is None
     assert "reconcile_unavailable: reconcile unavailable" in status.notes
     assert "startup skipped" in status.notes
+
+
+def test_execution_ready_requires_verified_monetary_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_connected", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_authorized", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_account_verification_error", lambda: None)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_auth_error", lambda: None)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_last_auth_attempt", lambda: None)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_name_to_id", {"XAUUSD": 1})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_reconcile_snapshot", lambda: {"positions": [], "orders": [], "error": None})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.HOST_TYPE", "demo")
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.ACCOUNT_ID", 123)
+    monkeypatch.setattr("backend.adapters.ctrader.external_dependency_state.snapshot_notes", lambda: [])
+
+    adapter = CTraderBrokerAdapter()
+    monkeypatch.setattr(
+        adapter,
+        "get_account_snapshot",
+        lambda: BrokerAccountSnapshot(
+            account_id=123,
+            currency="CHF",
+            equity=0.0,
+            source="ctrader",
+            verified=True,
+        ),
+    )
+
+    status = adapter.get_status()
+
+    assert status.ready is True
+    assert status.demo_account_confirmed is True
+    assert status.execution_ready is False
+    assert any("positive equity" in note for note in status.notes)
+
+
+def test_execution_ready_is_true_with_verified_currency_and_positive_equity(monkeypatch) -> None:
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_connected", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_authorized", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_account_verification_error", lambda: None)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_auth_error", lambda: None)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_last_auth_attempt", lambda: None)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.symbol_name_to_id", {"XAUUSD": 1})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_reconcile_snapshot", lambda: {"positions": [], "orders": [], "error": None})
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.HOST_TYPE", "demo")
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.ACCOUNT_ID", 123)
+    monkeypatch.setattr("backend.adapters.ctrader.external_dependency_state.snapshot_notes", lambda: [])
+
+    adapter = CTraderBrokerAdapter()
+    monkeypatch.setattr(
+        adapter,
+        "get_account_snapshot",
+        lambda: BrokerAccountSnapshot(
+            account_id=123,
+            currency="CHF",
+            balance=60_000.0,
+            unrealized_pnl=50.0,
+            equity=60_050.0,
+            source="ctrader",
+            verified=True,
+        ),
+    )
+
+    status = adapter.get_status()
+
+    assert status.ready is True
+    assert status.demo_account_confirmed is True
+    assert status.execution_ready is True
 
 
 def test_get_market_data_status_reports_empty_feed(monkeypatch) -> None:
