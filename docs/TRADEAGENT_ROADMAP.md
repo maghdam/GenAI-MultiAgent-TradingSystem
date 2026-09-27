@@ -184,14 +184,16 @@ Keep full structured details available in Intents/Incidents.
 
 ### 2.2 Clarify signal confidence semantics
 **Priority:** P1  
-**Status:** ⬜
+**Status:** ✅
 
-Current confidence values are deterministic strategy-strength heuristics, not proven win probabilities.
+Internal `confidence` values remain deterministic strategy-strength heuristics, not proven win probabilities.
 
-**Improve UI wording**
-- Consider `Signal strength` / `Model confidence` rather than implying empirical probability.
-- Add tooltip explaining meaning and threshold.
-- Later display calibrated probability separately if enough evidence exists.
+**Implemented**
+- [x] Operator-facing analysis, signal, and intent labels use `Signal strength`.
+- [x] Tooltips explain that the score is not a calibrated win probability and show the current execution threshold where available.
+- [x] System safety configuration names and explains the minimum signal-strength gate.
+- [x] Trade Journal threshold rejections use `signal strength` wording while API/database field names remain backward compatible.
+- [ ] Display calibrated probability separately only after enough out-of-sample evidence exists.
 
 ### 2.3 Position panel broker truth
 **Priority:** P1  
@@ -490,9 +492,10 @@ Add one row after every completed task.
 | 2026-09-27 | Monetary execution readiness | Demo execution readiness requires verified account currency and positive equity | ✅ Full tests + real CHF demo runtime + CI | PR #18 / `8938c2b` | None |
 | 2026-09-27 | Trade Journal rejection reasons | Replace generic rejection summary with actionable operator-facing reason | ✅ Focused/full tests + runtime rejected-order field check + CI | PR #19 | Phase 2.2 |
 | 2026-09-27 | Lot display precision | Align operator-facing lot values with cTrader-style precision (0.01 rather than 0.0100; preserve finer broker steps) | ✅ Focused tests + full backend suite + API regression + CI | PR #20 | None |
+| 2026-09-27 | Signal strength semantics | Relabel heuristic confidence as signal strength, explain the threshold, and update rejection wording without changing schema/execution behavior | ✅ Frontend production build + full backend suite + CI | PR #21 | Phase 2.3 |
 
 ---
 
 ## 14. Next item
 
-**Phase 2.2 — clarify signal confidence semantics in the operator UI. Phase 1.4 real partial-close verification remains pending until the next normal TradeAgent-managed demo position is available.**
+**Phase 2.3 — finish broker-truth fields in the Positions panel: broker entry, current broker SL/TP, protection status, and last synchronization timestamp. Phase 1.4 real partial-close verification remains pending until the next normal TradeAgent-managed demo position is available.**
