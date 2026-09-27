@@ -62,41 +62,23 @@ def _timestamp(value: object) -> str:
 
 
 
-def run_saved_strategy_backtest(
-    *,
-    strategy: str,
-    symbol: str,
-    timeframe: str = "M5",
-    num_bars: int = 1500,
-    fee_bps: float = 0.0,
-    slippage_bps: float = 0.0,
-    validation_kind: str = "development_backtest",
-):
-    root = Path("backend/strategies_generated")
-    path = root / f"{strategy.lower()}.py"
-    if not path.exists():
-        raise HTTPException(404, f"Saved strategy '{strategy}' not found.")
-
-    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
-    if df is None or df.empty:
-        raise HTTPException(404, "No data fetched for backtest")
-
-    original_bars = len(df)
-    df, validation_kind = _validation_window(df, validation_kind)
-
-    try:
-        src = path.read_text(encoding="utf-8")
-        sig = run_strategy_source(src, df)
-    except (OSError, StrategySandboxError, ValueError) as exc:
-        raise HTTPException(400, f"Isolated strategy execution failed: {exc}") from exc
-
+def _normalize_signals(sig: pd.Series, df: pd.DataFrame) -> pd.Series:
     if "pandas" not in str(type(sig)):
         raise HTTPException(400, "signals(df) must return a pandas Series aligned to df index.")
     try:
-        sig = sig.reindex(df.index).fillna(0)
+        return sig.reindex(df.index).fillna(0)
     except Exception as exc:
         raise HTTPException(400, "signals(df) output not aligned to input index.") from exc
 
+
+def _account_backtest(
+    *,
+    df: pd.DataFrame,
+    sig: pd.Series,
+    timeframe: str,
+    fee_bps: float,
+    slippage_bps: float,
+) -> dict:
     close = df["close"].astype(float)
     rets = close.pct_change().fillna(0)
     pos = sig.apply(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0)).ffill().fillna(0.0)
@@ -105,6 +87,7 @@ def run_saved_strategy_backtest(
     flips = (pos != 0.0) & (prev != 0.0) & (pos != prev)
     entries = ((pos != 0.0) & (prev == 0.0)) | flips
     exits = ((pos == 0.0) & (prev != 0.0)) | flips
+
     cost_side = max(0.0, float(fee_bps) + float(slippage_bps)) / 10_000.0
     cost_series = (entries.astype(float) + exits.astype(float)) * (-cost_side)
     cost_series = cost_series.reindex(strat_rets.index).fillna(0.0)
@@ -120,15 +103,17 @@ def run_saved_strategy_backtest(
 
         exits_idx_sorted = list(sorted(exits_idx))
         for entry_index in entries_idx:
-            index = bisect.bisect_right(exits_idx_sorted, entry_index)
-            exit_index = exits_idx_sorted[index] if index < len(exits_idx_sorted) else close.index[-1]
+            exit_pos = bisect.bisect_right(exits_idx_sorted, entry_index)
+            exit_index = exits_idx_sorted[exit_pos] if exit_pos < len(exits_idx_sorted) else close.index[-1]
             if entry_index >= exit_index:
                 continue
+
             direction = float(pos.loc[entry_index])
             grow = close.loc[exit_index] / close.loc[entry_index]
             trade_ret = (grow - 1.0) if direction > 0 else ((1.0 / grow) - 1.0)
             net_trade = ((1.0 + float(trade_ret)) * (1.0 - cost_side) * (1.0 - cost_side)) - 1.0
             trade_rets.append(float(net_trade))
+
             try:
                 start_pos = df.index.get_loc(entry_index)
                 end_pos = df.index.get_loc(exit_index)
@@ -143,7 +128,10 @@ def run_saved_strategy_backtest(
     avg_trade = (sum(trade_rets) / num_trades * 100.0) if num_trades > 0 else 0.0
 
     def _tf_minutes(tf: str) -> int:
-        return {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}.get((tf or "M5").upper(), 5)
+        return {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}.get(
+            (tf or "M5").upper(),
+            5,
+        )
 
     ann_factor = math.sqrt(252 * (24 * 60 / max(1, _tf_minutes(timeframe))))
     sharpe = 0.0
@@ -186,10 +174,7 @@ def run_saved_strategy_backtest(
     drawdown = (equity / peak) - 1.0
     max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
 
-    result = {
-        "strategy": strategy,
-        "symbol": symbol,
-        "timeframe": timeframe,
+    return {
         "Total Return [%]": round(total_return, 4),
         "Number of Trades": float(num_trades),
         "Win Rate [%]": round(win_rate, 2),
@@ -204,12 +189,81 @@ def run_saved_strategy_backtest(
         "SQN": round(sqn, 3),
         "Trades/Day": round(trades_per_day, 3),
         "Avg Hold [bars]": round(avg_hold_bars, 2),
+    }
+
+
+def _backtest_result(
+    *,
+    strategy: str,
+    symbol: str,
+    timeframe: str,
+    df: pd.DataFrame,
+    sig: pd.Series,
+    original_bars: int,
+    validation_kind: str,
+    fee_bps: float,
+    slippage_bps: float,
+) -> dict:
+    result = {
+        "strategy": strategy,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        **_account_backtest(
+            df=df,
+            sig=sig,
+            timeframe=timeframe,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+        ),
         "Validation Kind": validation_kind,
         "Data Start": _timestamp(df.index[0]),
         "Data End": _timestamp(df.index[-1]),
         "Selected Bars": len(df),
         "Fetched Bars": original_bars,
     }
+    return result
+
+
+def run_saved_strategy_backtest(
+    *,
+    strategy: str,
+    symbol: str,
+    timeframe: str = "M5",
+    num_bars: int = 1500,
+    fee_bps: float = 0.0,
+    slippage_bps: float = 0.0,
+    validation_kind: str = "development_backtest",
+):
+    root = Path("backend/strategies_generated")
+    path = root / f"{strategy.lower()}.py"
+    if not path.exists():
+        raise HTTPException(404, f"Saved strategy '{strategy}' not found.")
+
+    df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
+    if df is None or df.empty:
+        raise HTTPException(404, "No data fetched for backtest")
+
+    original_bars = len(df)
+    df, validation_kind = _validation_window(df, validation_kind)
+
+    try:
+        src = path.read_text(encoding="utf-8")
+        sig = run_strategy_source(src, df)
+    except (OSError, StrategySandboxError, ValueError) as exc:
+        raise HTTPException(400, f"Isolated strategy execution failed: {exc}") from exc
+
+    sig = _normalize_signals(sig, df)
+    result = _backtest_result(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        df=df,
+        sig=sig,
+        original_bars=original_bars,
+        validation_kind=validation_kind,
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+    )
     lifecycle = record_backtest(
         strategy=strategy,
         source=src,
@@ -250,48 +304,17 @@ def run_strategy_code_backtest(
     except (StrategySandboxError, ValueError) as exc:
         raise HTTPException(400, f"Isolated draft strategy execution failed: {exc}") from exc
 
-    if "pandas" not in str(type(sig)):
-        raise HTTPException(400, "signals(df) must return a pandas Series aligned to df index.")
-    try:
-        sig = sig.reindex(df.index).fillna(0)
-    except Exception as exc:
-        raise HTTPException(400, "signals(df) output not aligned to input index.") from exc
-
-    close = df["close"].astype(float)
-    rets = close.pct_change().fillna(0)
-    pos = sig.apply(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0)).ffill().fillna(0.0)
-    strat_rets = rets * pos
-    prev = pos.shift(1).fillna(0.0)
-    flips = (pos != 0.0) & (prev != 0.0) & (pos != prev)
-    entries = ((pos != 0.0) & (prev == 0.0)) | flips
-    exits = ((pos == 0.0) & (prev != 0.0)) | flips
-    cost_side = max(0.0, float(fee_bps) + float(slippage_bps)) / 10_000.0
-    cost_series = (entries.astype(float) + exits.astype(float)) * (-cost_side)
-    cost_series = cost_series.reindex(strat_rets.index).fillna(0.0)
-    strat_rets_net = strat_rets + cost_series
-    equity = (1.0 + strat_rets_net).cumprod()
-
-    num_trades = int(entries.sum())
-    total_return = float(equity.iloc[-1] - 1.0) * 100.0
-    peak = equity.cummax()
-    drawdown = (equity / peak) - 1.0
-    max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
-    win_rate = 0.0
-
-    return {
-        "strategy": strategy_name,
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "Total Return [%]": round(total_return, 4),
-        "Number of Trades": float(num_trades),
-        "Win Rate [%]": round(win_rate, 2),
-        "Max Drawdown [%]": round(max_drawdown * 100.0, 2),
-        "Fees [bps]": round(float(fee_bps), 3),
-        "Slippage [bps]": round(float(slippage_bps), 3),
-        "Validation Kind": validation_kind,
-        "Data Start": _timestamp(df.index[0]),
-        "Data End": _timestamp(df.index[-1]),
-        "Selected Bars": len(df),
-        "Fetched Bars": original_bars,
-        "draft": True,
-    }
+    sig = _normalize_signals(sig, df)
+    result = _backtest_result(
+        strategy=strategy_name,
+        symbol=symbol,
+        timeframe=timeframe,
+        df=df,
+        sig=sig,
+        original_bars=original_bars,
+        validation_kind=validation_kind,
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+    )
+    result["draft"] = True
+    return result
