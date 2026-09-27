@@ -17,6 +17,7 @@ from backend.services.financial_units import resolve_monetary_basis
 from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
+    reconcile_open_demo_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.paper_book import apply_mark, reconcile_position
@@ -24,6 +25,7 @@ from backend.storage.repositories import (
     add_paper_event,
     add_trade_audit,
     close_paper_position,
+    get_position_by_id,
     list_order_intents,
     list_paper_positions,
     load_engine_config,
@@ -318,6 +320,35 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                     int(match.row.get("position_id") or 0),
                 )
             broker_match = match.row
+            ledger_sync = reconcile_open_demo_position_ledger(position, broker_match)
+            if ledger_sync.get("status") == "partial_close_synced":
+                position = get_position_by_id(position.id)
+                add_trade_audit(
+                    event_type="ctrader_demo_partial_close_synced",
+                    symbol=position.symbol,
+                    timeframe=position.timeframe,
+                    strategy=position.strategy,
+                    position_id=position.id,
+                    summary="Synchronized broker partial close into the local deal ledger.",
+                    details=ledger_sync,
+                )
+            elif ledger_sync.get("status") == "pending_deal_history":
+                log_incident(
+                    "warning",
+                    "ctrader_demo_partial_close_history_pending",
+                    f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
+                    {"position_id": position.id, **ledger_sync},
+                )
+            elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+                skipped += 1
+                log_incident(
+                    "error",
+                    "ctrader_demo_volume_reconciliation_failed",
+                    f"Could not reconcile broker volume for {position.symbol}:{position.timeframe}.",
+                    {"position_id": position.id, **ledger_sync},
+                )
+                continue
+
             try:
                 protection = sync_demo_position_targets(
                     symbol=position.symbol,
