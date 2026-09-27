@@ -873,6 +873,42 @@ def test_execute_paper_signal_blocks_auto_trade_when_contract_cannot_be_valued(m
     assert decisions[0].outcome == "rejected_sizing"
 
 
+def test_execute_paper_signal_formats_ctrader_minimum_lot_with_two_decimals(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.quantity_rules.get_symbol_limits",
+        lambda symbol: SymbolLimits(
+            symbol=symbol.upper(),
+            source="broker",
+            min_lots=0.01,
+            step_lots=0.01,
+            max_lots=100.0,
+            min_api_units=100,
+            step_api_units=100,
+            max_api_units=1_000_000,
+            hard_min=True,
+            hard_step=True,
+        ),
+    )
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch_item(),
+        analysis=_analysis(signal="long"),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+        quantity=0.001,
+        source="manual",
+    )
+
+    assert result.action_taken is False
+    assert result.status == "rejected"
+    assert result.summary == "Requested quantity is below the symbol minimum of 0.01 lots."
+
+    audits = list_trade_audits(5)
+    assert audits[0].summary == "Rejected - Requested quantity is below the symbol minimum of 0.01 lots."
+
+
 def test_execute_paper_signal_rejects_manual_quantity_outside_symbol_step(monkeypatch) -> None:
     monkeypatch.setattr(
         "backend.services.quantity_rules.get_symbol_limits",
@@ -903,7 +939,7 @@ def test_execute_paper_signal_rejects_manual_quantity_outside_symbol_step(monkey
 
     assert result.action_taken is False
     assert result.status == "rejected"
-    assert "step size of 0.0500 lots" in result.summary
+    assert "step size of 0.05 lots" in result.summary
 
     positions = list_paper_positions("open")
     assert positions == []
@@ -911,5 +947,5 @@ def test_execute_paper_signal_rejects_manual_quantity_outside_symbol_step(monkey
     intents = list_order_intents(5)
     assert len(intents) == 1
     assert intents[0].status == "rejected"
-    assert "step size of 0.0500 lots" in intents[0].rationale
+    assert "step size of 0.05 lots" in intents[0].rationale
     assert intents[0].details["requested_quantity"] == 0.12
