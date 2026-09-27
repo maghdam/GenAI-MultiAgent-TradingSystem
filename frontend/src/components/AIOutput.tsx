@@ -89,6 +89,9 @@ function formatPrice(value?: number | null): string {
   return value.toFixed(d);
 }
 
+const SIGNAL_STRENGTH_HELP =
+  'Deterministic strategy-strength score from the active strategy; it is not a calibrated win probability.';
+
 const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
   {
     symbol, timeframe, strategy, lotSize, fastMode, maxBars, maxTokens, modelName,
@@ -258,9 +261,9 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
             {a.signal === 'long' ? '↑ Bullish' : a.signal === 'short' ? '↓ Bearish' : '— Neutral'}
           </span>
           {confPct !== null && (
-            <div className="ta-analysis__confidence">
+            <div className="ta-analysis__confidence" title={SIGNAL_STRENGTH_HELP}>
               <div className="ta-analysis__confidence-value">{confPct}%</div>
-              <div className="ta-analysis__confidence-label">confidence</div>
+              <div className="ta-analysis__confidence-label">signal strength</div>
             </div>
           )}
         </div>
@@ -283,7 +286,12 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
 
         {/* Confidence bar */}
         {confPct !== null && (
-          <div className="ta-confidence" style={{ marginBottom: '16px' }}>
+          <div
+            className="ta-confidence"
+            style={{ marginBottom: '16px' }}
+            title={SIGNAL_STRENGTH_HELP}
+            aria-label={`Signal strength ${confPct}%`}
+          >
             <div className="ta-confidence__bar">
               <div
                 className={`ta-confidence__fill ${a.signal === 'long' ? 'ta-confidence__fill--bull' : a.signal === 'short' ? 'ta-confidence__fill--bear' : ''}`}
