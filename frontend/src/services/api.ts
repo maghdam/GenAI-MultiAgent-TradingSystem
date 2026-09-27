@@ -129,6 +129,12 @@ export interface V2Incident {
   created_at: string;
 }
 
+export interface V2ActiveIncident {
+  level: 'info' | 'warning' | 'error';
+  code: string;
+  message: string;
+}
+
 export interface V2Analysis {
   symbol: string;
   timeframe: string;
@@ -422,6 +428,8 @@ export interface V2Status {
   config: V2Config;
   runtime: V2Runtime;
   readiness: V2ReadinessCheck[];
+  status_truth: V2ReadinessCheck[];
+  active_incidents: V2ActiveIncident[];
   strategies: V2StrategyInfo[];
   recent_incidents: V2Incident[];
   recent_analyses: V2Analysis[];
