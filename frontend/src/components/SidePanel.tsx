@@ -29,6 +29,36 @@ function formatPnl(value?: number | null): string {
   return `${prefix}${value.toFixed(2)}`;
 }
 
+function intentReason(intent: V2OrderIntent): string {
+  if (intent.status === 'rejected' && intent.rationale?.trim()) {
+    return intent.rationale.trim();
+  }
+
+  const detailCandidates = [
+    intent.details?.error,
+    intent.details?.protection_error,
+    intent.details?.failsafe_close_error,
+    intent.details?.reason,
+  ];
+  for (const candidate of detailCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+
+  const listCandidates = [
+    intent.details?.risk_reasons,
+    intent.details?.quantity_reasons,
+    intent.details?.sizing_reasons,
+  ];
+  for (const candidate of listCandidates) {
+    if (Array.isArray(candidate)) {
+      const reasons = candidate.filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+      if (reasons.length) return reasons.join(' · ');
+    }
+  }
+
+  return intent.status === 'failed' ? 'Execution failed; inspect the related incident for broker details.' : '';
+}
+
 /* Collapsible section */
 function Section({
   title,
@@ -128,15 +158,28 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
     if (!intents.length) return <div className="ta-panel__empty">No recent intents</div>;
     return intents.slice(0, 6).map((i) => {
       const statusClass =
-        i.status === 'rejected' ? 'ta-pill--rejected'
+        i.status === 'rejected' || i.status === 'failed' ? 'ta-pill--rejected'
         : i.status === 'executed' ? 'ta-pill--accepted'
         : 'ta-pill--info';
+      const reason = intentReason(i);
       return (
         <div key={i.id} className="ta-intent">
-          <span className={`ta-pill ${statusClass}`}>{i.status}</span>
-          <span className="ta-intent__symbol">{i.symbol}</span>
-          <span className="ta-intent__detail">{i.intent_type}</span>
-          <span className="ta-intent__detail" style={{ marginLeft: 'auto' }}>{i.strategy}</span>
+          <div className="ta-intent__row">
+            <span className={`ta-pill ${statusClass}`}>{i.status}</span>
+            <span className="ta-intent__symbol">{i.symbol}</span>
+            <span className="ta-intent__detail">{i.intent_type}</span>
+            <span className="ta-intent__detail">{formatConfidence(i.confidence)}</span>
+            <span className="ta-intent__detail" style={{ marginLeft: 'auto' }}>{formatTimestamp(i.created_at)}</span>
+          </div>
+          <div className="ta-intent__meta">
+            <span>{i.strategy}</span>
+            {i.quantity != null && <span>qty {i.quantity}</span>}
+          </div>
+          {reason && (
+            <div className="ta-intent__reason" title={reason}>
+              {reason}
+            </div>
+          )}
         </div>
       );
     });
