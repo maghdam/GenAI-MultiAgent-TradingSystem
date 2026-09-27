@@ -42,6 +42,7 @@ from backend.services.market_data import MarketDataError, get_bars, get_market_d
 from backend.services.market_intelligence import build_market_intelligence
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
 from backend.services.broker_ledger import reconcile_closed_demo_history
+from backend.services.position_truth import attach_broker_truth
 from backend.services.risk import build_readiness
 from backend.services import model_service
 from backend.services import studio_llm
@@ -117,6 +118,15 @@ async def _status_payload() -> EngineStatus:
     readiness = await asyncio.to_thread(build_readiness, config)
     runtime = load_runtime()
     runtime.ollama_ready = await _get_cached_ollama_ready()
+
+    paper_positions = list_paper_positions("open")
+    broker_rows = None
+    if broker.execution_ready and any(position.broker_position_id is not None for position in paper_positions):
+        try:
+            broker_rows = await asyncio.to_thread(list_positions)
+        except Exception:
+            broker_rows = None
+    paper_positions = attach_broker_truth(paper_positions, broker_rows)
     
     return EngineStatus(
         version=SETTINGS.version,
@@ -128,7 +138,7 @@ async def _status_payload() -> EngineStatus:
         strategies=strategies,
         recent_incidents=list_incidents(8),
         recent_analyses=list_recent_analyses(8),
-        paper_positions=list_paper_positions("open"),
+        paper_positions=paper_positions,
         recent_events=list_paper_events(8),
         recent_order_intents=list_order_intents(8),
         recent_trade_audits=list_trade_audits(8),

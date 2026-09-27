@@ -166,6 +166,12 @@ export interface V2PaperPosition {
   instrument_spec_source: string;
   broker_position_id?: number | null;
   realized_pnl_source?: string;
+  broker_entry_price?: number | null;
+  broker_stop_loss?: number | null;
+  broker_take_profit?: number | null;
+  broker_protection_status?: 'protected' | 'partial' | 'unprotected' | 'unavailable';
+  broker_last_synced_at?: string | null;
+  broker_sync_status?: string;
 }
 
 export interface V2PaperEvent {

@@ -261,6 +261,12 @@ class PaperPosition(BaseModel):
     instrument_spec_source: str = "legacy"
     broker_position_id: Optional[int] = None
     realized_pnl_source: str = "paper_estimate"
+    broker_entry_price: Optional[float] = None
+    broker_stop_loss: Optional[float] = None
+    broker_take_profit: Optional[float] = None
+    broker_protection_status: Literal["protected", "partial", "unprotected", "unavailable"] = "unavailable"
+    broker_last_synced_at: Optional[datetime] = None
+    broker_sync_status: str = "not_applicable"
 
 
 class PaperEvent(BaseModel):
