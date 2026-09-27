@@ -54,6 +54,43 @@ class BrokerPositionIdentityError(RuntimeError):
     pass
 
 
+def _journal_rejection_summary(
+    analysis: StrategyAnalysis,
+    reasons: list[str],
+    details: dict[str, object] | None = None,
+) -> str:
+    """Return a compact operator-facing rejection reason for the Trade Journal."""
+    evidence = details or {}
+    reason = next((str(value).strip() for value in reasons if str(value).strip()), "Execution gate rejected the signal.")
+    lowered = reason.lower()
+
+    if "confidence is below" in lowered:
+        try:
+            confidence = float(evidence.get("confidence", analysis.confidence))
+            minimum = float(evidence["min_confidence"])
+            return f"Rejected — confidence {confidence:.0%} < minimum {minimum:.0%}."
+        except (KeyError, TypeError, ValueError):
+            pass
+
+    if "inside cooldown" in lowered:
+        try:
+            minutes = int(evidence["cooldown_minutes"])
+            return f"Rejected — {analysis.symbol} in {minutes}-minute cooldown."
+        except (KeyError, TypeError, ValueError):
+            return f"Rejected — {analysis.symbol} is still in cooldown."
+
+    if "market bar is stale" in lowered:
+        return f"Rejected — stale {analysis.timeframe} market bar."
+
+    if "max daily trade count" in lowered:
+        return "Rejected — max daily trade count reached."
+
+    if "daily loss cap" in lowered:
+        return "Rejected — daily loss cap reached."
+
+    return f"Rejected — {reason.rstrip('.')}."
+
+
 def _refresh_open_position(
     item: WatchlistItem,
     mark_price: float,
@@ -356,7 +393,7 @@ def execute_paper_signal(
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
             intent_id=intent.id,
-            summary="Automatic execution blocked by monetary sizing requirements.",
+            summary=_journal_rejection_summary(analysis, sizing.reasons, sizing.details),
             details={"reasons": sizing.reasons, **sizing.details},
         )
         return ExecutionResult(
@@ -427,7 +464,7 @@ def execute_paper_signal(
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
             intent_id=intent.id,
-            summary="Signal rejected by symbol quantity rules.",
+            summary=_journal_rejection_summary(analysis, quantity_decision.reasons, quantity_decision.details),
             details={
                 "reasons": quantity_decision.reasons,
                 **(sizing.details if sizing else {}),
@@ -511,7 +548,7 @@ def execute_paper_signal(
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
             intent_id=intent.id,
-            summary="Signal rejected by V2 risk engine.",
+            summary=_journal_rejection_summary(analysis, risk.reasons, risk.details),
             details={"reasons": risk.reasons, **risk.details},
         )
         return ExecutionResult(
