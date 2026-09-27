@@ -341,12 +341,23 @@ Test every operator control against backend behavior.
 - [x] GitHub CI.
 
 ### 4.2 Generated strategy sandbox
-- [ ] Normal strategy executes.
-- [ ] Forbidden imports rejected.
-- [ ] File/network/system access rejected.
-- [ ] Timeout enforced.
-- [ ] Invalid output rejected.
-- [ ] Resource limits reviewed.
+- [x] Normal strategy executes.
+- [x] Forbidden imports rejected.
+- [x] File/network/system access rejected.
+- [x] Timeout enforced.
+- [x] Invalid output rejected.
+- [x] Resource limits reviewed.
+
+**Verification**
+- [x] Focused generated-strategy sandbox acceptance suite: 18 tests passed locally on Windows.
+- [x] Normal pandas/numpy strategy executes in an isolated child Python process and returns aligned finite signals.
+- [x] Forbidden imports and file/network/system capabilities are rejected before execution.
+- [x] Wall-clock execution limit is enforced and capped by `STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS` (default 30s).
+- [x] Non-Series and non-finite outputs are rejected.
+- [x] Resource limits: 100 KB source cap, `STRATEGY_SANDBOX_MAX_BARS` (default 20,000), and child-process RSS ceiling via `STRATEGY_SANDBOX_MEMORY_MB` (default 512 MB).
+- [x] Memory ceiling verified in GitHub Linux CI and local Windows tests.
+- [x] Local full backend regression suite.
+- [x] GitHub CI.
 
 ### 4.3 Draft backtest correctness
 **Known improvement:** draft backtest currently reports `Win Rate [%] = 0.0` rather than calculating trade-level wins.
@@ -562,9 +573,10 @@ Add one row after every completed task.
 | 2026-09-27 | Persistence acceptance | Move runtime SQLite DB to OS-local state, preserve legacy data via one-time migration, and verify config/watchlist persistence plus Git hygiene | ✅ 6 focused tests + full backend suite + resolved-path/tracked-state checks + CI | PR #26 | Phase 3.4 |
 | 2026-09-27 | Status truthfulness | Separate current status/current incidents from readiness and history; derive engine scanning from runtime loop activity and clear stale recovery errors | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #27 | Phase 4.1 |
 | 2026-09-27 | Strategy Studio LLM workflow | Acceptance-test chat/drafting/provider selection/fallback/save and add safe saved-source reload into the editor | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #28 | Phase 4.2 |
+| 2026-09-27 | Generated strategy sandbox | Harden isolated strategy execution with explicit timeout/bar/memory limits and invalid-output checks; acceptance-test restricted capabilities | ✅ 18 focused Windows tests + full backend suite + Linux CI + Windows memory-limit verification | PR #29 | Phase 4.3 |
 
 ---
 
 ## 14. Next item
 
-**Phase 4.2 — Generated strategy sandbox acceptance audit: normal strategy execution, forbidden imports, file/network/system access rejection, timeout enforcement, invalid output rejection, and resource-limit review. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 4.3 — Draft backtest correctness: fix trade-level win-rate calculation, align draft and saved-strategy accounting logic, and verify flips, entries, exits, and final open-trade handling. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
