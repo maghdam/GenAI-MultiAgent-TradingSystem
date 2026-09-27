@@ -167,11 +167,11 @@ Replace generic:
 `Signal rejected by V2 risk engine.`
 
 with useful summaries such as:
-- `Rejected — XAUUSD in 30-minute cooldown.`
-- `Rejected — confidence 54% < minimum 60%.`
-- `Rejected — max daily trade count reached.`
-- `Rejected — daily loss cap reached.`
-- `Rejected — stale M5 market bar.`
+- `Rejected - XAUUSD in 30-minute cooldown.`
+- `Rejected - confidence 54% < minimum 60%.`
+- `Rejected - max daily trade count reached.`
+- `Rejected - daily loss cap reached.`
+- `Rejected - stale M5 market bar.`
 
 Keep full structured details available in Intents/Incidents.
 
