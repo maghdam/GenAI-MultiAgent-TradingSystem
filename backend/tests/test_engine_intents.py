@@ -150,7 +150,7 @@ def test_apply_paper_logic_rejects_signal_and_records_reason() -> None:
     audits = list_trade_audits(10)
     assert len(audits) == 1
     assert audits[0].event_type == "paper_signal_rejected"
-    assert audits[0].summary == "Rejected — Paper autotrade is disabled."
+    assert audits[0].summary == "Rejected - Paper autotrade is disabled."
 
     incidents = list_incidents(5)
     assert len(incidents) == 1
@@ -170,7 +170,7 @@ def test_trade_journal_rejection_summary_includes_confidence_threshold() -> None
     assert result.status == "rejected"
     audits = list_trade_audits(5)
     assert len(audits) == 1
-    assert audits[0].summary == "Rejected — confidence 54% < minimum 60%."
+    assert audits[0].summary == "Rejected - confidence 54% < minimum 60%."
 
 
 def test_trade_journal_rejection_summary_names_stale_timeframe() -> None:
@@ -188,7 +188,7 @@ def test_trade_journal_rejection_summary_names_stale_timeframe() -> None:
     assert result.status == "rejected"
     audits = list_trade_audits(5)
     assert len(audits) == 1
-    assert audits[0].summary == "Rejected — stale M5 market bar."
+    assert audits[0].summary == "Rejected - stale M5 market bar."
 
 
 def test_execute_paper_signal_rejects_invalid_long_protective_levels() -> None:
