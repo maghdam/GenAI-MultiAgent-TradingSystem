@@ -115,3 +115,40 @@ def test_git_tracks_no_sqlite_runtime_state() -> None:
     ]
 
     assert sqlite_state == []
+
+
+def test_legacy_runtime_db_is_migrated_once(monkeypatch, tmp_path) -> None:
+    import sqlite3
+
+    legacy = tmp_path / "repo" / "backend" / "data" / "tradeagent.db"
+    target = tmp_path / "local" / "TradeAgent" / "data" / "tradeagent.db"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(legacy) as db:
+        db.execute(
+            "CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        db.execute(
+            "INSERT INTO config(key, value, updated_at) VALUES(?, ?, ?)",
+            ("engine_config", '{"operator_note":"legacy-state"}', "2026-09-27T18:00:00"),
+        )
+        db.commit()
+
+    _close_storage_connection()
+    monkeypatch.setattr(db_module, "LEGACY_DB_PATH", legacy)
+    monkeypatch.setattr(db_module, "DB_PATH", target)
+    monkeypatch.setattr(
+        db_module,
+        "SETTINGS",
+        config_module.AppSettings(version="1.0.0", db_path=target),
+    )
+
+    with db_module.get_db() as db:
+        row = db.execute(
+            "SELECT value FROM config WHERE key = ?",
+            ("engine_config",),
+        ).fetchone()
+
+    assert target.exists()
+    assert row is not None
+    assert "legacy-state" in row["value"]
