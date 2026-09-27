@@ -36,6 +36,7 @@ services:
       - OLLAMA_TIMEOUT=30
       - LLM_GATE_THRESHOLD=3
       - PYTHONPATH=/app
+      - TRADEAGENT_DB_PATH=/app/backend/data/tradeagent.db
     working_dir: /app
     command: uvicorn backend.app:app --host 0.0.0.0 --port 4000
     volumes:

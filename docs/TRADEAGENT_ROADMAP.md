@@ -282,10 +282,20 @@ Test every operator control against backend behavior.
 - [x] Per-symbol automatic execution remains gated by watchlist `trading_enabled`.
 
 ### 3.3 Persistence
-- [ ] Settings survive backend restart.
-- [ ] Watchlist survives restart.
-- [ ] Runtime DB remains in nonsynchronized local path.
-- [ ] No `.db`, `-wal`, or `-shm` state appears in Git.
+- [x] Settings survive backend restart.
+- [x] Watchlist survives restart.
+- [x] Runtime DB remains in nonsynchronized local path.
+- [x] No `.db`, `-wal`, or `-shm` state appears in Git.
+
+**Verification**
+- [x] Focused persistence acceptance tests, including close/reopen storage restart.
+- [x] Settings and complete watchlist reload unchanged after storage restart.
+- [x] Windows default resolves to `%LOCALAPPDATA%\TradeAgent\data\tradeagent.db`.
+- [x] Legacy `backend/data/tradeagent.db` has a one-time backup migration path when the new local DB does not yet exist.
+- [x] `.gitignore` covers `.db`, `-wal`, `-shm`, and journal state.
+- [x] `git ls-files` confirms no SQLite runtime state is tracked.
+- [x] Local full backend regression suite.
+- [x] GitHub CI.
 
 ### 3.4 Status truthfulness
 - [ ] Connected.
@@ -527,9 +537,10 @@ Add one row after every completed task.
 | 2026-09-27 | Trade Journal filtering / drill-down | Add execution/rejection/protection, symbol, strategy, date, and broker-vs-paper filters plus expandable intent/risk/broker details | ✅ Local frontend build + full backend suite + CI | PR #23 | Phase 3.1 |
 | 2026-09-27 | System engine lifecycle controls | Add explicit runtime-loop Restart and acceptance-test Start, Stop, Restart, one-shot Scan, Recover, and Reconcile | ✅ Focused/full backend tests + frontend build + CI; real open-demo backend restart pending | PR #24 | Phase 3.2 |
 | 2026-09-27 | System safety controls | Expose per-symbol position cap on System page and acceptance-test all Phase 3.2 safety gates | ✅ 11 focused tests + full backend suite + frontend build + CI | PR #25 | Phase 3.3 |
+| 2026-09-27 | Persistence acceptance | Move runtime SQLite DB to OS-local state, preserve legacy data via one-time migration, and verify config/watchlist persistence plus Git hygiene | ✅ 6 focused tests + full backend suite + resolved-path/tracked-state checks + CI | PR #26 | Phase 3.4 |
 
 ---
 
 ## 14. Next item
 
-**Phase 3.3 — Persistence acceptance audit: settings survive backend restart, watchlist survives restart, runtime DB remains in a nonsynchronized local path, and no SQLite runtime state appears in Git. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 3.4 — Status truthfulness acceptance audit: Connected, Demo confirmed, Execution ready, Symbol metadata ready, Engine scanning, Model ready, and incidents reflecting actual current faults rather than stale state. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**

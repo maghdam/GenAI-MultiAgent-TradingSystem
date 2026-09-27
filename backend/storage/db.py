@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import local
 from typing import Iterator
 
-from backend.config import SETTINGS
+from backend.config import DB_PATH, LEGACY_DB_PATH, SETTINGS
 
 
 _LOCAL = local()
@@ -16,10 +16,20 @@ def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _migrate_legacy_db_if_needed(path: Path) -> None:
+    if path != DB_PATH or path == LEGACY_DB_PATH or path.exists() or not LEGACY_DB_PATH.exists():
+        return
+
+    _ensure_parent(path)
+    with sqlite3.connect(LEGACY_DB_PATH) as source, sqlite3.connect(path) as target:
+        source.backup(target)
+
+
 def _get_connection() -> sqlite3.Connection:
     conn = getattr(_LOCAL, "connection", None)
     if conn is None:
         _ensure_parent(SETTINGS.db_path)
+        _migrate_legacy_db_if_needed(SETTINGS.db_path)
         conn = sqlite3.connect(SETTINGS.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         _LOCAL.connection = conn

@@ -17,6 +17,14 @@ set STUDIO_OLLAMA_THINK=low
 set STUDIO_OLLAMA_MODEL=muse-glimmer:latest
 set PYTHONPATH=%ROOT%
 
+rem Keep runtime SQLite state outside the repository/sync folder by default.
+rem Callers may set TRADEAGENT_DB_PATH before launch to override this path.
+if not defined TRADEAGENT_DB_PATH (
+    if defined LOCALAPPDATA (
+        set "TRADEAGENT_DB_PATH=%LOCALAPPDATA%\TradeAgent\data\tradeagent.db"
+    )
+)
+
 set "PYTHON=C:\Users\mohag\miniconda3\envs\tradeagent-v2\python.exe"
 
 if not exist "%PYTHON%" (
@@ -25,4 +33,5 @@ if not exist "%PYTHON%" (
     exit /b 1
 )
 
-"%PYTHON%" -m uvicorn backend.app:app --host 127.0.0.1 --port 4000 1>"%RUN_DIR%\backend.log" 2>&1
+>"%RUN_DIR%\backend.log" echo [DB] %TRADEAGENT_DB_PATH%
+"%PYTHON%" -m uvicorn backend.app:app --host 127.0.0.1 --port 4000 1>>"%RUN_DIR%\backend.log" 2>&1
