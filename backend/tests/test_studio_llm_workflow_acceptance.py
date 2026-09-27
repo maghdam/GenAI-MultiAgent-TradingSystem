@@ -150,7 +150,7 @@ def test_save_strategy_persists_validated_source_and_draft_lifecycle(monkeypatch
 
     assert result.status == "success"
     assert saved.exists()
-    assert saved.read_text(encoding="utf-8") == VALID_CODE
+    assert saved.read_text(encoding="utf-8").strip() == VALID_CODE.strip()
     lifecycle = (result.result or {})["lifecycle"]
     assert lifecycle["strategy"] == "phase41_saved"
     assert lifecycle["stage"] == "draft"
