@@ -71,6 +71,7 @@ def test_account_list_blocks_live_account_without_authorizing(monkeypatch) -> No
 
 def test_account_snapshot_decodes_balance_currency_and_unrealized_pnl(monkeypatch) -> None:
     sent = []
+    ctd._clear_asset_cache()
 
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
@@ -119,6 +120,50 @@ def test_account_snapshot_decodes_balance_currency_and_unrealized_pnl(monkeypatc
     assert snapshot["unrealized_pnl"] == pytest.approx(-0.50)
     assert snapshot["equity"] == pytest.approx(19_999.50)
     assert snapshot["verified"] is True
+
+
+def test_account_snapshot_reuses_asset_currency_cache(monkeypatch) -> None:
+    sent = []
+    ctd._clear_asset_cache()
+
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd.client, "send", lambda request, **kwargs: sent.append(request) or request)
+    monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: deferred)
+
+    def _extract(request):
+        name = request.__class__.__name__
+        if name == "ProtoOATraderReq":
+            return SimpleNamespace(
+                trader=SimpleNamespace(
+                    balance=2_000_000,
+                    moneyDigits=2,
+                    depositAssetId=7,
+                )
+            )
+        if name == "ProtoOAAssetListReq":
+            return SimpleNamespace(
+                asset=[SimpleNamespace(assetId=7, name="CHF", displayName="Swiss Franc")]
+            )
+        if name == "ProtoOAGetPositionUnrealizedPnLReq":
+            return SimpleNamespace(moneyDigits=2, positionUnrealizedPnL=[])
+        raise AssertionError(f"unexpected request {name}")
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", _extract)
+
+    first = ctd.get_account_snapshot()
+    second = ctd.get_account_snapshot()
+
+    request_names = [request.__class__.__name__ for request in sent]
+    assert request_names == [
+        "ProtoOATraderReq",
+        "ProtoOAAssetListReq",
+        "ProtoOAGetPositionUnrealizedPnLReq",
+        "ProtoOATraderReq",
+        "ProtoOAGetPositionUnrealizedPnLReq",
+    ]
+    assert first["currency"] == "CHF"
+    assert second["currency"] == "CHF"
 
 
 def test_demo_order_is_blocked_without_verified_demo_account(monkeypatch) -> None:
