@@ -655,9 +655,8 @@ a:hover { color: #a5b4fc; }
    POSITION ROW
    ============================================================ */
 .ta-position {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  gap: 5px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--ta-border-dim);
   transition: background 0.18s var(--ta-ease);
@@ -666,6 +665,13 @@ a:hover { color: #a5b4fc; }
 .ta-position:last-child { border-bottom: none; }
 .ta-position:hover { background: rgba(255, 255, 255, 0.02); }
 
+.ta-position__row,
+.ta-position__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .ta-position__symbol {
   font-size: 13px;
   font-weight: 600;
@@ -673,10 +679,15 @@ a:hover { color: #a5b4fc; }
   min-width: 70px;
 }
 
-.ta-position__detail {
-  font-size: 12px;
+.ta-position__detail,
+.ta-position__meta {
+  font-size: 11px;
   color: var(--ta-text-muted);
   font-family: var(--ta-font-mono);
+}
+
+.ta-position__meta {
+  flex-wrap: wrap;
 }
 
 .ta-position__pnl {
