@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+import re
 
 import backend.data_fetcher as data_fetcher
 import pandas as pd
@@ -17,6 +18,27 @@ def list_saved_strategy_files() -> dict:
         return {"files": files, "cwd": str(Path.cwd())}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def load_saved_strategy_source(strategy: str) -> dict:
+    safe = (strategy or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_-]+", safe):
+        raise HTTPException(400, "Strategy name must contain only letters, numbers, underscores, or hyphens.")
+
+    path = Path("backend/strategies_generated") / f"{safe}.py"
+    if not path.exists():
+        raise HTTPException(404, f"Saved strategy '{safe}' not found.")
+
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(500, f"Could not read saved strategy '{safe}': {exc}") from exc
+
+    return {
+        "strategy": safe,
+        "filename": path.name,
+        "source": source,
+    }
 
 def _validation_window(df: pd.DataFrame, validation_kind: str) -> tuple[pd.DataFrame, str]:
     kind = str(validation_kind or "development_backtest").strip().lower()
