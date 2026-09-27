@@ -18,6 +18,7 @@ from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
+    reconcile_open_demo_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.financial_units import resolve_monetary_basis
@@ -99,6 +100,34 @@ def _refresh_open_position(
                 position.id,
                 int(match.row.get("position_id") or 0),
             )
+
+        ledger_sync = reconcile_open_demo_position_ledger(position, match.row)
+        if ledger_sync.get("status") == "partial_close_synced":
+            add_trade_audit(
+                event_type="ctrader_demo_partial_close_synced",
+                symbol=position.symbol,
+                timeframe=position.timeframe,
+                strategy=position.strategy,
+                position_id=position.id,
+                summary="Synchronized broker partial close before strategy execution.",
+                details=ledger_sync,
+            )
+        elif ledger_sync.get("status") == "pending_deal_history":
+            log_incident(
+                "warning",
+                "ctrader_demo_partial_close_history_pending",
+                f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
+                {"position_id": position.id, **ledger_sync},
+            )
+        elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+            message = f"Could not safely reconcile broker volume for {position.symbol}:{position.timeframe}."
+            log_incident(
+                "error",
+                "ctrader_demo_volume_reconciliation_failed",
+                message,
+                {"position_id": position.id, **ledger_sync},
+            )
+            raise BrokerPositionIdentityError(message)
 
     return get_open_position(item.symbol.upper(), item.timeframe.upper())
 
