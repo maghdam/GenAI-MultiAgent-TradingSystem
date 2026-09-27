@@ -160,7 +160,7 @@ Recent execution intent details showed `account_currency=USD` and `starting_equi
 
 ### 2.1 Show actual rejection reason in Trade Journal
 **Priority:** P1  
-**Status:** 🧪
+**Status:** ✅
 
 Replace generic:
 
@@ -174,6 +174,13 @@ with useful summaries such as:
 - `Rejected - stale M5 market bar.`
 
 Keep full structured details available in Intents/Incidents.
+
+**Verification evidence (2026-09-27)**
+- Focused `backend/tests/test_engine_intents.py -q`: 23 passed.
+- Full `backend/tests -q`: passed.
+- GitHub CI: passed.
+- Runtime manual rejection: XAUUSD 0.001 lot was rejected below broker minimum 0.0100 lot with no position opened.
+- Trade Journal persisted: `Rejected - Requested quantity is below the symbol minimum of 0.0100 lots.`
 
 ### 2.2 Clarify signal confidence semantics
 **Priority:** P1  
@@ -481,9 +488,10 @@ Add one row after every completed task.
 | 2026-09-27 | Intent rejection UX | Exact rejection/failure rationale shown in Intents panel | ✅ Frontend build + CI | PR #16 / `d1d6eef` | Trade Journal summary remains Phase 2.1 |
 | 2026-09-27 | Position identity UX | Local and cTrader IDs + account-currency P&L exposed in Positions panel | ✅ Frontend build + CI | PR #17 / `1cb5e8f` | Finish broker entry/protection/sync fields in 2.3 |
 | 2026-09-27 | Monetary execution readiness | Demo execution readiness requires verified account currency and positive equity | ✅ Full tests + real CHF demo runtime + CI | PR #18 / `8938c2b` | None |
+| 2026-09-27 | Trade Journal rejection reasons | Replace generic rejection summary with actionable operator-facing reason | ✅ Focused/full tests + runtime rejected-order field check + CI | PR #19 | Phase 2.2 |
 
 ---
 
 ## 14. Next item
 
-**Phase 2.1 — field-test actionable rejection summaries in the Trade Journal. Phase 1.4 real partial-close verification remains pending until the next normal TradeAgent-managed demo position is available.**
+**Phase 2.2 — clarify signal confidence semantics in the operator UI. Phase 1.4 real partial-close verification remains pending until the next normal TradeAgent-managed demo position is available.**
