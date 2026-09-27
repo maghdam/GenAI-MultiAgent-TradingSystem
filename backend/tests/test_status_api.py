@@ -237,5 +237,5 @@ def test_v2_manual_order_rejects_invalid_quantity(monkeypatch) -> None:
     payload = response.json()
     assert payload["ok"] is True
     assert payload["status"] == "rejected"
-    assert "step size of 0.0500 lots" in payload["summary"]
+    assert "step size of 0.05 lots" in payload["summary"]
 
