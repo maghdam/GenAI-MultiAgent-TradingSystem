@@ -225,7 +225,19 @@ class CTraderBrokerAdapter:
 
         ready = connected and symbols_loaded > 0 and authorized
         market_data_ready = bool(market_data_dependency_state.market_data_ready and ready)
-        execution_ready = bool(ready and demo_confirmed)
+        monetary_snapshot_ready = bool(
+            account_snapshot is not None
+            and account_snapshot.verified
+            and isinstance(account_snapshot.currency, str)
+            and len(account_snapshot.currency.strip()) == 3
+            and account_snapshot.equity is not None
+            and float(account_snapshot.equity) > 0
+        )
+        execution_ready = bool(ready and demo_confirmed and monetary_snapshot_ready)
+        if demo_confirmed and not monetary_snapshot_ready:
+            notes.append(
+                "Execution is blocked until cTrader provides a verified account currency and positive equity."
+            )
 
         return BrokerStatus(
             connected=connected,
