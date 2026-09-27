@@ -321,12 +321,24 @@ Test every operator control against backend behavior.
 ## 6. Phase 4 — Build & Test / Strategy Studio acceptance audit
 
 ### 4.1 LLM research workflow
-- [ ] Chat request.
-- [ ] Strategy drafting.
-- [ ] Provider/model selection.
-- [ ] Failure/fallback path.
-- [ ] Save strategy.
-- [ ] Reload saved strategy.
+- [x] Chat request.
+- [x] Strategy drafting.
+- [x] Provider/model selection.
+- [x] Failure/fallback path.
+- [x] Save strategy.
+- [x] Reload saved strategy.
+
+**Verification**
+- [x] Focused Strategy Studio LLM workflow acceptance tests.
+- [x] Chat requests return research guidance without forcing code generation.
+- [x] Strategy drafting returns validated editable source and records the provider/model used.
+- [x] Selected provider/model are forwarded into generation.
+- [x] LLM generation failure falls back to the built-in safe strategy template path.
+- [x] Saved strategies are validated, persisted, and registered as lifecycle `draft`.
+- [x] Saved strategy source can be reloaded read-only into the editable draft without importing it into the trusted runtime.
+- [x] Local full backend regression suite.
+- [x] Local frontend production build.
+- [x] GitHub CI.
 
 ### 4.2 Generated strategy sandbox
 - [ ] Normal strategy executes.
@@ -549,9 +561,10 @@ Add one row after every completed task.
 | 2026-09-27 | System safety controls | Expose per-symbol position cap on System page and acceptance-test all Phase 3.2 safety gates | ✅ 11 focused tests + full backend suite + frontend build + CI | PR #25 | Phase 3.3 |
 | 2026-09-27 | Persistence acceptance | Move runtime SQLite DB to OS-local state, preserve legacy data via one-time migration, and verify config/watchlist persistence plus Git hygiene | ✅ 6 focused tests + full backend suite + resolved-path/tracked-state checks + CI | PR #26 | Phase 3.4 |
 | 2026-09-27 | Status truthfulness | Separate current status/current incidents from readiness and history; derive engine scanning from runtime loop activity and clear stale recovery errors | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #27 | Phase 4.1 |
+| 2026-09-27 | Strategy Studio LLM workflow | Acceptance-test chat/drafting/provider selection/fallback/save and add safe saved-source reload into the editor | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #28 | Phase 4.2 |
 
 ---
 
 ## 14. Next item
 
-**Phase 4.1 — Build & Test / Strategy Studio LLM research workflow acceptance audit: chat request, strategy drafting, provider/model selection, failure/fallback path, save strategy, and reload saved strategy. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 4.2 — Generated strategy sandbox acceptance audit: normal strategy execution, forbidden imports, file/network/system access rejection, timeout enforcement, invalid output rejection, and resource-limit review. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
