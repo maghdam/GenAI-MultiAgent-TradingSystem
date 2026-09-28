@@ -52,7 +52,18 @@ def test_lifecycle_enforces_sequential_evidence_gates(monkeypatch) -> None:
     assert "not approved" in str(reason)
     assert not record.promotion_ready
 
-    record = lifecycle_service.record_evidence("gated_strategy", "development_backtest", passing_metrics())
+    development_context = {
+        "symbol": "XAUUSD",
+        "timeframe": "M5",
+        "data_start": "2026-01-01T00:00:00+00:00",
+        "data_end": "2026-01-02T00:00:00+00:00",
+    }
+    record = lifecycle_service.record_evidence(
+        "gated_strategy",
+        "development_backtest",
+        passing_metrics(),
+        context=development_context,
+    )
     assert record.promotion_ready
     record = lifecycle_service.promote("gated_strategy", "test operator", "development gate passed")
     assert record.stage == "backtested"
@@ -60,8 +71,28 @@ def test_lifecycle_enforces_sequential_evidence_gates(monkeypatch) -> None:
     with pytest.raises(StrategyLifecycleError, match="holdout"):
         lifecycle_service.promote("gated_strategy", "test operator")
 
-    lifecycle_service.record_evidence("gated_strategy", "out_of_sample", passing_metrics(25))
-    record = lifecycle_service.record_evidence("gated_strategy", "regime", passing_metrics(15))
+    lifecycle_service.record_evidence(
+        "gated_strategy",
+        "out_of_sample",
+        passing_metrics(25),
+        context={
+            "symbol": "XAUUSD",
+            "timeframe": "M5",
+            "data_start": "2026-01-02T00:05:00+00:00",
+            "data_end": "2026-01-03T00:00:00+00:00",
+        },
+    )
+    record = lifecycle_service.record_evidence(
+        "gated_strategy",
+        "regime",
+        passing_metrics(15),
+        context={
+            "symbol": "US30",
+            "timeframe": "M5",
+            "data_start": "2026-01-01T00:00:00+00:00",
+            "data_end": "2026-01-02T00:00:00+00:00",
+        },
+    )
     assert record.promotion_ready
     record = lifecycle_service.promote("gated_strategy", "test operator", "independent validation passed")
     assert record.stage == "validated"
@@ -97,9 +128,9 @@ def test_zero_cost_backtest_cannot_pass_gate(monkeypatch) -> None:
 def test_validation_windows_are_chronological() -> None:
     frame = pd.DataFrame({"close": range(200)}, index=pd.date_range("2026-01-01", periods=200, freq="5min"))
 
-    development, development_kind = _validation_window(frame, "development_backtest")
-    holdout, holdout_kind = _validation_window(frame, "out_of_sample")
-    regime, regime_kind = _validation_window(frame, "regime")
+    development, development_kind, development_meta = _validation_window(frame, "development_backtest")
+    holdout, holdout_kind, holdout_meta = _validation_window(frame, "out_of_sample")
+    regime, regime_kind, regime_meta = _validation_window(frame, "regime")
 
     assert development_kind == "development_backtest"
     assert holdout_kind == "out_of_sample"
@@ -107,4 +138,40 @@ def test_validation_windows_are_chronological() -> None:
     assert len(development) == 140
     assert len(holdout) == 60
     assert development.index.max() < holdout.index.min()
+    assert development_meta["Development Fraction [%]"] == 70.0
+    assert holdout_meta["Holdout Fraction [%]"] == 30.0
+    assert development_meta["Split Timestamp"] == holdout.index.min().isoformat()
     assert len(regime) == 200
+    assert regime_meta["Minimum Bars Required"] == 100
+
+
+def test_regime_evidence_must_be_independent_from_development_context(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle_service, "_strategy_source", lambda strategy: SOURCE_V1)
+    lifecycle_service.ensure_lifecycle(
+        "regime_guard",
+        SOURCE_V1,
+        "Validation should generalize beyond the development market or period.",
+    )
+    context = {
+        "symbol": "XAUUSD",
+        "timeframe": "M5",
+        "data_start": "2026-01-01T00:00:00+00:00",
+        "data_end": "2026-01-02T00:00:00+00:00",
+    }
+    lifecycle_service.record_evidence(
+        "regime_guard",
+        "development_backtest",
+        passing_metrics(),
+        context=context,
+    )
+
+    record = lifecycle_service.record_evidence(
+        "regime_guard",
+        "regime",
+        passing_metrics(15),
+        context=context,
+    )
+
+    assert record.evidence[0].passed is False
+    assert "Regime independence" in record.evidence[0].summary
+    assert "different market/timeframe or a non-overlapping period" in record.evidence[0].summary
