@@ -175,3 +175,28 @@ def test_regime_evidence_must_be_independent_from_development_context(monkeypatc
     assert record.evidence[0].passed is False
     assert "Regime independence" in record.evidence[0].summary
     assert "different market/timeframe or a non-overlapping period" in record.evidence[0].summary
+
+
+def test_lifecycle_minimum_trade_samples_are_enforced(monkeypatch) -> None:
+    monkeypatch.setattr(lifecycle_service, "_strategy_source", lambda strategy: SOURCE_V1)
+    lifecycle_service.ensure_lifecycle(
+        "sample_gate",
+        SOURCE_V1,
+        "Evidence should meet minimum trade counts before promotion.",
+    )
+
+    record = lifecycle_service.record_evidence(
+        "sample_gate",
+        "development_backtest",
+        passing_metrics(29),
+        context={
+            "symbol": "XAUUSD",
+            "timeframe": "M5",
+            "data_start": "2026-01-01T00:00:00+00:00",
+            "data_end": "2026-01-02T00:00:00+00:00",
+        },
+    )
+
+    assert record.evidence[0].passed is False
+    assert "29/30 trades" in record.evidence[0].summary
+    assert not record.promotion_ready
