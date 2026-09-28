@@ -29,7 +29,9 @@ _DEVELOPMENT_FRACTION = 0.70
 _MIN_VALIDATION_BARS = {
     "development_backtest": 100,
     "out_of_sample": 50,
-    "regime": 100,
+    # Regime robustness is gated by independent context plus the lifecycle
+    # minimum-trade sample, rather than an arbitrary bar count.
+    "regime": 2,
 }
 _WALK_FORWARD_MIN_TRAIN_BARS = 100
 _WALK_FORWARD_MIN_TEST_BARS = 30
