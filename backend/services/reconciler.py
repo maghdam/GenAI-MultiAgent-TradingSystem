@@ -178,6 +178,11 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
 
         watch = watch_by_symbol[symbol]
         instrument = get_instrument_spec(symbol, monetary_basis.currency)
+        lifecycle_version_hash = None
+        if isinstance(matching_intent.details, dict):
+            lifecycle_details = matching_intent.details.get("strategy_lifecycle")
+            if isinstance(lifecycle_details, dict) and lifecycle_details.get("governed"):
+                lifecycle_version_hash = str(lifecycle_details.get("version_hash") or "").strip() or None
         created = open_paper_position(
             symbol=symbol,
             timeframe=matching_intent.timeframe or watch.timeframe,
@@ -187,6 +192,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             entry_price=float(row.get("entry_price") or matching_intent.entry_price or 0.0),
             stop_loss=matching_intent.stop_loss,
             take_profit=matching_intent.take_profit,
+            lifecycle_version_hash=lifecycle_version_hash,
             account_currency=monetary_basis.currency,
             cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
             instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
