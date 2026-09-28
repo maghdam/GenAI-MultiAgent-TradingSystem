@@ -164,6 +164,11 @@ def test_regime_evidence_must_be_independent_from_development_context(monkeypatc
         passing_metrics(),
         context=context,
     )
+    lifecycle_service.promote(
+        "regime_guard",
+        "test operator",
+        "development evidence passed",
+    )
 
     record = lifecycle_service.record_evidence(
         "regime_guard",
