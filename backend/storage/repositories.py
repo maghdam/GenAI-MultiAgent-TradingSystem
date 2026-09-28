@@ -467,6 +467,7 @@ def get_order_intent_by_id(intent_id: int) -> OrderIntentRecord:
         symbol=str(row["symbol"]),
         timeframe=str(row["timeframe"]),
         strategy=str(row["strategy"]),
+        lifecycle_version_hash=(str(row["lifecycle_version_hash"]) if row["lifecycle_version_hash"] else None),
         direction=str(row["direction"]),
         intent_type=str(row["intent_type"]),
         status=str(row["status"]),
@@ -1074,7 +1075,7 @@ def _row_to_position(row) -> PaperPosition:
 
 def list_paper_positions(status: Optional[str] = None) -> List[PaperPosition]:
     sql = """
-        SELECT id, symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
+        SELECT id, symbol, timeframe, strategy, lifecycle_version_hash, direction, quantity, status, entry_price, current_price,
                stop_loss, take_profit, opened_at, closed_at, exit_price, realized_pnl, unrealized_pnl, close_reason,
                account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
                broker_position_id, realized_pnl_source
@@ -1094,7 +1095,7 @@ def get_open_position(symbol: str, timeframe: str) -> Optional[PaperPosition]:
     with get_db() as db:
         row = db.execute(
             """
-            SELECT id, symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
+            SELECT id, symbol, timeframe, strategy, lifecycle_version_hash, direction, quantity, status, entry_price, current_price,
                    stop_loss, take_profit, opened_at, closed_at, exit_price, realized_pnl, unrealized_pnl, close_reason,
                    account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
                    broker_position_id, realized_pnl_source
@@ -1115,6 +1116,7 @@ def open_paper_position(
     strategy: str,
     direction: str,
     quantity: float,
+    lifecycle_version_hash: str | None = None,
     entry_price: float,
     stop_loss: float | None,
     take_profit: float | None,
@@ -1128,17 +1130,18 @@ def open_paper_position(
         cur = db.execute(
             """
             INSERT INTO paper_positions(
-                symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
+                symbol, timeframe, strategy, lifecycle_version_hash, direction, quantity, status, entry_price, current_price,
                 stop_loss, take_profit, opened_at, realized_pnl, unrealized_pnl,
                 account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
                 broker_position_id, realized_pnl_source
             )
-            VALUES(?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, 'paper_estimate')
+            VALUES(?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, 'paper_estimate')
             """,
             (
                 symbol.upper(),
                 timeframe.upper(),
                 strategy,
+                lifecycle_version_hash,
                 direction,
                 quantity,
                 entry_price,
@@ -1163,6 +1166,7 @@ def open_paper_position(
             "timeframe": timeframe.upper(),
             "direction": direction,
             "entry_price": entry_price,
+            "lifecycle_version_hash": lifecycle_version_hash,
         },
     )
     add_trade_audit(
@@ -1175,6 +1179,7 @@ def open_paper_position(
         details={
             "entry_price": entry_price,
                 "quantity": quantity,
+                "lifecycle_version_hash": lifecycle_version_hash,
                 "account_currency": account_currency.upper(),
                 "cash_per_price_unit_per_lot": cash_per_price_unit_per_lot,
                 "instrument_spec_source": instrument_spec_source,
@@ -1190,7 +1195,7 @@ def get_position_by_id(position_id: int) -> PaperPosition:
     with get_db() as db:
         row = db.execute(
             """
-            SELECT id, symbol, timeframe, strategy, direction, quantity, status, entry_price, current_price,
+            SELECT id, symbol, timeframe, strategy, lifecycle_version_hash, direction, quantity, status, entry_price, current_price,
                    stop_loss, take_profit, opened_at, closed_at, exit_price, realized_pnl, unrealized_pnl, close_reason,
                    account_currency, cash_per_price_unit_per_lot, instrument_spec_source,
                    broker_position_id, realized_pnl_source
