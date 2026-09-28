@@ -172,32 +172,69 @@ def test_full_lifecycle_requires_hypothesis_evidence_and_audit_metadata(monkeypa
     assert all(item.reason.strip() for item in record.transitions)
 
 
-def test_validation_evidence_cannot_be_recorded_out_of_order(monkeypatch) -> None:
+def test_promotion_remains_sequential_even_when_validation_evidence_is_precollected(monkeypatch) -> None:
     monkeypatch.setattr(lifecycle_service, "_strategy_source", lambda strategy: SOURCE_V1)
     lifecycle_service.ensure_lifecycle(
         "stage_guard",
         SOURCE_V1,
-        "Validation evidence should be collected only after development promotion.",
+        "Promotion must advance one lifecycle stage at a time.",
     )
 
-    with pytest.raises(StrategyLifecycleError, match="out_of_sample.*draft"):
-        lifecycle_service.record_evidence(
-            "stage_guard",
-            "out_of_sample",
-            _passing_metrics(25),
-        )
-    with pytest.raises(StrategyLifecycleError, match="regime.*draft"):
-        lifecycle_service.record_evidence(
-            "stage_guard",
-            "regime",
-            _passing_metrics(15),
-        )
-    with pytest.raises(StrategyLifecycleError, match="paper.*draft"):
-        lifecycle_service.record_evidence(
-            "stage_guard",
-            "paper",
-            _passing_metrics(24),
-        )
+    lifecycle_service.record_evidence(
+        "stage_guard",
+        "development_backtest",
+        _passing_metrics(),
+        context=_development_context(),
+    )
+    lifecycle_service.record_evidence(
+        "stage_guard",
+        "out_of_sample",
+        _passing_metrics(25),
+        context={
+            "symbol": "XAUUSD",
+            "timeframe": "M5",
+            "data_start": "2026-01-02T00:05:00+00:00",
+            "data_end": "2026-01-03T00:00:00+00:00",
+        },
+    )
+    lifecycle_service.record_evidence(
+        "stage_guard",
+        "regime",
+        _passing_metrics(15),
+        context={
+            "symbol": "US30",
+            "timeframe": "M5",
+            "data_start": "2026-01-01T00:00:00+00:00",
+            "data_end": "2026-01-02T00:00:00+00:00",
+        },
+    )
+
+    record = lifecycle_service.promote(
+        "stage_guard",
+        "qa operator",
+        "development gate passed",
+    )
+    assert record.stage == "backtested"
+    assert record.next_stage == "validated"
+
+    record = lifecycle_service.promote(
+        "stage_guard",
+        "qa operator",
+        "independent validation gates passed",
+    )
+    assert record.stage == "validated"
+    assert record.next_stage == "paper"
+
+    with pytest.raises(StrategyLifecycleError, match="Paper evidence can only be collected"):
+        lifecycle_service.record_paper_evidence("stage_guard")
+
+    record = lifecycle_service.promote(
+        "stage_guard",
+        "qa operator",
+        "approved for supervised paper observation",
+    )
+    assert record.stage == "paper"
+    assert record.next_stage == "eligible"
 
 
 def test_source_change_creates_fresh_draft_and_invalidates_old_evidence(monkeypatch) -> None:
