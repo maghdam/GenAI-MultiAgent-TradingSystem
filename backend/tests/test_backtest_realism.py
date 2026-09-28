@@ -18,7 +18,7 @@ def _frame(
     index: pd.DatetimeIndex | None = None,
 ) -> pd.DataFrame:
     open_values = opens or prices
-    timestamps = index or pd.date_range("2026-01-01", periods=len(prices), freq="5min", tz="UTC")
+    timestamps = index if index is not None else pd.date_range("2026-01-01", periods=len(prices), freq="5min", tz="UTC")
     return pd.DataFrame(
         {
             "open": open_values,
