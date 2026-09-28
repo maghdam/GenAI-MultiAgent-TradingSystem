@@ -486,6 +486,7 @@ export interface V2StudioTaskResponse {
 
 export type V2StrategyLifecycleStage = 'draft' | 'backtested' | 'validated' | 'paper' | 'eligible' | 'retired';
 export type V2StrategyEvidenceType = 'development_backtest' | 'out_of_sample' | 'regime' | 'paper';
+export type V2StrategyValidationMode = Exclude<V2StrategyEvidenceType, 'paper'> | 'walk_forward';
 
 export interface V2StrategyLifecycleEvidence {
   id: number;
@@ -735,7 +736,7 @@ export const backtestV2SavedStrategy = async (
   numBars: number,
   feeBps?: number,
   slippageBps?: number,
-  validationKind?: Exclude<V2StrategyEvidenceType, 'paper'>,
+  validationKind?: V2StrategyValidationMode,
   spreadBps?: number,
   positionSizePct?: number,
 ): Promise<any> => {
