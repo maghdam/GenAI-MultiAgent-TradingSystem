@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 import statistics
+from datetime import timedelta
 from pathlib import Path
 
 import backend.data_fetcher as data_fetcher
@@ -286,7 +287,7 @@ def _account_backtest(
         equity_index.append(bar_time)
 
     if active_trade:
-        final_time = pd.Timestamp(df.index[-1]) + pd.Timedelta(minutes=timeframe_minutes)
+        final_time = pd.Timestamp(df.index[-1]) + timedelta(minutes=int(timeframe_minutes))
         equity = close_active(
             float(df["close"].iloc[-1]),
             final_time,
