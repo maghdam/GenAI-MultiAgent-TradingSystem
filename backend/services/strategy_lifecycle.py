@@ -286,6 +286,46 @@ def _evaluate_evidence(evidence_type: str, metrics: dict[str, Any], gates: dict[
     return passed, summary
 
 
+def _regime_context_is_independent(
+    record: StrategyLifecycle,
+    context: dict[str, Any],
+) -> tuple[bool, str]:
+    development = [
+        item for item in record.evidence
+        if item.evidence_type == "development_backtest" and item.passed
+    ]
+    if not development:
+        return False, "requires prior passing development evidence with auditable market/period context."
+
+    candidate_symbol = str(context.get("symbol") or "").upper()
+    candidate_timeframe = str(context.get("timeframe") or "").upper()
+    candidate_start = context.get("data_start")
+    candidate_end = context.get("data_end")
+
+    for item in development:
+        base = item.context or {}
+        base_symbol = str(base.get("symbol") or "").upper()
+        base_timeframe = str(base.get("timeframe") or "").upper()
+
+        if candidate_symbol and base_symbol and candidate_symbol != base_symbol:
+            return True, f"different market ({base_symbol} -> {candidate_symbol})."
+        if candidate_timeframe and base_timeframe and candidate_timeframe != base_timeframe:
+            return True, f"different timeframe ({base_timeframe} -> {candidate_timeframe})."
+
+        try:
+            base_start = datetime.fromisoformat(str(base.get("data_start")))
+            base_end = datetime.fromisoformat(str(base.get("data_end")))
+            regime_start = datetime.fromisoformat(str(candidate_start))
+            regime_end = datetime.fromisoformat(str(candidate_end))
+        except (TypeError, ValueError):
+            continue
+
+        if regime_end < base_start or regime_start > base_end:
+            return True, "non-overlapping validation period."
+
+    return False, "must use a different market/timeframe or a non-overlapping period from development evidence."
+
+
 def record_evidence(
     strategy: str,
     evidence_type: str,
@@ -296,6 +336,10 @@ def record_evidence(
 ) -> StrategyLifecycle:
     record = get_lifecycle(strategy, version_hash)
     passed, generated_summary = _evaluate_evidence(evidence_type, metrics, record.gates)
+    if evidence_type == "regime":
+        independent, independence_summary = _regime_context_is_independent(record, context or {})
+        passed = passed and independent
+        generated_summary = f"{generated_summary} Regime independence: {independence_summary}"
     now = _utcnow().isoformat()
     with get_db() as db:
         db.execute(
