@@ -231,3 +231,43 @@ def test_v2_studio_chat_can_save_current_draft(monkeypatch) -> None:
 
 
 
+
+
+def test_v2_studio_optimize_uses_leakage_safe_draft_optimizer(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    captured = {}
+
+    def fake_optimize(**kwargs):
+        captured.update(kwargs)
+        return {
+            "Optimization Dataset": "development_backtest (first 70%) only",
+            "Holdout Used For Selection": False,
+            "Best Parameters": {"period": 10},
+        }
+
+    monkeypatch.setattr("backend.services.studio_tasks.optimize_strategy_source", fake_optimize)
+
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="optimize",
+                goal="optimize current draft",
+                params={
+                    "strategy_name": "draft_param",
+                    "symbol": "XAUUSD",
+                    "timeframe": "M5",
+                    "num_bars": 500,
+                    "current_code": "import pandas as pd\n\ndef signals(df: pd.DataFrame, period: int = 10) -> pd.Series:\n    return pd.Series(0.0, index=df.index)\n",
+                    "param_grid": {"period": [10, 20]},
+                    "objective": "return",
+                },
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert captured["param_grid"] == {"period": [10, 20]}
+    assert captured["objective"] == "return"
+    assert (result.result or {})["Holdout Used For Selection"] is False
