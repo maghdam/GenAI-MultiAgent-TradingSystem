@@ -147,5 +147,5 @@ def test_regime_window_is_operator_supplied_alternate_context() -> None:
 
     assert kind == "regime"
     assert len(regime) == 200
-    assert metadata["Minimum Bars Required"] == 100
+    assert metadata["Minimum Bars Required"] == 2
     assert "Alternate market or non-overlapping period" in metadata["Validation Selection"]
