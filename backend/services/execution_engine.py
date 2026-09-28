@@ -535,6 +535,11 @@ def execute_paper_signal(
         decision_id=decision.id,
     )
 
+    lifecycle_version_hash: str | None = None
+    lifecycle_details = risk.details.get("strategy_lifecycle")
+    if isinstance(lifecycle_details, dict) and lifecycle_details.get("governed"):
+        lifecycle_version_hash = str(lifecycle_details.get("version_hash") or "").strip() or None
+
     if not risk.accepted:
         log_incident(
             "info",
@@ -932,6 +937,7 @@ def execute_paper_signal(
         entry_price=analysis.entry_price or mark_price,
         stop_loss=analysis.stop_loss,
         take_profit=analysis.take_profit,
+        lifecycle_version_hash=lifecycle_version_hash,
         account_currency=monetary_basis.currency or config.account_currency,
         cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
         instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
