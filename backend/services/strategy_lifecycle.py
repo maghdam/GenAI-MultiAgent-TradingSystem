@@ -326,24 +326,6 @@ def _regime_context_is_independent(
     return False, "must use a different market/timeframe or a non-overlapping period from development evidence."
 
 
-def _validate_evidence_stage(record: StrategyLifecycle, evidence_type: str) -> None:
-    if evidence_type == "development_backtest":
-        allowed = {"draft", "backtested"}
-    elif evidence_type in {"out_of_sample", "regime"}:
-        allowed = {"backtested", "validated"}
-    elif evidence_type == "paper":
-        allowed = {"paper", "eligible"}
-    else:
-        raise StrategyLifecycleError(f"Unsupported lifecycle evidence type '{evidence_type}'.")
-
-    if record.stage not in allowed:
-        allowed_text = ", ".join(sorted(allowed))
-        raise StrategyLifecycleError(
-            f"Cannot record {evidence_type} evidence while strategy is at '{record.stage}'. "
-            f"Allowed stages: {allowed_text}."
-        )
-
-
 def record_evidence(
     strategy: str,
     evidence_type: str,
@@ -353,7 +335,6 @@ def record_evidence(
     version_hash: str | None = None,
 ) -> StrategyLifecycle:
     record = get_lifecycle(strategy, version_hash)
-    _validate_evidence_stage(record, evidence_type)
     passed, generated_summary = _evaluate_evidence(evidence_type, metrics, record.gates)
     if evidence_type == "regime":
         independent, independence_summary = _regime_context_is_independent(record, context or {})
@@ -401,6 +382,10 @@ def record_backtest(
 
 def record_paper_evidence(strategy: str) -> StrategyLifecycle:
     record = get_lifecycle(strategy)
+    if record.stage not in {"paper", "eligible"}:
+        raise StrategyLifecycleError(
+            f"Paper evidence can only be collected at paper or eligible stage; current stage is '{record.stage}'."
+        )
     with get_db() as db:
         rows = db.execute(
             """
