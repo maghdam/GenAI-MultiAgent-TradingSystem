@@ -180,7 +180,7 @@ class StrategyLifecycleUpdateRequest(BaseModel):
 
 class StrategyLifecyclePromoteRequest(BaseModel):
     operator: str = Field(..., min_length=2, max_length=120)
-    reason: str = Field(default="", max_length=2000)
+    reason: str = Field(..., min_length=3, max_length=2000)
 
 
 class StrategyLifecycleEvidenceRequest(BaseModel):
@@ -243,6 +243,7 @@ class PaperPosition(BaseModel):
     symbol: str
     timeframe: str
     strategy: str
+    lifecycle_version_hash: Optional[str] = None
     direction: Literal["long", "short"]
     quantity: float
     status: Literal["open", "closed"]
