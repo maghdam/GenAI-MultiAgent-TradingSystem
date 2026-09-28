@@ -360,11 +360,19 @@ Test every operator control against backend behavior.
 - [x] GitHub CI.
 
 ### 4.3 Draft backtest correctness
-**Known improvement:** draft backtest currently reports `Win Rate [%] = 0.0` rather than calculating trade-level wins.
+- [x] Fix win-rate calculation.
+- [x] Align draft and saved-strategy accounting logic.
+- [x] Verify flips, entries, exits and final open trade handling.
 
-- [ ] Fix win-rate calculation.
-- [ ] Align draft and saved-strategy accounting logic.
-- [ ] Verify flips, entries, exits and final open trade handling.
+**Verification**
+- [x] Focused draft-backtest correctness acceptance suite: 3 tests passed locally on Windows.
+- [x] Draft win rate is derived from trade-level outcomes instead of being hard-coded to `0.0`.
+- [x] Draft and saved-strategy backtests use the same accounting implementation for return, trade count, win rate, average trade, drawdown, Sharpe/SQN, trade frequency, and hold duration.
+- [x] Long-to-short flips close the prior trade and open the new direction.
+- [x] Explicit flat signals close the active trade.
+- [x] A trade already open before the final bar is marked through the final bar; a final-bar-only entry with no holding period is not counted.
+- [x] Local full backend regression suite.
+- [x] GitHub CI.
 
 ### 4.4 Backtest realism
 - [ ] Fees.
@@ -574,9 +582,10 @@ Add one row after every completed task.
 | 2026-09-27 | Status truthfulness | Separate current status/current incidents from readiness and history; derive engine scanning from runtime loop activity and clear stale recovery errors | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #27 | Phase 4.1 |
 | 2026-09-27 | Strategy Studio LLM workflow | Acceptance-test chat/drafting/provider selection/fallback/save and add safe saved-source reload into the editor | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #28 | Phase 4.2 |
 | 2026-09-27 | Generated strategy sandbox | Harden isolated strategy execution with explicit timeout/bar/memory limits and invalid-output checks; acceptance-test restricted capabilities | ✅ 18 focused Windows tests + full backend suite + Linux CI + Windows memory-limit verification | PR #29 | Phase 4.3 |
+| 2026-09-28 | Draft backtest correctness | Share draft/saved accounting, calculate trade-level win rate, and verify flips/exits/final-open handling | ✅ 3 focused tests + full backend suite + CI | PR #30 | Phase 4.4 |
 
 ---
 
 ## 14. Next item
 
-**Phase 4.3 — Draft backtest correctness: fix trade-level win-rate calculation, align draft and saved-strategy accounting logic, and verify flips, entries, exits, and final open-trade handling. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 4.4 — Backtest realism acceptance audit: fees, slippage, spread assumptions, execution timing/no lookahead, missing bars, time zones/session assumptions, trade-level return math, Sharpe calculations, drawdown, hold duration, and position sizing. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
