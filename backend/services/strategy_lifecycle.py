@@ -326,6 +326,24 @@ def _regime_context_is_independent(
     return False, "must use a different market/timeframe or a non-overlapping period from development evidence."
 
 
+def _validate_evidence_stage(record: StrategyLifecycle, evidence_type: str) -> None:
+    if evidence_type == "development_backtest":
+        allowed = {"draft", "backtested"}
+    elif evidence_type in {"out_of_sample", "regime"}:
+        allowed = {"backtested", "validated"}
+    elif evidence_type == "paper":
+        allowed = {"paper", "eligible"}
+    else:
+        raise StrategyLifecycleError(f"Unsupported lifecycle evidence type '{evidence_type}'.")
+
+    if record.stage not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise StrategyLifecycleError(
+            f"Cannot record {evidence_type} evidence while strategy is at '{record.stage}'. "
+            f"Allowed stages: {allowed_text}."
+        )
+
+
 def record_evidence(
     strategy: str,
     evidence_type: str,
@@ -335,6 +353,7 @@ def record_evidence(
     version_hash: str | None = None,
 ) -> StrategyLifecycle:
     record = get_lifecycle(strategy, version_hash)
+    _validate_evidence_stage(record, evidence_type)
     passed, generated_summary = _evaluate_evidence(evidence_type, metrics, record.gates)
     if evidence_type == "regime":
         independent, independence_summary = _regime_context_is_independent(record, context or {})
@@ -386,9 +405,12 @@ def record_paper_evidence(strategy: str) -> StrategyLifecycle:
         rows = db.execute(
             """
             SELECT realized_pnl FROM paper_positions
-            WHERE status = 'closed' AND lower(strategy) = ? ORDER BY closed_at, id
+            WHERE status = 'closed'
+              AND lower(strategy) = ?
+              AND lifecycle_version_hash = ?
+            ORDER BY closed_at, id
             """,
-            (record.strategy,),
+            (record.strategy, record.version_hash),
         ).fetchall()
         config_row = db.execute("SELECT value FROM config WHERE key = 'engine_config'").fetchone()
     starting_equity = 100_000.0
@@ -418,7 +440,12 @@ def record_paper_evidence(strategy: str) -> StrategyLifecycle:
         record.strategy,
         "paper",
         metrics,
-        context={"source": "paper_positions", "starting_equity": starting_equity},
+        context={
+            "source": "paper_positions",
+            "starting_equity": starting_equity,
+            "lifecycle_version_hash": record.version_hash,
+            "version": record.version,
+        },
         version_hash=record.version_hash,
     )
 
@@ -429,6 +456,14 @@ def promote(strategy: str, operator: str, reason: str = "") -> StrategyLifecycle
         raise StrategyLifecycleError(f"Strategy is already {record.stage} and has no next promotion stage.")
     if not record.promotion_ready:
         raise StrategyLifecycleError("Promotion blocked: " + " ".join(record.blockers))
+
+    operator_value = str(operator or "").strip()
+    reason_value = str(reason or "").strip()
+    if len(operator_value) < 2:
+        raise StrategyLifecycleError("Promotion requires an operator name of at least 2 characters.")
+    if len(reason_value) < 3:
+        raise StrategyLifecycleError("Promotion requires an audit reason of at least 3 characters.")
+
     now = _utcnow().isoformat()
     with get_db() as db:
         db.execute(
@@ -437,7 +472,7 @@ def promote(strategy: str, operator: str, reason: str = "") -> StrategyLifecycle
                 lifecycle_id, from_stage, to_stage, operator, reason, created_at
             ) VALUES(?, ?, ?, ?, ?, ?)
             """,
-            (record.id, record.stage, record.next_stage, operator.strip(), reason.strip(), now),
+            (record.id, record.stage, record.next_stage, operator_value, reason_value, now),
         )
         db.execute(
             "UPDATE strategy_lifecycles SET stage = ?, updated_at = ? WHERE id = ?",
