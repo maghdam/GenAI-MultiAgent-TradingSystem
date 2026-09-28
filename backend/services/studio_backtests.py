@@ -659,6 +659,7 @@ def _backtest_result(
     sig: pd.Series,
     original_bars: int,
     validation_kind: str,
+    validation_metadata: dict,
     fee_bps: float,
     slippage_bps: float,
     spread_bps: float,
@@ -679,6 +680,7 @@ def _backtest_result(
         ),
         **_data_gap_diagnostics(df, timeframe),
         "Validation Kind": validation_kind,
+        **validation_metadata,
         "Data Start": _timestamp(df.index[0]),
         "Data End": _timestamp(df.index[-1]),
         "Selected Bars": len(df),
@@ -697,6 +699,7 @@ def run_saved_strategy_backtest(
     spread_bps: float = 0.0,
     position_size_pct: float = 100.0,
     validation_kind: str = "development_backtest",
+    walk_forward_folds: int = 3,
 ):
     root = Path("backend/strategies_generated")
     path = root / f"{strategy.lower()}.py"
@@ -706,15 +709,30 @@ def run_saved_strategy_backtest(
     df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
     df = _prepare_market_frame(df, timeframe)
     original_bars = len(df)
-    df, validation_kind = _validation_window(df, validation_kind)
 
     try:
         src = path.read_text(encoding="utf-8")
-        sig = run_strategy_source(src, df)
-    except (OSError, StrategySandboxError, ValueError) as exc:
-        raise HTTPException(400, f"Isolated strategy execution failed: {exc}") from exc
+    except OSError as exc:
+        raise HTTPException(400, f"Unable to read strategy source: {exc}") from exc
 
-    sig = _normalize_signals(sig, df)
+    requested_kind = str(validation_kind or "development_backtest").strip().lower()
+    if requested_kind == "walk_forward":
+        return run_strategy_walk_forward(
+            source=src,
+            strategy=strategy,
+            symbol=symbol,
+            timeframe=timeframe,
+            df=df,
+            original_bars=original_bars,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+            spread_bps=spread_bps,
+            position_size_pct=position_size_pct,
+            folds=walk_forward_folds,
+        )
+
+    df, validation_kind, validation_metadata = _validation_window(df, requested_kind)
+    sig = _run_source_on_frame(src, df)
     result = _backtest_result(
         strategy=strategy,
         symbol=symbol,
@@ -723,6 +741,7 @@ def run_saved_strategy_backtest(
         sig=sig,
         original_bars=original_bars,
         validation_kind=validation_kind,
+        validation_metadata=validation_metadata,
         fee_bps=fee_bps,
         slippage_bps=slippage_bps,
         spread_bps=spread_bps,
@@ -739,6 +758,8 @@ def run_saved_strategy_backtest(
             "data_start": result["Data Start"],
             "data_end": result["Data End"],
             "selected_bars": len(df),
+            "validation_selection": result["Validation Selection"],
+            "split_timestamp": result["Split Timestamp"],
             "execution_timing": result["Execution Timing"],
             "position_size_pct": result["Position Size [%]"],
         },
@@ -759,18 +780,32 @@ def run_strategy_code_backtest(
     position_size_pct: float = 100.0,
     strategy_name: str = "draft",
     validation_kind: str = "development_backtest",
+    walk_forward_folds: int = 3,
 ):
     df, _ = data_fetcher.fetch_data(symbol, timeframe, num_bars)
     df = _prepare_market_frame(df, timeframe)
     original_bars = len(df)
-    df, validation_kind = _validation_window(df, validation_kind)
+    requested_kind = str(validation_kind or "development_backtest").strip().lower()
 
-    try:
-        sig = run_strategy_source(str(code), df)
-    except (StrategySandboxError, ValueError) as exc:
-        raise HTTPException(400, f"Isolated draft strategy execution failed: {exc}") from exc
+    if requested_kind == "walk_forward":
+        result = run_strategy_walk_forward(
+            source=str(code),
+            strategy=strategy_name,
+            symbol=symbol,
+            timeframe=timeframe,
+            df=df,
+            original_bars=original_bars,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+            spread_bps=spread_bps,
+            position_size_pct=position_size_pct,
+            folds=walk_forward_folds,
+        )
+        result["draft"] = True
+        return result
 
-    sig = _normalize_signals(sig, df)
+    df, validation_kind, validation_metadata = _validation_window(df, requested_kind)
+    sig = _run_source_on_frame(str(code), df)
     result = _backtest_result(
         strategy=strategy_name,
         symbol=symbol,
@@ -779,6 +814,7 @@ def run_strategy_code_backtest(
         sig=sig,
         original_bars=original_bars,
         validation_kind=validation_kind,
+        validation_metadata=validation_metadata,
         fee_bps=fee_bps,
         slippage_bps=slippage_bps,
         spread_bps=spread_bps,
