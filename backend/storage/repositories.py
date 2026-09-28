@@ -467,7 +467,6 @@ def get_order_intent_by_id(intent_id: int) -> OrderIntentRecord:
         symbol=str(row["symbol"]),
         timeframe=str(row["timeframe"]),
         strategy=str(row["strategy"]),
-        lifecycle_version_hash=(str(row["lifecycle_version_hash"]) if row["lifecycle_version_hash"] else None),
         direction=str(row["direction"]),
         intent_type=str(row["intent_type"]),
         status=str(row["status"]),
