@@ -438,10 +438,14 @@ export default function StrategyStudioPage() {
     if (!savedStrategy || !lifecycle?.next_stage || isLoading) return;
     const operator = prompt('Operator name for the audit trail');
     if (!operator?.trim()) return;
-    const reason = prompt(`Reason for promotion to ${lifecycle.next_stage}`) || '';
+    const reason = prompt(`Reason for promotion to ${lifecycle.next_stage}`);
+    if (!reason?.trim()) {
+      setLifecycleError('Promotion requires an audit reason.');
+      return;
+    }
     setIsLoading(true);
     try {
-      const record = await promoteV2StrategyLifecycle(savedStrategy, operator.trim(), reason);
+      const record = await promoteV2StrategyLifecycle(savedStrategy, operator.trim(), reason.trim());
       setLifecycle(record);
       setLifecycleError('');
     } catch (error: any) {
