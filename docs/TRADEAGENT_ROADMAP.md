@@ -405,12 +405,24 @@ Test every operator control against backend behavior.
 - [x] GitHub CI #65 and #66.
 
 ### 4.5 Validation methodology
-- [ ] Development split.
-- [ ] 30% out-of-sample holdout.
-- [ ] Regime/different-market test.
-- [ ] Walk-forward option.
-- [ ] Parameter optimization without leakage.
-- [ ] Minimum sample sizes.
+- [x] Development split.
+- [x] 30% out-of-sample holdout.
+- [x] Regime/different-market test.
+- [x] Walk-forward option.
+- [x] Parameter optimization without leakage.
+- [x] Minimum sample sizes.
+
+**Verification**
+- [x] Development evidence uses the first chronological 70% of the requested dataset; holdout evidence uses the final untouched 30%, with split metadata recorded in the result.
+- [x] Development and holdout windows enforce minimum bar counts; lifecycle evidence continues to enforce minimum trade counts.
+- [x] Regime evidence must differ from passing development evidence by market/timeframe or use a non-overlapping period; regime sample sufficiency uses the lifecycle trade-count gate.
+- [x] Strategy Studio exposes expanding-window walk-forward validation; each fold trains on prior history and evaluates only on a strictly later test window.
+- [x] Parameter grids are bounded and selected on development data only; the chosen parameters are evaluated once on the untouched holdout.
+- [x] Leakage acceptance case deliberately makes development favor one direction while holdout favors the opposite; parameter selection remains driven solely by development data.
+- [x] Focused Phase 4.5/local lifecycle/API acceptance suite: 25 tests passed locally on Windows.
+- [x] Local full backend regression suite.
+- [x] Local frontend production build.
+- [x] GitHub CI #71.
 
 ### 4.6 Strategy lifecycle
 Validate:
@@ -601,9 +613,10 @@ Add one row after every completed task.
 | 2026-09-27 | Generated strategy sandbox | Harden isolated strategy execution with explicit timeout/bar/memory limits and invalid-output checks; acceptance-test restricted capabilities | ✅ 18 focused Windows tests + full backend suite + Linux CI + Windows memory-limit verification | PR #29 | Phase 4.3 |
 | 2026-09-28 | Draft backtest correctness | Share draft/saved accounting, calculate trade-level win rate, and verify flips/exits/final-open handling | ✅ 3 focused tests + full backend suite + CI | PR #30 | Phase 4.4 |
 | 2026-09-28 | Backtest realism | Remove same-bar lookahead; unify mark-to-market accounting; model fees/slippage/spread, UTC gaps, linear short P&L, Sharpe/drawdown/hold duration, and explicit position sizing | ✅ 15 focused tests + full backend suite + frontend build + CI #65/#66 | PR #31 | Phase 4.5 |
+| 2026-09-28 | Validation methodology | Formalize 70/30 chronological development/holdout validation, independent regime evidence, walk-forward folds, leakage-safe parameter optimization, and sample gates | ✅ 25 focused Windows tests + full backend suite + frontend build + CI #71 | PR #32 | Phase 4.6 |
 
 ---
 
 ## 14. Next item
 
-**Phase 4.5 — Validation methodology: development split, 30% out-of-sample holdout, regime/different-market testing, walk-forward option, leakage-safe parameter optimization, and minimum sample sizes. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 4.6 — Strategy lifecycle: verify the gated path `draft → backtested → validated → paper → eligible`, required hypothesis/evidence/operator audit fields, source-version invalidation, and that generated strategies cannot jump directly into autonomous execution. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
