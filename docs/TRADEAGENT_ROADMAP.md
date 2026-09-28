@@ -375,17 +375,34 @@ Test every operator control against backend behavior.
 - [x] GitHub CI.
 
 ### 4.4 Backtest realism
-- [ ] Fees.
-- [ ] Slippage.
-- [ ] Spread assumptions.
-- [ ] Execution timing / no lookahead.
-- [ ] Missing bars.
-- [ ] Time zones/session assumptions.
-- [ ] Trade-level return math.
-- [ ] Sharpe calculations.
-- [ ] Drawdown.
-- [ ] Hold duration.
-- [ ] Position sizing.
+- [x] Fees.
+- [x] Slippage.
+- [x] Spread assumptions.
+- [x] Execution timing / no lookahead.
+- [x] Missing bars.
+- [x] Time zones/session assumptions.
+- [x] Trade-level return math.
+- [x] Sharpe calculations.
+- [x] Drawdown.
+- [x] Hold duration.
+- [x] Position sizing.
+
+**Verification**
+- [x] Focused Phase 4.4 acceptance suite plus Phase 4.3 accounting regression: 15 tests passed locally on Windows.
+- [x] Signals generated from a completed bar execute only at the next bar open; same-bar close information cannot earn the same bar's return.
+- [x] Fees and slippage are modeled per transaction; quoted spread is modeled as half-spread per transaction.
+- [x] Strategy Studio exposes fee, slippage, spread, and position-size assumptions for both draft and saved-strategy backtests.
+- [x] Portfolio allocation is explicit and constrained to greater than 0% and at most 100%; P&L scales with configured position size.
+- [x] Long and short P&L use linear CFD-style price-return math rather than reciprocal short returns.
+- [x] Open trades are marked to the final close without inventing an unexecuted exit cost.
+- [x] Backtest input timestamps are normalized to UTC; duplicate timestamps/invalid OHLC are rejected.
+- [x] Missing broker bars are reported as observed gaps and are never synthetically forward-filled; session assumption is broker-observed bars only.
+- [x] Total return, trade return, drawdown, Sharpe/SQN, and hold duration are derived from the same mark-to-market equity/accounting path.
+- [x] Sharpe uses observed UTC daily equity returns annualized with `sqrt(252)`; trade Sharpe/SQN remain separately reported.
+- [x] Hold duration is reported in both bars and elapsed minutes.
+- [x] Local full backend regression suite.
+- [x] Local frontend production build.
+- [x] GitHub CI #65 and #66.
 
 ### 4.5 Validation methodology
 - [ ] Development split.
@@ -583,9 +600,10 @@ Add one row after every completed task.
 | 2026-09-27 | Strategy Studio LLM workflow | Acceptance-test chat/drafting/provider selection/fallback/save and add safe saved-source reload into the editor | ✅ 6 focused tests + full backend suite + frontend build + CI | PR #28 | Phase 4.2 |
 | 2026-09-27 | Generated strategy sandbox | Harden isolated strategy execution with explicit timeout/bar/memory limits and invalid-output checks; acceptance-test restricted capabilities | ✅ 18 focused Windows tests + full backend suite + Linux CI + Windows memory-limit verification | PR #29 | Phase 4.3 |
 | 2026-09-28 | Draft backtest correctness | Share draft/saved accounting, calculate trade-level win rate, and verify flips/exits/final-open handling | ✅ 3 focused tests + full backend suite + CI | PR #30 | Phase 4.4 |
+| 2026-09-28 | Backtest realism | Remove same-bar lookahead; unify mark-to-market accounting; model fees/slippage/spread, UTC gaps, linear short P&L, Sharpe/drawdown/hold duration, and explicit position sizing | ✅ 15 focused tests + full backend suite + frontend build + CI #65/#66 | PR #31 | Phase 4.5 |
 
 ---
 
 ## 14. Next item
 
-**Phase 4.4 — Backtest realism acceptance audit: fees, slippage, spread assumptions, execution timing/no lookahead, missing bars, time zones/session assumptions, trade-level return math, Sharpe calculations, drawdown, hold duration, and position sizing. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 4.5 — Validation methodology: development split, 30% out-of-sample holdout, regime/different-market testing, walk-forward option, leakage-safe parameter optimization, and minimum sample sizes. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**

@@ -51,6 +51,8 @@ export default function StrategyStudioPage() {
   const [showCosts, setShowCosts] = useState(false);
   const [feeBps, setFeeBps] = useState<number>(0);
   const [slippageBps, setSlippageBps] = useState<number>(0);
+  const [spreadBps, setSpreadBps] = useState<number>(0);
+  const [positionSizePct, setPositionSizePct] = useState<number>(100);
   const [validationKind, setValidationKind] = useState<Exclude<V2StrategyEvidenceType, 'paper'>>('development_backtest');
   const [lifecycle, setLifecycle] = useState<V2StrategyLifecycle | null>(null);
   const [hypothesis, setHypothesis] = useState('');
@@ -258,6 +260,10 @@ export default function StrategyStudioPage() {
         llm_provider: llmProvider,
         llm_model: selectedModel || undefined,
         current_code: draftCode || undefined,
+        fee_bps: feeBps,
+        slippage_bps: slippageBps,
+        spread_bps: spreadBps,
+        position_size_pct: positionSizePct,
       },
     };
 
@@ -311,6 +317,8 @@ export default function StrategyStudioPage() {
             num_bars: numBars,
             fee_bps: feeBps,
             slippage_bps: slippageBps,
+            spread_bps: spreadBps,
+            position_size_pct: positionSizePct,
             strategy_name: savedStrategy || 'draft',
             validation_kind: validationKind,
             code: draftCode,
@@ -330,6 +338,8 @@ export default function StrategyStudioPage() {
           feeBps,
           slippageBps,
           validationKind,
+          spreadBps,
+          positionSizePct,
         );
       }
 
@@ -596,7 +606,7 @@ export default function StrategyStudioPage() {
               <option value="out_of_sample">Holdout 30%</option>
               <option value="regime">Regime / alternate market</option>
             </select>
-            <button className="btn" type="button" onClick={() => setShowCosts(s => !s)} title="Toggle fee/slippage inputs">{showCosts ? 'Hide Costs' : 'Costs'}</button>
+            <button className="btn" type="button" onClick={() => setShowCosts(s => !s)} title="Toggle execution-cost and sizing assumptions">{showCosts ? 'Hide Assumptions' : 'Assumptions'}</button>
             {showCosts && (
               <>
                 <input
@@ -616,8 +626,29 @@ export default function StrategyStudioPage() {
                   value={slippageBps}
                   onChange={e => setSlippageBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
                   style={{ width: 130 }}
-                  title="Slippage (bps)"
+                  title="Slippage per transaction (bps)"
                   placeholder="Slippage bps"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={spreadBps}
+                  onChange={e => setSpreadBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
+                  style={{ width: 120 }}
+                  title="Quoted bid-ask spread (bps); half-spread is charged per transaction"
+                  placeholder="Spread bps"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={positionSizePct}
+                  onChange={e => setPositionSizePct(Math.min(100, Math.max(1, Number.parseFloat(e.target.value || '100'))))}
+                  style={{ width: 125 }}
+                  title="Portfolio allocation per position (%)"
+                  placeholder="Position %"
                 />
               </>
             )}

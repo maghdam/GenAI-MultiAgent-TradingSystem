@@ -736,6 +736,8 @@ export const backtestV2SavedStrategy = async (
   feeBps?: number,
   slippageBps?: number,
   validationKind?: Exclude<V2StrategyEvidenceType, 'paper'>,
+  spreadBps?: number,
+  positionSizePct?: number,
 ): Promise<any> => {
   const params = new URLSearchParams({
     strategy,
@@ -745,6 +747,8 @@ export const backtestV2SavedStrategy = async (
   });
   if (typeof feeBps === 'number' && Number.isFinite(feeBps)) params.set('fee_bps', String(feeBps));
   if (typeof slippageBps === 'number' && Number.isFinite(slippageBps)) params.set('slippage_bps', String(slippageBps));
+  if (typeof spreadBps === 'number' && Number.isFinite(spreadBps)) params.set('spread_bps', String(spreadBps));
+  if (typeof positionSizePct === 'number' && Number.isFinite(positionSizePct)) params.set('position_size_pct', String(positionSizePct));
   if (validationKind) params.set('validation_kind', validationKind);
   const response = await authFetch(`/api/studio/backtest?${params.toString()}`);
   if (!response.ok) {

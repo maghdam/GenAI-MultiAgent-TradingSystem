@@ -268,7 +268,11 @@ def _evaluate_evidence(evidence_type: str, metrics: dict[str, Any], gates: dict[
     if required_key is None:
         raise StrategyLifecycleError(f"Unsupported lifecycle evidence type '{evidence_type}'.")
     required = int(gates.get(required_key, 20))
-    costs = _metric(metrics, "Fees [bps]") + _metric(metrics, "Slippage [bps]")
+    costs = (
+        _metric(metrics, "Fees [bps]")
+        + _metric(metrics, "Slippage [bps]")
+        + _metric(metrics, "Spread [bps]")
+    )
     passed = (
         trades >= required
         and total_return > float(gates.get("min_backtest_return_pct", 0.0))

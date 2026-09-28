@@ -396,6 +396,8 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                         num_bars=num_bars,
                         fee_bps=float(extra.get("fee_bps") or 0.0),
                         slippage_bps=float(extra.get("slippage_bps") or 0.0),
+                        spread_bps=float(extra.get("spread_bps") or 0.0),
+                        position_size_pct=float(extra.get("position_size_pct") or 100.0),
                         strategy_name=strategy_name,
                         validation_kind=validation_kind,
                     )
@@ -413,6 +415,8 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                                     "timeframe": str(timeframe).upper(),
                                     "data_start": result.get("Data Start"),
                                     "data_end": result.get("Data End"),
+                                    "execution_timing": result.get("Execution Timing"),
+                                    "position_size_pct": result.get("Position Size [%]"),
                                 },
                             )
                             result["Lifecycle"] = lifecycle.model_dump(mode="json")

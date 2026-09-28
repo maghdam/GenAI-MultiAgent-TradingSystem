@@ -56,9 +56,10 @@ def test_draft_backtest_computes_trade_win_rate_for_flip_exit_and_final_open(mon
         validation_kind="regime",
     )
 
-    # t1 long -> t3 flip, t3 short -> t5 flat, t6 long -> final bar.
+    # Signals execute on the next bar open: t1 signal -> t2 long,
+    # t3 signal -> t4 short, t5 signal -> t6 flat, t6 signal -> t7 long.
     assert result["Number of Trades"] == 3.0
-    assert result["Win Rate [%]"] == 66.67
+    assert result["Win Rate [%]"] == 33.33
     assert result["Avg Hold [bars]"] == 1.67
     assert result["draft"] is True
 
@@ -119,7 +120,7 @@ def test_draft_and_saved_backtests_use_identical_accounting(monkeypatch, tmp_pat
         key: saved[key] for key in shared_metric_keys
     }
     assert draft["Number of Trades"] == 3.0
-    assert draft["Win Rate [%]"] == pytest.approx(66.67)
+    assert draft["Win Rate [%]"] == pytest.approx(33.33)
 
 
 def test_final_bar_entry_without_holding_period_is_not_counted(monkeypatch) -> None:
