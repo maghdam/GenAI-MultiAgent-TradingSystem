@@ -72,7 +72,7 @@ def test_v2_studio_backtest_endpoint_uses_service(monkeypatch) -> None:
     monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
     monkeypatch.setattr(
         "backend.api.router.run_saved_strategy_backtest",
-        lambda strategy, symbol, timeframe, num_bars, fee_bps, slippage_bps, spread_bps, position_size_pct: {
+        lambda strategy, symbol, timeframe, num_bars, fee_bps, slippage_bps, spread_bps, position_size_pct, walk_forward_folds: {
             "strategy": strategy,
             "symbol": symbol,
             "timeframe": timeframe,
@@ -81,6 +81,7 @@ def test_v2_studio_backtest_endpoint_uses_service(monkeypatch) -> None:
             "Slippage [bps]": slippage_bps,
             "Spread [bps]": spread_bps,
             "Position Size [%]": position_size_pct,
+            "walk_forward_folds": walk_forward_folds,
             "bars": num_bars,
         },
     )

@@ -9,7 +9,7 @@ import {
   promoteV2StrategyLifecycle,
   recordV2PaperEvidence,
   updateV2StrategyHypothesis,
-  type V2StrategyEvidenceType,
+  type V2StrategyValidationMode,
   type V2StrategyLifecycle,
   type V2StudioTaskRequest,
   type V2StudioTaskResponse,
@@ -53,7 +53,7 @@ export default function StrategyStudioPage() {
   const [slippageBps, setSlippageBps] = useState<number>(0);
   const [spreadBps, setSpreadBps] = useState<number>(0);
   const [positionSizePct, setPositionSizePct] = useState<number>(100);
-  const [validationKind, setValidationKind] = useState<Exclude<V2StrategyEvidenceType, 'paper'>>('development_backtest');
+  const [validationKind, setValidationKind] = useState<V2StrategyValidationMode>('development_backtest');
   const [lifecycle, setLifecycle] = useState<V2StrategyLifecycle | null>(null);
   const [hypothesis, setHypothesis] = useState('');
   const [lifecycleError, setLifecycleError] = useState('');
@@ -601,10 +601,11 @@ export default function StrategyStudioPage() {
               style={{ width: 110 }}
               title="Bars"
             />
-            <select value={validationKind} onChange={event => setValidationKind(event.target.value as Exclude<V2StrategyEvidenceType, 'paper'>)} title="Lifecycle evidence type">
+            <select value={validationKind} onChange={event => setValidationKind(event.target.value as V2StrategyValidationMode)} title="Validation methodology">
               <option value="development_backtest">Development 70%</option>
               <option value="out_of_sample">Holdout 30%</option>
               <option value="regime">Regime / alternate market</option>
+              <option value="walk_forward">Walk-forward (3 folds)</option>
             </select>
             <button className="btn" type="button" onClick={() => setShowCosts(s => !s)} title="Toggle execution-cost and sizing assumptions">{showCosts ? 'Hide Assumptions' : 'Assumptions'}</button>
             {showCosts && (

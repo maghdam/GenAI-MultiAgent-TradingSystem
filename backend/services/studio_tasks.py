@@ -11,7 +11,7 @@ from backend.backtesting_agent import BacktestParams, run_backtest
 from backend.services import studio_llm
 from backend.optimizer_utils import extract_parameters
 from backend.programmer_agent import ProgrammerAgent
-from backend.services.studio_backtests import run_strategy_code_backtest
+from backend.services.studio_backtests import optimize_strategy_source, run_strategy_code_backtest
 from backend.services.strategy_policy import StrategyPolicyError, validate_strategy_source
 from backend.services.strategy_lifecycle import ensure_lifecycle, record_backtest, source_hash
 from backend.domain.models import StudioTaskRequest, StudioTaskResponse
@@ -384,11 +384,28 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
             if isinstance(extra, dict) and not force_saved_strategy:
                 draft_code = str(extra.get("code") or extra.get("current_code") or "").strip()
             if draft_code:
-                if task_type == "optimize":
-                    return StudioTaskResponse(status="error", message="Optimization for unsaved draft code is not supported yet.")
                 try:
                     validation_kind = str(extra.get("validation_kind") or "development_backtest")
                     strategy_name = str(extra.get("strategy_name") or "draft").strip().lower()
+                    if task_type == "optimize":
+                        result = optimize_strategy_source(
+                            source=draft_code,
+                            strategy=strategy_name,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            num_bars=num_bars,
+                            param_grid=extra.get("param_grid"),
+                            objective=str(extra.get("objective") or "Sharpe"),
+                            fee_bps=float(extra.get("fee_bps") or 0.0),
+                            slippage_bps=float(extra.get("slippage_bps") or 0.0),
+                            spread_bps=float(extra.get("spread_bps") or 0.0),
+                            position_size_pct=float(extra.get("position_size_pct") or 100.0),
+                        )
+                        return StudioTaskResponse(
+                            status="success",
+                            message="Leakage-safe optimization complete; parameters were selected on development data only.",
+                            result=result,
+                        )
                     result = run_strategy_code_backtest(
                         code=draft_code,
                         symbol=symbol,
@@ -400,11 +417,15 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                         position_size_pct=float(extra.get("position_size_pct") or 100.0),
                         strategy_name=strategy_name,
                         validation_kind=validation_kind,
+                        walk_forward_folds=int(extra.get("walk_forward_folds") or 3),
                     )
                     saved_path = Path("backend/strategies_generated") / f"{strategy_name}.py"
                     if strategy_name != "draft" and saved_path.exists():
                         saved_source = saved_path.read_text(encoding="utf-8")
-                        if source_hash(saved_source) == source_hash(draft_code):
+                        if (
+                            source_hash(saved_source) == source_hash(draft_code)
+                            and validation_kind in {"development_backtest", "out_of_sample", "regime"}
+                        ):
                             lifecycle = record_backtest(
                                 strategy_name,
                                 saved_source,
@@ -415,6 +436,8 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                                     "timeframe": str(timeframe).upper(),
                                     "data_start": result.get("Data Start"),
                                     "data_end": result.get("Data End"),
+                                    "validation_selection": result.get("Validation Selection"),
+                                    "split_timestamp": result.get("Split Timestamp"),
                                     "execution_timing": result.get("Execution Timing"),
                                     "position_size_pct": result.get("Position Size [%]"),
                                 },
@@ -500,6 +523,33 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                     extra["slippage"] = float(extra.get("slippage_bps") or 0.0) / 10_000.0
             except Exception:
                 pass
+
+            if task_type == "optimize":
+                saved_name = str(strategy_effective or "").strip().lower()
+                saved_path = Path("backend/strategies_generated") / f"{saved_name}.py"
+                if saved_path.exists():
+                    try:
+                        saved_source = saved_path.read_text(encoding="utf-8")
+                        result = optimize_strategy_source(
+                            source=saved_source,
+                            strategy=saved_name,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            num_bars=num_bars,
+                            param_grid=extra.get("param_grid"),
+                            objective=str(extra.get("objective") or "Sharpe"),
+                            fee_bps=float(extra.get("fee_bps") or 0.0),
+                            slippage_bps=float(extra.get("slippage_bps") or 0.0),
+                            spread_bps=float(extra.get("spread_bps") or 0.0),
+                            position_size_pct=float(extra.get("position_size_pct") or 100.0),
+                        )
+                    except Exception as exc:
+                        return StudioTaskResponse(status="error", message=str(exc))
+                    return StudioTaskResponse(
+                        status="success",
+                        message="Leakage-safe optimization complete; parameters were selected on development data only.",
+                        result=result,
+                    )
 
             raw_strategy = strategy_name or (extra.get("strategy_name") if isinstance(extra, dict) else None) or (
                 extra.get("strategy") if isinstance(extra, dict) else None
