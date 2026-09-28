@@ -557,6 +557,8 @@ async def v2_studio_backtest(
     num_bars: int = 1500,
     fee_bps: float = 0.0,
     slippage_bps: float = 0.0,
+    spread_bps: float = 0.0,
+    position_size_pct: float = 100.0,
     validation_kind: str = "development_backtest",
 ):
     kwargs = dict(
@@ -566,6 +568,8 @@ async def v2_studio_backtest(
         num_bars=num_bars,
         fee_bps=fee_bps,
         slippage_bps=slippage_bps,
+        spread_bps=spread_bps,
+        position_size_pct=position_size_pct,
     )
     if validation_kind != "development_backtest":
         kwargs["validation_kind"] = validation_kind
