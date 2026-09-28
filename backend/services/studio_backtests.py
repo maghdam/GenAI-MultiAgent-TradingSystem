@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import math
 import re
 import statistics
@@ -23,6 +24,17 @@ _TIMEFRAME_MINUTES = {
     "H4": 240,
     "D1": 1440,
 }
+
+_DEVELOPMENT_FRACTION = 0.70
+_MIN_VALIDATION_BARS = {
+    "development_backtest": 100,
+    "out_of_sample": 50,
+    "regime": 100,
+}
+_WALK_FORWARD_MIN_TRAIN_BARS = 100
+_WALK_FORWARD_MIN_TEST_BARS = 30
+_MAX_WALK_FORWARD_FOLDS = 8
+_MAX_OPTIMIZATION_COMBOS = 100
 
 
 def list_saved_strategy_files() -> dict:
@@ -94,18 +106,43 @@ def _prepare_market_frame(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     return frame
 
 
-def _validation_window(df: pd.DataFrame, validation_kind: str) -> tuple[pd.DataFrame, str]:
+def _validation_window(df: pd.DataFrame, validation_kind: str) -> tuple[pd.DataFrame, str, dict]:
     kind = str(validation_kind or "development_backtest").strip().lower()
     allowed = {"development_backtest", "out_of_sample", "regime"}
     if kind not in allowed:
         raise HTTPException(400, f"validation_kind must be one of: {', '.join(sorted(allowed))}")
-    if kind == "regime":
-        return df.copy(), kind
-    split = max(1, min(len(df) - 1, int(len(df) * 0.70)))
-    selected = df.iloc[:split].copy() if kind == "development_backtest" else df.iloc[split:].copy()
-    if len(selected) < 50:
-        raise HTTPException(400, f"{kind} window contains only {len(selected)} bars; request more data.")
-    return selected, kind
+
+    split = max(1, min(len(df) - 1, int(len(df) * _DEVELOPMENT_FRACTION)))
+    development_bars = split
+    holdout_bars = len(df) - split
+
+    if kind == "development_backtest":
+        selected = df.iloc[:split].copy()
+        selection = "First 70% chronological development window."
+    elif kind == "out_of_sample":
+        selected = df.iloc[split:].copy()
+        selection = "Final 30% chronological holdout; excluded from development tuning."
+    else:
+        selected = df.copy()
+        selection = "Alternate market or non-overlapping period supplied by the operator."
+
+    minimum_bars = int(_MIN_VALIDATION_BARS[kind])
+    if len(selected) < minimum_bars:
+        raise HTTPException(
+            400,
+            f"{kind} window contains only {len(selected)} bars; minimum is {minimum_bars}. Request more data.",
+        )
+
+    metadata = {
+        "Validation Selection": selection,
+        "Development Fraction [%]": round(_DEVELOPMENT_FRACTION * 100.0, 2),
+        "Holdout Fraction [%]": round((1.0 - _DEVELOPMENT_FRACTION) * 100.0, 2),
+        "Development Bars": development_bars,
+        "Holdout Bars": holdout_bars,
+        "Minimum Bars Required": minimum_bars,
+        "Split Timestamp": _timestamp(df.index[split]) if split < len(df) else None,
+    }
+    return selected, kind, metadata
 
 
 def _timestamp(value: object) -> str:
