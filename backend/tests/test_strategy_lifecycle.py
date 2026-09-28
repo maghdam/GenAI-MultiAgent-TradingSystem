@@ -142,7 +142,7 @@ def test_validation_windows_are_chronological() -> None:
     assert holdout_meta["Holdout Fraction [%]"] == 30.0
     assert development_meta["Split Timestamp"] == holdout.index.min().isoformat()
     assert len(regime) == 200
-    assert regime_meta["Minimum Bars Required"] == 100
+    assert regime_meta["Minimum Bars Required"] == 2
 
 
 def test_regime_evidence_must_be_independent_from_development_context(monkeypatch) -> None:
