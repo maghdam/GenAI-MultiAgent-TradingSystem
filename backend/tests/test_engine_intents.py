@@ -128,6 +128,42 @@ def test_apply_paper_logic_opens_position_and_records_execution() -> None:
     assert any(record.event_type == "paper_position_opened" for record in audits)
 
 
+def test_governed_execution_stamps_lifecycle_version_on_paper_position(monkeypatch) -> None:
+    version_hash = "a" * 64
+    monkeypatch.setattr(
+        "backend.services.risk_engine.paper_execution_gate",
+        lambda strategy: (
+            True,
+            {
+                "governed": True,
+                "strategy": strategy,
+                "version": 3,
+                "version_hash": version_hash,
+                "stage": "paper",
+                "current_source": True,
+            },
+            None,
+        ),
+    )
+
+    result = execute_paper_signal(
+        config=_config(),
+        watch_item=_watch_item(),
+        analysis=_analysis(),
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+    )
+
+    assert result.status == "executed"
+    positions = list_paper_positions("open")
+    assert len(positions) == 1
+    assert positions[0].lifecycle_version_hash == version_hash
+
+    intents = list_order_intents(5)
+    assert intents[0].details["strategy_lifecycle"]["version_hash"] == version_hash
+
+
 def test_apply_paper_logic_rejects_signal_and_records_reason() -> None:
     result = execute_paper_signal(
         config=_config(paper_autotrade=False),
