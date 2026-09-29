@@ -457,20 +457,38 @@ Validate:
 ## 7. Phase 5 — Strategy quality & confidence calibration
 
 ### 5.1 Runtime deterministic strategies
+**Status:** 🟨
+
 Current runtime strategies include:
 - `sma_cross`
 - `rsi_reversal`
 - `breakout`
 
-For each strategy × symbol × timeframe:
-- [ ] Backtest.
-- [ ] OOS.
-- [ ] Regime analysis.
-- [ ] Costs.
-- [ ] Trade frequency.
-- [ ] Drawdown.
-- [ ] Expectancy.
-- [ ] Parameter sensitivity.
+**Implemented audit coverage**
+- [x] Read-only runtime strategy backtest path.
+- [x] 70/30 development and out-of-sample split.
+- [x] Chronological regime analysis.
+- [x] Fee, slippage, spread, and cost-drag reporting.
+- [x] Trade-frequency reporting.
+- [x] Maximum-drawdown reporting.
+- [x] Expectancy reporting.
+- [x] Development-only parameter-sensitivity diagnostics.
+- [x] Strategy × symbol × timeframe matrix runner.
+- [x] Runtime `no_trade` hold semantics and next-bar-open execution preserved.
+- [x] No broker order-routing or live-account behavior changed.
+
+**Verification**
+- [x] Focused `backend/tests/test_runtime_strategy_validation.py -q`: 10 passed locally on Windows.
+- [x] Full `backend/tests -q`: passed locally.
+- [x] Frontend production build: passed locally (699 modules).
+- [x] GitHub CI #79 on implementation head `f4e6038a`: backend + frontend passed.
+- [x] Connected-feed audit attempt correctly failed closed when no cTrader historical feed was available.
+- [ ] Run the real connected cTrader demo historical-feed matrix for enabled targets and record actual backtest/OOS/regime/cost/frequency/drawdown/expectancy/sensitivity evidence.
+
+**Field-attempt evidence (2026-09-29)**
+- Enabled runtime targets were `NAS100 / M5`, `US30 / M5`, and `XAUUSD / M5`.
+- All three returned `No market data available` because the cTrader feed was not connected.
+- Validation cost assumptions were fee 1 bps + slippage 1 bps per transaction and quoted spread 2 bps; these remain validation assumptions, not broker-verified transaction costs.
 
 ### 5.2 Confidence calibration
 Compare confidence buckets with realized outcomes, e.g.:
@@ -629,9 +647,10 @@ Add one row after every completed task.
 | 2026-09-28 | Backtest realism | Remove same-bar lookahead; unify mark-to-market accounting; model fees/slippage/spread, UTC gaps, linear short P&L, Sharpe/drawdown/hold duration, and explicit position sizing | ✅ 15 focused tests + full backend suite + frontend build + CI #65/#66 | PR #31 | Phase 4.5 |
 | 2026-09-28 | Validation methodology | Formalize 70/30 chronological development/holdout validation, independent regime evidence, walk-forward folds, leakage-safe parameter optimization, and sample gates | ✅ 25 focused Windows tests + full backend suite + frontend build + CI #71 | PR #32 | Phase 4.6 |
 | 2026-09-29 | Strategy lifecycle | Bind governed paper evidence to exact source versions, require promotion audit metadata, preserve sequential promotion, and block generated strategies from bypassing lifecycle governance | ✅ 49 focused Windows tests + full backend suite + frontend build + CI #76 | PR #33 | Phase 5.1 |
+| 2026-09-29 | Runtime deterministic strategy validation | Add read-only Phase 5.1 audit service/matrix for trusted runtime strategies with OOS, regime, costs, frequency, drawdown, expectancy, and development-only parameter sensitivity | 🟨 10 focused tests + full backend + frontend build + CI #79 passed; connected cTrader historical-feed matrix attempted but unavailable because feed was disconnected | PR #34 / `f4e6038` | Keep real connected-feed evidence pending; proceed to Phase 5.2 development |
 
 ---
 
 ## 14. Next item
 
-**Phase 5.1 — Runtime deterministic strategies: acceptance-audit `sma_cross`, `rsi_reversal`, and `breakout` by strategy × symbol × timeframe for backtest, out-of-sample behavior, regime analysis, costs, trade frequency, drawdown, expectancy, and parameter sensitivity. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 5.2 — Confidence calibration: build the smallest safe calibration/evidence workflow for runtime signal-strength buckets and realized outcomes (win rate, expectancy, average R, drawdown contribution, and trade count). Do not relabel signal strength as probability. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
