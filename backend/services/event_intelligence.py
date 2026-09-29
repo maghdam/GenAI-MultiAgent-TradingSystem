@@ -17,6 +17,7 @@ from backend.storage.repositories import (
     add_event_alert,
     add_event_source_run,
     insert_market_event,
+    list_event_source_runs,
     list_market_events,
     log_incident,
 )
@@ -270,6 +271,96 @@ def fetch_rss(url: str, timeout: float = 8.0) -> list[MarketEventInput]:
 def configured_feed_urls() -> list[str]:
     raw = os.getenv("MARKET_NEWS_RSS_URLS", "")
     return list(dict.fromkeys(url.strip() for url in raw.split(";") if url.strip()))[:8]
+
+
+def _stale_after_seconds() -> int:
+    try:
+        value = int(float(os.getenv("MARKET_NEWS_STALE_AFTER_SEC", "3600")))
+    except (TypeError, ValueError):
+        value = 3600
+    return max(60, min(86_400, value))
+
+
+def build_event_source_status() -> dict:
+    """Return read-only configured-source freshness and failure truth."""
+    urls = configured_feed_urls()
+    stale_after = _stale_after_seconds()
+    if not urls:
+        return {
+            "status": "not_configured",
+            "research_only": True,
+            "configured_sources": 0,
+            "stale_after_seconds": stale_after,
+            "sources": [],
+        }
+
+    latest_by_source: dict[str, dict] = {}
+    for run in list_event_source_runs(max(100, len(urls) * 20)):
+        source = str(run.get("source") or "")
+        if source in urls and source not in latest_by_source:
+            latest_by_source[source] = run
+
+    now = _now()
+    sources: list[dict] = []
+    for url in urls:
+        run = latest_by_source.get(url)
+        if run is None:
+            sources.append(
+                {
+                    "source": url,
+                    "status": "never_refreshed",
+                    "last_started_at": None,
+                    "last_completed_at": None,
+                    "age_seconds": None,
+                    "fetched_items": 0,
+                    "inserted_events": 0,
+                    "error": "",
+                }
+            )
+            continue
+
+        completed_at = run.get("completed_at")
+        age_seconds = None
+        if isinstance(completed_at, datetime):
+            age_seconds = max(0, int((now - completed_at).total_seconds()))
+        error = str(run.get("error") or "")
+        if error:
+            status = "failed"
+        elif age_seconds is None:
+            status = "unknown"
+        elif age_seconds > stale_after:
+            status = "stale"
+        else:
+            status = "healthy"
+        sources.append(
+            {
+                "source": url,
+                "status": status,
+                "last_started_at": run.get("started_at"),
+                "last_completed_at": completed_at,
+                "age_seconds": age_seconds,
+                "fetched_items": int(run.get("fetched_items") or 0),
+                "inserted_events": int(run.get("inserted_events") or 0),
+                "error": error,
+            }
+        )
+
+    statuses = {str(item["status"]) for item in sources}
+    if "failed" in statuses:
+        overall = "degraded"
+    elif "never_refreshed" in statuses or "unknown" in statuses:
+        overall = "missing"
+    elif "stale" in statuses:
+        overall = "stale"
+    else:
+        overall = "healthy"
+    return {
+        "status": overall,
+        "research_only": True,
+        "configured_sources": len(urls),
+        "stale_after_seconds": stale_after,
+        "sources": sources,
+    }
 
 
 def detect_abnormal_events(inserted: list[MarketEventRecord]) -> int:
