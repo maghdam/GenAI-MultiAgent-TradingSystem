@@ -527,7 +527,38 @@ Compare signal-strength buckets with realized outcomes:
 - No bucket is treated as a win probability and no per-strategy/symbol threshold is changed until Phase 5.3 has sufficient sample evidence.
 
 ### 5.3 Per-strategy / per-symbol thresholds
+**Status:** 🟨 pending evidence
+
 Only after enough evidence, evaluate whether one global 60% threshold is inferior to calibrated thresholds per strategy/symbol/timeframe.
+
+**Implemented screening**
+- [x] Read-only sample-sufficiency assessment by exact strategy × symbol × timeframe.
+- [x] Exclude manual trades from the automatic-threshold evidence pool.
+- [x] Require at least 100 closed automatic trades at/above the current 60% baseline.
+- [x] Require worst-case 95% binomial win-rate margin of error <= 10 percentage points.
+- [x] Require at least 80% initial-risk/R coverage.
+- [x] Require at least 10 wins and 10 losses.
+- [x] Require at least 3 populated signal-strength buckets with at least 10 trades each.
+- [x] Return no selected/recommended threshold and never mutate execution settings.
+- [x] Expose read-only `/api/studio/confidence-threshold-sufficiency`.
+
+**Verification**
+- [x] Focused `backend/tests/test_confidence_thresholds.py -q`: 7 passed locally on Windows.
+- [x] Full `backend/tests -q`: passed locally.
+- [x] GitHub CI #85 on implementation head `b3691d1`: backend tests + frontend production build passed.
+- [x] Real persisted-runtime sample assessment completed.
+
+**Real sample assessment (2026-09-29)**
+- `breakout × NAS100 × M5`: 17 baseline trades; 6 wins / 11 losses; 100% R coverage; insufficient sample/bucket coverage.
+- `breakout × US30 × M5`: 15 baseline trades; 6 wins / 9 losses; 100% R coverage; insufficient sample/bucket coverage.
+- `sma_cross × XAUUSD × M5`: 25 baseline trades; 7 wins / 18 losses; 100% R coverage; insufficient sample/bucket coverage.
+- 0 of 3 cells passed the screening gate.
+- No threshold comparison or execution-setting change is authorized from the current sample.
+
+**Pending acceptance**
+- [ ] Re-run the sufficiency screen after substantially more closed automatic trades accumulate.
+- [ ] Only if a cell passes the screen, perform a leakage-safe development/holdout comparison of threshold alternatives.
+- [ ] Keep the global 60% threshold unchanged until such evidence exists.
 
 ---
 
@@ -667,9 +698,10 @@ Add one row after every completed task.
 | 2026-09-29 | Strategy lifecycle | Bind governed paper evidence to exact source versions, require promotion audit metadata, preserve sequential promotion, and block generated strategies from bypassing lifecycle governance | ✅ 49 focused Windows tests + full backend suite + frontend build + CI #76 | PR #33 | Phase 5.1 |
 | 2026-09-29 | Runtime deterministic strategy validation | Add read-only Phase 5.1 audit service/matrix for trusted runtime strategies with OOS, regime, costs, frequency, drawdown, expectancy, and development-only parameter sensitivity | 🟨 10 focused tests + full backend + frontend build + CI #79 passed; connected cTrader historical-feed matrix attempted but unavailable because feed was disconnected | PR #34 / `f4e6038` | Keep real connected-feed evidence pending; proceed to Phase 5.2 development |
 | 2026-09-29 | Signal-strength calibration | Add exact intent→closed-trade calibration report with bucketed win rate, account-currency expectancy, average R, R-drawdown contribution, sample composition, and safe filtering | ✅ 7 focused tests + full backend suite + CI #82 backend/frontend | PR #35 / `c3ee736` | Phase 5.3 only after sufficient sample evidence |
+| 2026-09-29 | Threshold sample sufficiency | Add fail-closed per-cell screening before any threshold study; verify against real persisted runtime data | 🟨 7 focused tests + full backend suite + CI #85; real sample: 0/3 cells sufficient (17, 15, and 25 baseline trades) | PR #36 / `b3691d1` | Keep 60% unchanged; revisit after more evidence and proceed to Phase 6.1 |
 
 ---
 
 ## 14. Next item
 
-**Phase 5.3 — Per-strategy / per-symbol thresholds: first assess whether the accumulated calibration sample is sufficient by strategy × symbol × timeframe. Only where evidence is adequate may threshold alternatives be evaluated; do not auto-change execution settings and do not treat signal strength as probability. If sample evidence is insufficient, leave this acceptance item pending and continue to the next development item that can be safely completed. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 6.1 — Calendar / events: acceptance-audit event ingestion, upcoming-event display, symbol/event mapping, and missing/stale-data handling while keeping market-intelligence features research/shadow-only. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
