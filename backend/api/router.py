@@ -53,6 +53,7 @@ from backend.services import studio_llm
 from backend.services.studio_backtests import load_saved_strategy_source, list_saved_strategy_files, run_saved_strategy_backtest
 from backend.services.runtime_strategy_validation import run_runtime_strategy_audit
 from backend.services.confidence_calibration import build_confidence_calibration
+from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -615,6 +616,19 @@ async def v2_confidence_calibration(
         symbol=symbol,
         timeframe=timeframe,
         include_manual=include_manual,
+    )
+
+
+@router.get("/studio/confidence-threshold-sufficiency")
+async def v2_confidence_threshold_sufficiency(
+    strategy: str | None = None,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+):
+    return build_threshold_sufficiency_assessment(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
     )
 
 
