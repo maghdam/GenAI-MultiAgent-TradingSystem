@@ -496,6 +496,130 @@ def list_order_intents(limit: int = 20) -> List[OrderIntentRecord]:
     return [get_order_intent_by_id(int(row["id"])) for row in rows]
 
 
+def list_confidence_calibration_outcomes(
+    *,
+    strategy: str | None = None,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+) -> List[Dict[str, Any]]:
+    """Return closed trades linked to the exact opening signal intent.
+
+    The opening link is sourced from the immutable trade-audit row created when
+    an automatic paper/demo signal opens a position. This avoids guessing from
+    symbol/direction/timestamps and keeps calibration tied to the signal
+    strength that actually initiated the trade.
+    """
+    clauses = [
+        "p.status = 'closed'",
+        "i.status = 'executed'",
+        "i.intent_type = 'open'",
+    ]
+    params: list[Any] = []
+    if strategy:
+        clauses.append("p.strategy = ?")
+        params.append(strategy)
+    if symbol:
+        clauses.append("p.symbol = ?")
+        params.append(symbol.upper())
+    if timeframe:
+        clauses.append("p.timeframe = ?")
+        params.append(timeframe.upper())
+
+    sql = f"""
+        WITH opening_audits AS (
+            SELECT position_id, MIN(id) AS audit_id
+            FROM trade_audit
+            WHERE event_type IN ('paper_signal_open', 'ctrader_demo_order_executed')
+              AND position_id IS NOT NULL
+              AND intent_id IS NOT NULL
+            GROUP BY position_id
+        )
+        SELECT
+            p.id AS position_id,
+            p.symbol,
+            p.timeframe,
+            p.strategy,
+            p.direction,
+            p.quantity,
+            p.entry_price,
+            p.stop_loss AS position_stop_loss,
+            p.opened_at,
+            p.closed_at,
+            p.exit_price,
+            p.realized_pnl,
+            p.account_currency,
+            p.cash_per_price_unit_per_lot,
+            p.instrument_spec_source,
+            p.broker_position_id,
+            p.realized_pnl_source,
+            i.id AS intent_id,
+            i.created_at AS intent_created_at,
+            i.confidence,
+            i.entry_price AS signal_entry_price,
+            i.stop_loss AS signal_stop_loss,
+            i.details_json AS intent_details_json
+        FROM opening_audits oa
+        JOIN trade_audit a ON a.id = oa.audit_id
+        JOIN paper_positions p ON p.id = a.position_id
+        JOIN order_intents i ON i.id = a.intent_id
+        WHERE {" AND ".join(clauses)}
+        ORDER BY p.closed_at, p.id
+    """
+    with get_db() as db:
+        rows = db.execute(sql, tuple(params)).fetchall()
+
+    outcomes: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            details = json.loads(row["intent_details_json"] or "{}")
+        except Exception:
+            details = {}
+        outcomes.append(
+            {
+                "position_id": int(row["position_id"]),
+                "intent_id": int(row["intent_id"]),
+                "symbol": str(row["symbol"]),
+                "timeframe": str(row["timeframe"]),
+                "strategy": str(row["strategy"]),
+                "direction": str(row["direction"]),
+                "quantity": float(row["quantity"] or 0.0),
+                "entry_price": float(row["entry_price"] or 0.0),
+                "position_stop_loss": (
+                    float(row["position_stop_loss"])
+                    if row["position_stop_loss"] is not None
+                    else None
+                ),
+                "opened_at": str(row["opened_at"]),
+                "closed_at": str(row["closed_at"]) if row["closed_at"] else None,
+                "exit_price": float(row["exit_price"]) if row["exit_price"] is not None else None,
+                "realized_pnl": float(row["realized_pnl"] or 0.0),
+                "account_currency": str(row["account_currency"] or "USD").upper(),
+                "cash_per_price_unit_per_lot": float(row["cash_per_price_unit_per_lot"] or 0.0),
+                "instrument_spec_source": str(row["instrument_spec_source"] or "legacy"),
+                "broker_position_id": (
+                    int(row["broker_position_id"])
+                    if row["broker_position_id"] is not None
+                    else None
+                ),
+                "realized_pnl_source": str(row["realized_pnl_source"] or "paper_estimate"),
+                "intent_created_at": str(row["intent_created_at"]),
+                "confidence": float(row["confidence"] or 0.0),
+                "signal_entry_price": (
+                    float(row["signal_entry_price"])
+                    if row["signal_entry_price"] is not None
+                    else None
+                ),
+                "signal_stop_loss": (
+                    float(row["signal_stop_loss"])
+                    if row["signal_stop_loss"] is not None
+                    else None
+                ),
+                "intent_details": details if isinstance(details, dict) else {},
+            }
+        )
+    return outcomes
+
+
 def create_decision_record(
     *,
     correlation_id: str,
