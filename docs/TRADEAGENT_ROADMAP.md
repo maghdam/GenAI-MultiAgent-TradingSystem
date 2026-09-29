@@ -491,22 +491,40 @@ Current runtime strategies include:
 - Validation cost assumptions were fee 1 bps + slippage 1 bps per transaction and quoted spread 2 bps; these remain validation assumptions, not broker-verified transaction costs.
 
 ### 5.2 Confidence calibration
-Compare confidence buckets with realized outcomes, e.g.:
+**Status:** ✅
 
+Compare signal-strength buckets with realized outcomes:
+
+- <60%
 - 60–65%
 - 65–70%
 - 70–75%
 - 75–80%
 - 80%+
 
-Measure:
-- win rate,
-- expectancy,
-- average R,
-- drawdown contribution,
-- trade count.
+**Implemented**
+- [x] Link each closed trade to the exact opening order intent via persisted trade-audit identity; no symbol/direction/timestamp guessing.
+- [x] Report win rate by bucket.
+- [x] Report expectancy by bucket while keeping account currencies separate.
+- [x] Report average R using opening stop-defined monetary risk.
+- [x] Keep trades without a valid initial-risk denominator in win-rate/expectancy counts but exclude them from R metrics.
+- [x] Report chronological cumulative-R drawdown contribution by bucket.
+- [x] Report trade counts plus broker-vs-paper and realized-P&L-source composition.
+- [x] Exclude manual trades by default, with explicit diagnostic opt-in.
+- [x] Support strategy, symbol, and timeframe filters.
+- [x] Expose a read-only `/api/studio/confidence-calibration` endpoint.
+- [x] Keep signal strength explicitly labeled as a deterministic heuristic, not a calibrated probability.
+- [x] Never change execution thresholds automatically from this report.
 
-Do **not** relabel strategy confidence as probability until calibration supports it.
+**Verification**
+- [x] Focused `backend/tests/test_confidence_calibration.py -q`: 7 passed locally on Windows.
+- [x] Full `backend/tests -q`: passed locally.
+- [x] GitHub CI #82 on implementation head `c3ee736`: backend tests + frontend production build passed.
+- [x] Boundary, manual-exclusion, mixed-currency, missing-risk, filter, exact-linkage, and API-forwarding cases covered.
+
+**Interpretation**
+- The workflow is verified; current bucket statistics remain descriptive evidence only.
+- No bucket is treated as a win probability and no per-strategy/symbol threshold is changed until Phase 5.3 has sufficient sample evidence.
 
 ### 5.3 Per-strategy / per-symbol thresholds
 Only after enough evidence, evaluate whether one global 60% threshold is inferior to calibrated thresholds per strategy/symbol/timeframe.
@@ -648,9 +666,10 @@ Add one row after every completed task.
 | 2026-09-28 | Validation methodology | Formalize 70/30 chronological development/holdout validation, independent regime evidence, walk-forward folds, leakage-safe parameter optimization, and sample gates | ✅ 25 focused Windows tests + full backend suite + frontend build + CI #71 | PR #32 | Phase 4.6 |
 | 2026-09-29 | Strategy lifecycle | Bind governed paper evidence to exact source versions, require promotion audit metadata, preserve sequential promotion, and block generated strategies from bypassing lifecycle governance | ✅ 49 focused Windows tests + full backend suite + frontend build + CI #76 | PR #33 | Phase 5.1 |
 | 2026-09-29 | Runtime deterministic strategy validation | Add read-only Phase 5.1 audit service/matrix for trusted runtime strategies with OOS, regime, costs, frequency, drawdown, expectancy, and development-only parameter sensitivity | 🟨 10 focused tests + full backend + frontend build + CI #79 passed; connected cTrader historical-feed matrix attempted but unavailable because feed was disconnected | PR #34 / `f4e6038` | Keep real connected-feed evidence pending; proceed to Phase 5.2 development |
+| 2026-09-29 | Signal-strength calibration | Add exact intent→closed-trade calibration report with bucketed win rate, account-currency expectancy, average R, R-drawdown contribution, sample composition, and safe filtering | ✅ 7 focused tests + full backend suite + CI #82 backend/frontend | PR #35 / `c3ee736` | Phase 5.3 only after sufficient sample evidence |
 
 ---
 
 ## 14. Next item
 
-**Phase 5.2 — Confidence calibration: build the smallest safe calibration/evidence workflow for runtime signal-strength buckets and realized outcomes (win rate, expectancy, average R, drawdown contribution, and trade count). Do not relabel signal strength as probability. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 5.3 — Per-strategy / per-symbol thresholds: first assess whether the accumulated calibration sample is sufficient by strategy × symbol × timeframe. Only where evidence is adequate may threshold alternatives be evaluated; do not auto-change execution settings and do not treat signal strength as probability. If sample evidence is insufficient, leave this acceptance item pending and continue to the next development item that can be safely completed. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**

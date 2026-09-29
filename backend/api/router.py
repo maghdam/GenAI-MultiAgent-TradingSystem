@@ -52,6 +52,7 @@ from backend.services import model_service
 from backend.services import studio_llm
 from backend.services.studio_backtests import load_saved_strategy_source, list_saved_strategy_files, run_saved_strategy_backtest
 from backend.services.runtime_strategy_validation import run_runtime_strategy_audit
+from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -599,6 +600,21 @@ async def v2_runtime_strategy_audit(
         slippage_bps=slippage_bps,
         spread_bps=spread_bps,
         position_size_pct=position_size_pct,
+    )
+
+
+@router.get("/studio/confidence-calibration")
+async def v2_confidence_calibration(
+    strategy: str | None = None,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    include_manual: bool = False,
+):
+    return build_confidence_calibration(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        include_manual=include_manual,
     )
 
 
