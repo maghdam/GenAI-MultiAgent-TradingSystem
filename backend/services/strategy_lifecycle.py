@@ -382,13 +382,20 @@ def record_backtest(
 
 def record_paper_evidence(strategy: str) -> StrategyLifecycle:
     record = get_lifecycle(strategy)
+    if record.stage not in {"paper", "eligible"}:
+        raise StrategyLifecycleError(
+            f"Paper evidence can only be collected at paper or eligible stage; current stage is '{record.stage}'."
+        )
     with get_db() as db:
         rows = db.execute(
             """
             SELECT realized_pnl FROM paper_positions
-            WHERE status = 'closed' AND lower(strategy) = ? ORDER BY closed_at, id
+            WHERE status = 'closed'
+              AND lower(strategy) = ?
+              AND lifecycle_version_hash = ?
+            ORDER BY closed_at, id
             """,
-            (record.strategy,),
+            (record.strategy, record.version_hash),
         ).fetchall()
         config_row = db.execute("SELECT value FROM config WHERE key = 'engine_config'").fetchone()
     starting_equity = 100_000.0
@@ -418,7 +425,12 @@ def record_paper_evidence(strategy: str) -> StrategyLifecycle:
         record.strategy,
         "paper",
         metrics,
-        context={"source": "paper_positions", "starting_equity": starting_equity},
+        context={
+            "source": "paper_positions",
+            "starting_equity": starting_equity,
+            "lifecycle_version_hash": record.version_hash,
+            "version": record.version,
+        },
         version_hash=record.version_hash,
     )
 
@@ -429,6 +441,14 @@ def promote(strategy: str, operator: str, reason: str = "") -> StrategyLifecycle
         raise StrategyLifecycleError(f"Strategy is already {record.stage} and has no next promotion stage.")
     if not record.promotion_ready:
         raise StrategyLifecycleError("Promotion blocked: " + " ".join(record.blockers))
+
+    operator_value = str(operator or "").strip()
+    reason_value = str(reason or "").strip()
+    if len(operator_value) < 2:
+        raise StrategyLifecycleError("Promotion requires an operator name of at least 2 characters.")
+    if len(reason_value) < 3:
+        raise StrategyLifecycleError("Promotion requires an audit reason of at least 3 characters.")
+
     now = _utcnow().isoformat()
     with get_db() as db:
         db.execute(
@@ -437,7 +457,7 @@ def promote(strategy: str, operator: str, reason: str = "") -> StrategyLifecycle
                 lifecycle_id, from_stage, to_stage, operator, reason, created_at
             ) VALUES(?, ?, ?, ?, ?, ?)
             """,
-            (record.id, record.stage, record.next_stage, operator.strip(), reason.strip(), now),
+            (record.id, record.stage, record.next_stage, operator_value, reason_value, now),
         )
         db.execute(
             "UPDATE strategy_lifecycles SET stage = ?, updated_at = ? WHERE id = ?",

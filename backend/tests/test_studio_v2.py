@@ -100,3 +100,19 @@ def test_v2_studio_backtest_endpoint_uses_service(monkeypatch) -> None:
     assert payload["Fees [bps]"] == 1.5
     assert payload["Slippage [bps]"] == 0.5
     assert payload["bars"] == 750
+
+
+def test_lifecycle_promotion_api_requires_reason(monkeypatch) -> None:
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
+
+    from backend.app import app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/studio/lifecycle/example/promote",
+            json={"operator": "qa operator"},
+        )
+
+    assert response.status_code == 422

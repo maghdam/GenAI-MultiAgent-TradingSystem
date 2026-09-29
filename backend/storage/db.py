@@ -99,6 +99,7 @@ def init_db() -> None:
                 symbol TEXT NOT NULL,
                 timeframe TEXT NOT NULL,
                 strategy TEXT NOT NULL,
+                lifecycle_version_hash TEXT,
                 direction TEXT NOT NULL,
                 quantity REAL NOT NULL,
                 status TEXT NOT NULL,
@@ -232,6 +233,14 @@ def init_db() -> None:
             cur.execute("ALTER TABLE paper_positions ADD COLUMN broker_position_id INTEGER")
         if "realized_pnl_source" not in existing_position_columns:
             cur.execute("ALTER TABLE paper_positions ADD COLUMN realized_pnl_source TEXT NOT NULL DEFAULT 'paper_estimate'")
+        if "lifecycle_version_hash" not in existing_position_columns:
+            cur.execute("ALTER TABLE paper_positions ADD COLUMN lifecycle_version_hash TEXT")
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_paper_positions_lifecycle
+            ON paper_positions(strategy, lifecycle_version_hash, status, id)
+            """
+        )
         cur.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_decision_records_symbol_created
