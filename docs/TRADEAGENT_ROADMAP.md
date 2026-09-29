@@ -429,14 +429,28 @@ Validate:
 
 `draft → backtested → validated → paper → eligible`
 
-- [ ] Hypothesis required.
-- [ ] Development evidence.
-- [ ] OOS evidence.
-- [ ] Regime evidence.
-- [ ] Paper evidence.
-- [ ] Operator/reason required for promotion.
-- [ ] Source hash/version changes invalidate old evidence appropriately.
-- [ ] Generated strategy can never jump directly into autonomous execution.
+- [x] Hypothesis required.
+- [x] Development evidence.
+- [x] OOS evidence.
+- [x] Regime evidence.
+- [x] Paper evidence.
+- [x] Operator/reason required for promotion.
+- [x] Source hash/version changes invalidate old evidence appropriately.
+- [x] Generated strategy can never jump directly into autonomous execution.
+
+**Verification**
+- [x] Focused Phase 4.6 lifecycle/API/execution/recovery acceptance suite: 49 tests passed locally on Windows.
+- [x] Promotion remains sequential across `draft → backtested → validated → paper → eligible`.
+- [x] A measurable hypothesis plus passing development, holdout, regime, and paper evidence are required at the appropriate promotion gates.
+- [x] Promotion requires a named operator and non-empty audit reason at both API and service boundaries.
+- [x] Source edits create a fresh lifecycle version at `draft`; prior evidence and transitions remain attached to the old source hash.
+- [x] Governed paper positions persist the exact lifecycle source hash, including cTrader demo tracker recovery.
+- [x] Paper evidence is calculated only from closed positions carrying the current lifecycle source hash; older-version paper trades cannot satisfy a new version's gate.
+- [x] Generated strategy files remain research/backtest artifacts and are not imported into the trusted runtime strategy registry.
+- [x] The central execution risk gate rejects lifecycle-governed strategies before `paper` and allows only the current source version at `paper`/`eligible`.
+- [x] Local full backend regression suite.
+- [x] Local frontend production build.
+- [x] GitHub CI #76 on implementation head `a82f2312`.
 
 ---
 
@@ -614,9 +628,10 @@ Add one row after every completed task.
 | 2026-09-28 | Draft backtest correctness | Share draft/saved accounting, calculate trade-level win rate, and verify flips/exits/final-open handling | ✅ 3 focused tests + full backend suite + CI | PR #30 | Phase 4.4 |
 | 2026-09-28 | Backtest realism | Remove same-bar lookahead; unify mark-to-market accounting; model fees/slippage/spread, UTC gaps, linear short P&L, Sharpe/drawdown/hold duration, and explicit position sizing | ✅ 15 focused tests + full backend suite + frontend build + CI #65/#66 | PR #31 | Phase 4.5 |
 | 2026-09-28 | Validation methodology | Formalize 70/30 chronological development/holdout validation, independent regime evidence, walk-forward folds, leakage-safe parameter optimization, and sample gates | ✅ 25 focused Windows tests + full backend suite + frontend build + CI #71 | PR #32 | Phase 4.6 |
+| 2026-09-29 | Strategy lifecycle | Bind governed paper evidence to exact source versions, require promotion audit metadata, preserve sequential promotion, and block generated strategies from bypassing lifecycle governance | ✅ 49 focused Windows tests + full backend suite + frontend build + CI #76 | PR #33 | Phase 5.1 |
 
 ---
 
 ## 14. Next item
 
-**Phase 4.6 — Strategy lifecycle: verify the gated path `draft → backtested → validated → paper → eligible`, required hypothesis/evidence/operator audit fields, source-version invalidation, and that generated strategies cannot jump directly into autonomous execution. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 5.1 — Runtime deterministic strategies: acceptance-audit `sma_cross`, `rsi_reversal`, and `breakout` by strategy × symbol × timeframe for backtest, out-of-sample behavior, regime analysis, costs, trade frequency, drawdown, expectancy, and parameter sensitivity. Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
