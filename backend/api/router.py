@@ -51,6 +51,7 @@ from backend.services.risk import build_readiness
 from backend.services import model_service
 from backend.services import studio_llm
 from backend.services.studio_backtests import load_saved_strategy_source, list_saved_strategy_files, run_saved_strategy_backtest
+from backend.services.runtime_strategy_validation import run_runtime_strategy_audit
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -576,6 +577,29 @@ async def v2_studio_backtest(
     if validation_kind != "development_backtest":
         kwargs["validation_kind"] = validation_kind
     return run_saved_strategy_backtest(**kwargs)
+
+
+@router.get("/studio/runtime-strategy-audit")
+async def v2_runtime_strategy_audit(
+    strategy: str,
+    symbol: str,
+    timeframe: str = "M5",
+    num_bars: int = 1500,
+    fee_bps: float = 0.0,
+    slippage_bps: float = 0.0,
+    spread_bps: float = 0.0,
+    position_size_pct: float = 100.0,
+):
+    return run_runtime_strategy_audit(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        num_bars=num_bars,
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+        spread_bps=spread_bps,
+        position_size_pct=position_size_pct,
+    )
 
 
 @router.post("/studio/tasks", response_model=StudioTaskResponse)
