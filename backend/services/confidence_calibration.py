@@ -53,7 +53,7 @@ def _expectancy_by_currency(rows: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _summarize(rows: list[dict[str, Any]], drawdown_by_bucket: dict[str, float]) -> dict[str, Any]:
+def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     trade_count = len(rows)
     wins = sum(1 for row in rows if float(row.get("realized_pnl") or 0.0) > 0.0)
     losses = sum(1 for row in rows if float(row.get("realized_pnl") or 0.0) < 0.0)
@@ -75,10 +75,6 @@ def _summarize(rows: list[dict[str, Any]], drawdown_by_bucket: dict[str, float])
         "expectancy": _expectancy_by_currency(rows),
         "average_r": round(fmean(r_values), 6) if r_values else None,
         "r_trade_count": len(r_values),
-        "drawdown_contribution_r": round(
-            sum(drawdown_by_bucket.get(str(row["bucket"]), 0.0) for row in rows[:0]),
-            6,
-        ),
         "broker_trade_count": broker_trades,
         "paper_trade_count": trade_count - broker_trades,
         "realized_pnl_sources": dict(sorted(pnl_sources.items())),
@@ -108,7 +104,11 @@ def build_confidence_calibration(
     excluded_manual = 0
     for source_row in source_rows:
         details = source_row.get("intent_details")
-        source = str(details.get("source") or "auto") if isinstance(details, dict) else "auto"
+        source = (
+            str(details.get("source") or "auto").strip().lower()
+            if isinstance(details, dict)
+            else "auto"
+        )
         if source == "manual" and not include_manual:
             excluded_manual += 1
             continue
@@ -151,7 +151,7 @@ def build_confidence_calibration(
     buckets: list[dict[str, Any]] = []
     for label, lower, upper in _BUCKETS:
         bucket = bucket_rows[label]
-        summary = _summarize(bucket, {})
+        summary = _summarize(bucket)
         summary["drawdown_contribution_r"] = round(drawdown_contribution.get(label, 0.0), 6)
         buckets.append(
             {
@@ -162,7 +162,7 @@ def build_confidence_calibration(
             }
         )
 
-    overall = _summarize(rows, {})
+    overall = _summarize(rows)
     overall["drawdown_contribution_r"] = round(sum(drawdown_contribution.values()), 6)
     overall["max_drawdown_r"] = round(max_drawdown_r, 6) if any(
         row.get("r_multiple") is not None for row in rows
