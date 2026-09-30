@@ -147,7 +147,7 @@ export default function DashboardPage() {
   const handleToggleAgent = async () => {
     try {
       if (status?.config.enabled) { await stopV2Engine(); } else { await startV2Engine(); }
-      await loadDashboardState();
+      await loadDashboardState(true);
     } catch (error) { console.error('Failed to toggle engine', error); }
   };
 
@@ -172,7 +172,7 @@ export default function DashboardPage() {
   };
 
   const handleReloadStrategies = async () => {
-    try { await loadDashboardState(); }
+    try { await loadDashboardState(true); }
     catch (error) { console.error('Failed to refresh', error); }
   };
 
