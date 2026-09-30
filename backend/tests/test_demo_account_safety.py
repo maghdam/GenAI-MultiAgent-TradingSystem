@@ -167,6 +167,9 @@ def test_account_snapshot_reuses_asset_currency_cache(monkeypatch) -> None:
 
 
 def test_demo_order_is_blocked_without_verified_demo_account(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "is_connected", lambda: True)
+    monkeypatch.setattr(ctd, "is_authorized", lambda: True)
+    monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: False)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: "account type unknown")
     monkeypatch.setattr(ctd, "place_order", lambda **kwargs: pytest.fail("order must stay blocked"))
@@ -181,6 +184,9 @@ def test_demo_order_is_blocked_without_verified_demo_account(monkeypatch) -> Non
 
 def test_verified_demo_order_uses_broker_symbol_and_lot_volume(monkeypatch) -> None:
     captured = {}
+    monkeypatch.setattr(ctd, "is_connected", lambda: True)
+    monkeypatch.setattr(ctd, "is_authorized", lambda: True)
+    monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
