@@ -8,7 +8,8 @@ from backend.llm_analyzer import FALLBACK_MODEL, MODEL_DEFAULT, OLLAMA_URL, warm
 # Simple cache to prevent blocking the UI
 _CACHED_TAGS: Dict[str, Any] = {}
 _LAST_FETCH_TS: float = 0
-_CACHE_TTL: float = 30.0  # 30 seconds
+_CACHE_TTL: float = 30.0  # healthy responses
+_FAILURE_CACHE_TTL: float = 5.0  # retry outages quickly after recovery
 
 def default_model() -> str:
     return MODEL_DEFAULT
@@ -45,26 +46,32 @@ def _extract_model_names(data: Dict[str, Any] | None) -> List[str]:
     return sorted({name for name in models}, key=lambda value: value.lower())
 
 
+def _cache_ttl(entry: Dict[str, Any]) -> float:
+    return _CACHE_TTL if entry.get("ok") else _FAILURE_CACHE_TTL
+
+
 async def fetch_tags(timeout: float = 10.0, force_refresh: bool = False) -> Dict[str, Any]:
     global _CACHED_TAGS, _LAST_FETCH_TS
     now = time.time()
-    if not force_refresh and _CACHED_TAGS and (now - _LAST_FETCH_TS < _CACHE_TTL):
+    if (
+        not force_refresh
+        and _CACHED_TAGS
+        and (now - _LAST_FETCH_TS < _cache_ttl(_CACHED_TAGS))
+    ):
         return _CACHED_TAGS
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(f"{OLLAMA_URL}/api/tags")
     except Exception as exc:
-        # Don't cache failures for too long, but at least for 5 seconds to prevent spam
         res = {
             "ok": False,
             "status_code": None,
             "models": [],
             "error": str(exc),
         }
-        if now - _LAST_FETCH_TS > 5.0:
-            _CACHED_TAGS = res
-            _LAST_FETCH_TS = now
+        _CACHED_TAGS = res
+        _LAST_FETCH_TS = now
         return res
 
     payload: Dict[str, Any] | None = None
