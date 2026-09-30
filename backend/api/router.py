@@ -893,6 +893,7 @@ async def v2_analyze(request: AnalyzeRequest) -> StrategyAnalysis:
         params=request.params,
     )
     analysis.context.setdefault("engine_mode", "paper_only")
+    analysis.context.setdefault("engine_source", "manual_analyze")
     analysis.context.setdefault("kill_switch", config.kill_switch)
     saved = add_analysis(analysis)
     try:
