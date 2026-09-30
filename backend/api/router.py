@@ -40,7 +40,7 @@ from backend.services.engine import engine
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.confluence_replay import run_confluence_replay
-from backend.services.event_intelligence import detect_abnormal_events, ingest_events, refresh_configured_feeds
+from backend.services.event_intelligence import build_event_source_status, detect_abnormal_events, ingest_events, refresh_configured_feeds
 from backend.services.event_calibration import build_event_calibration, calibrate_pending_event_outcomes
 from backend.services.market_data import MarketDataError, get_bars, get_market_data_status
 from backend.services.market_intelligence import build_market_intelligence
@@ -446,6 +446,11 @@ async def v2_ingest_market_events(items: list[MarketEventInput]) -> EventRefresh
 @router.post("/market/events/refresh", response_model=EventRefreshResponse)
 async def v2_refresh_market_events() -> EventRefreshResponse:
     return await asyncio.to_thread(refresh_configured_feeds)
+
+
+@router.get("/market/events/status")
+async def v2_market_event_source_status() -> dict:
+    return await asyncio.to_thread(build_event_source_status)
 
 
 @router.get("/market/event-alerts")

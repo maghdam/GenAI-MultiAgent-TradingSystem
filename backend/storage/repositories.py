@@ -1140,6 +1140,31 @@ def add_event_source_run(
         db.commit()
 
 
+def list_event_source_runs(limit: int = 100) -> List[Dict[str, Any]]:
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT id, started_at, completed_at, source, fetched_items, inserted_events, error
+            FROM event_source_runs
+            ORDER BY completed_at DESC, id DESC
+            LIMIT ?
+            """,
+            (max(1, int(limit)),),
+        ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "started_at": datetime.fromisoformat(str(row["started_at"])),
+            "completed_at": datetime.fromisoformat(str(row["completed_at"])),
+            "source": str(row["source"]),
+            "fetched_items": int(row["fetched_items"] or 0),
+            "inserted_events": int(row["inserted_events"] or 0),
+            "error": str(row["error"] or ""),
+        }
+        for row in rows
+    ]
+
+
 def list_paper_events(limit: int = 20) -> List[PaperEvent]:
     with get_db() as db:
         rows = db.execute(

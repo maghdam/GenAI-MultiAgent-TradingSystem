@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -13,6 +14,8 @@ def _env_event():
         if not ts:
             return None
         ts_val = float(ts)
+        if not math.isfinite(ts_val) or ts_val <= time.time():
+            return None
         title = os.getenv("CALENDAR_NEXT_TITLE") or "High-impact event"
         impact = os.getenv("CALENDAR_NEXT_IMPACT") or "high"
         return {
