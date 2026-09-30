@@ -173,6 +173,14 @@ def build_confluence_shadow(
             "minimum_confidence": min_confidence,
             "events": evidence_rows,
             "bounded_adjustment": {"confirm_max": 0.12, "conflict_max": -0.20},
+            "promotion_policy": "manual_review_only",
+            "automatic_promotion": False,
+            "execution_source": "original_strategy_analysis",
+            "analysis_source": str(
+                analysis.context.get("engine_source")
+                or analysis.context.get("engine_mode")
+                or "unknown"
+            ),
         },
         execution_unchanged=True,
     )

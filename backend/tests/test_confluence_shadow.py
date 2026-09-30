@@ -20,6 +20,7 @@ def _analysis(signal: str = "long", confidence: float = 0.65) -> StrategyAnalysi
         signal=signal,
         confidence=confidence,
         created_at=NOW,
+        context={"engine_source": "auto_loop"},
     )
 
 
@@ -79,6 +80,11 @@ def test_aligned_event_evidence_confirms_but_is_bounded() -> None:
     assert shadow.shadow_confidence == pytest.approx(0.77)
     assert analysis.confidence == 0.65
     assert shadow.execution_unchanged is True
+    assert shadow.evidence["bounded_adjustment"] == {"confirm_max": 0.12, "conflict_max": -0.20}
+    assert shadow.evidence["promotion_policy"] == "manual_review_only"
+    assert shadow.evidence["automatic_promotion"] is False
+    assert shadow.evidence["execution_source"] == "original_strategy_analysis"
+    assert shadow.evidence["analysis_source"] == "auto_loop"
 
 
 def test_conflicting_evidence_can_change_shadow_threshold_only() -> None:
@@ -101,6 +107,9 @@ def test_no_trade_cannot_be_promoted_by_events() -> None:
     assert shadow.action == "context_only"
     assert shadow.shadow_signal == "no_trade"
     assert shadow.confidence_adjustment == 0.0
+    assert shadow.original_would_pass is False
+    assert shadow.shadow_would_pass is False
+    assert shadow.evidence["automatic_promotion"] is False
 
 
 def test_shadow_record_round_trips_through_repository() -> None:
