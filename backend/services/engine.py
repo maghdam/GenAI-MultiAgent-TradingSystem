@@ -39,6 +39,7 @@ class V2Engine:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
+        self._deferred_protection_positions: set[int] = set()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -212,6 +213,42 @@ class V2Engine:
         if not position:
             return
 
+        broker = get_broker_status()
+        broker_available = bool(
+            broker.socket_connected
+            and broker.account_authorized
+            and broker.demo_account_confirmed
+        )
+        if not broker_available:
+            position_key = int(position.id)
+            if position_key not in self._deferred_protection_positions:
+                if not broker.socket_connected:
+                    reason = "cTrader transport is not connected."
+                elif not broker.account_authorized:
+                    reason = broker.auth_error or "cTrader account is not authorized."
+                else:
+                    reason = "Connected cTrader account is not confirmed as demo."
+                log_incident(
+                    "warning",
+                    "ctrader_demo_protection_verification_deferred",
+                    f"Deferred broker protection verification for {position.symbol}:{position.timeframe}.",
+                    {
+                        "position_id": position.id,
+                        "broker_position_id": position.broker_position_id,
+                        "phase": "same_bar_maintenance",
+                        "reason": reason,
+                        "socket_connected": broker.socket_connected,
+                        "account_authorized": broker.account_authorized,
+                        "demo_account_confirmed": broker.demo_account_confirmed,
+                        "broker_protection_state": "unverified_broker_unavailable",
+                        "local_exit_suppressed": True,
+                        "broker_mutation_suppressed": True,
+                    },
+                )
+                self._deferred_protection_positions.add(position_key)
+            return
+
+        self._deferred_protection_positions.discard(int(position.id))
         match = match_broker_position(position, list_positions())
         if match.status in {"id_mismatch", "legacy_ambiguous"}:
             log_incident(
