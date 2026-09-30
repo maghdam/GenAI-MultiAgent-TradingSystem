@@ -615,12 +615,33 @@ These features remain research/shadow-only until validated.
 - [x] Calibration remains research/read-only and does not alter confluence promotion or execution behavior.
 
 ### 6.3 Confluence shadow mode
-- [ ] Original vs shadow confidence.
-- [ ] No-trade can never be promoted.
-- [ ] Event evidence caps.
-- [ ] Replay.
-- [ ] Forward paper observation.
-- [ ] Promotion remains manual/reviewed.
+**Status:** ✅
+
+- [x] Original vs shadow confidence.
+  - Persist both the original strategy confidence and the shadow-adjusted confidence plus pass/fail threshold outcomes.
+  - Execution continues to receive the untouched original `StrategyAnalysis`.
+- [x] No-trade can never be promoted.
+  - `no_trade` keeps zero confidence adjustment, remains `no_trade`, and cannot pass the shadow execution threshold.
+- [x] Event evidence caps.
+  - Aligned evidence can add at most +12 confidence points; conflicting evidence can remove at most 20 points.
+- [x] Replay.
+  - Decision-cohort replay uses next-bar entry, stored horizon exit, transaction costs, and one overlapping position per symbol/timeframe/strategy.
+  - Replay remains research-only and can only return a candidate for human review.
+- [x] Forward paper observation.
+  - Normal `auto_loop` scans persist shadow observations before the unchanged original execution path.
+  - Real restarted-runtime observation confirmed new policy-stamped forward records.
+- [x] Promotion remains manual/reviewed.
+  - New shadow records stamp `promotion_policy=manual_review_only`, `automatic_promotion=false`, and `execution_source=original_strategy_analysis`.
+  - Shadow subsystem failure is logged but cannot block or modify the original execution decision path.
+
+**Verification**
+- [x] Focused confluence shadow/integration/replay tests: 13 passed locally on Windows.
+- [x] Full `backend/tests -q`: passed locally.
+- [x] GitHub CI #94 on implementation head `97daad4`: backend tests + frontend production build passed.
+- [x] Existing persisted sample audit: no no-trade violations, no execution-changed records, and no promotion-policy violations.
+- [x] Real forward observation after backend restart: 4 policy-stamped `auto_loop` records observed.
+- [x] Latest real `XAUUSD × M5 × sma_cross` record preserved original confidence 0.85, shadow confidence 0.85, `execution_unchanged=true`, `automatic_promotion=false`, and `execution_source=original_strategy_analysis`.
+- [x] Replay remained `insufficient_data` with 0 priced decisions because market bars were unavailable for 255 historical records; no promotion was authorized.
 
 ---
 
@@ -736,9 +757,10 @@ Add one row after every completed task.
 | 2026-09-29 | Threshold sample sufficiency | Add fail-closed per-cell screening before any threshold study; verify against real persisted runtime data | 🟨 7 focused tests + full backend suite + CI #85; real sample: 0/3 cells sufficient (17, 15, and 25 baseline trades) | PR #36 / `b3691d1` | Keep 60% unchanged; revisit after more evidence and proceed to Phase 6.1 |
 | 2026-09-30 | Calendar / event acceptance | Accept existing ingestion, upcoming-event display, and deterministic symbol mapping; add truthful calendar expiry and persisted event-source freshness states | ✅ 11 focused tests + full backend suite + frontend build + CI #88; runtime sources not configured and next event null fail closed correctly | PR #37 / `b80aca6` | Proceed to Phase 6.2 event calibration acceptance |
 | 2026-09-30 | Event calibration acceptance | Accept fixed outcome windows, persisted samples, research gates, and reproducible reruns; expose stable calibration methodology | ✅ 7 focused tests + full backend suite + frontend build + CI #91; runtime currently has 0 calibration outcomes/groups | PR #38 / `84611a5` | Proceed to Phase 6.3 confluence shadow-mode acceptance |
+| 2026-09-30 | Confluence shadow-mode acceptance | Lock the execution boundary, no-trade non-promotion, bounded event influence, replay, forward observation, and manual-review-only promotion | ✅ 13 focused tests + full backend suite + CI #94; restarted runtime produced 4 policy-stamped auto-loop observations with execution unchanged | PR #39 / `97daad4` | Proceed to Phase 7 first resilience scenario: cTrader disconnect while flat |
 
 ---
 
 ## 14. Next item
 
-**Phase 6.3 — Confluence shadow mode: acceptance-audit original vs shadow confidence, no-trade non-promotion, event-evidence caps, replay, forward paper observation, and manual/reviewed promotion only. Keep all event/confluence effects shadow-only and execution-unchanged. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, first scenario only: acceptance-test cTrader disconnect while flat. Verify no unintended live routing, no duplicate demo orders, broker/source-of-truth behavior, actionable incident/status reporting, and deterministic recovery. Do not proceed to the next failure scenario until this one is locally validated and CI passes. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
