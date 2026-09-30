@@ -649,7 +649,19 @@ These features remain research/shadow-only until validated.
 
 Simulate deliberately:
 
-- [ ] cTrader disconnect while flat.
+- [x] cTrader disconnect while flat.
+  - Demo execution preflight now requires an active cTrader transport and authorization before cached demo-account/symbol metadata can count as execution-ready.
+  - Known pre-submission disconnects defer safely with `retryable=true`; the same bar is not consumed and may be retried after recovery.
+  - Broker submission itself refuses disconnected/unauthorized state as defense in depth.
+  - Ambiguous failures after a broker submission remain non-retryable to avoid duplicate demo orders.
+  - Status exposes `broker_disconnected` while the transport is down and clears it after recovery.
+  - Verification:
+    - 5 scenario-specific resilience tests passed locally.
+    - 69 focused broker/demo/engine/status tests passed locally.
+    - Full backend suite passed locally.
+    - GitHub CI #99 on implementation head `66e9261` passed backend tests + frontend production build.
+    - Real cTrader demo transport probe started flat with 0 positions / 0 pending orders, observed a real disconnect, fail-closed preflight reason `cTrader transport is not connected.`, actionable `broker_disconnected`, no new local order intent, and deterministic recovery to connected/authorized/demo with execution ready.
+    - Field-probe baseline was connected/authorized/demo but its first status snapshot had `execution_ready=false`; automated acceptance tests provide the pre-submission retry/duplicate-order proof, while the real probe supplies transport/status/recovery evidence.
 - [ ] cTrader disconnect with open protected position.
 - [ ] Backend restart with broker position open.
 - [ ] Frontend restart.
@@ -758,9 +770,10 @@ Add one row after every completed task.
 | 2026-09-30 | Calendar / event acceptance | Accept existing ingestion, upcoming-event display, and deterministic symbol mapping; add truthful calendar expiry and persisted event-source freshness states | ✅ 11 focused tests + full backend suite + frontend build + CI #88; runtime sources not configured and next event null fail closed correctly | PR #37 / `b80aca6` | Proceed to Phase 6.2 event calibration acceptance |
 | 2026-09-30 | Event calibration acceptance | Accept fixed outcome windows, persisted samples, research gates, and reproducible reruns; expose stable calibration methodology | ✅ 7 focused tests + full backend suite + frontend build + CI #91; runtime currently has 0 calibration outcomes/groups | PR #38 / `84611a5` | Proceed to Phase 6.3 confluence shadow-mode acceptance |
 | 2026-09-30 | Confluence shadow-mode acceptance | Lock the execution boundary, no-trade non-promotion, bounded event influence, replay, forward observation, and manual-review-only promotion | ✅ 13 focused tests + full backend suite + CI #94; restarted runtime produced 4 policy-stamped auto-loop observations with execution unchanged | PR #39 / `97daad4` | Proceed to Phase 7 first resilience scenario: cTrader disconnect while flat |
+| 2026-09-30 | Resilience: cTrader disconnect while flat | Fail closed before broker submission on disconnect/authorization loss; preserve same-bar retry only before submission and prevent duplicate replay after recovery | ✅ 5 scenario tests + 69 focused tests + full backend suite + CI #99; real flat demo transport disconnect/recovery probe passed all safety invariants | PR #40 / `66e9261` | Proceed to Phase 7 next scenario: cTrader disconnect with an open protected position |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, first scenario only: acceptance-test cTrader disconnect while flat. Verify no unintended live routing, no duplicate demo orders, broker/source-of-truth behavior, actionable incident/status reporting, and deterministic recovery. Do not proceed to the next failure scenario until this one is locally validated and CI passes. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, second scenario only: acceptance-test cTrader disconnect with an open protected TradeAgent-managed demo position. Verify the broker remains the source of truth, no local-only SL/TP close occurs while disconnected, no duplicate/competing broker action is created, protection state remains explicit/actionable, and recovery deterministically reconciles the same broker position by canonical broker position ID. Do not proceed to the next failure scenario until this one is locally validated and CI passes. If the required real protected demo position is not available, leave only the field-observation acceptance check pending after safe implementation/testing and continue according to the roadmap. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
