@@ -37,12 +37,55 @@ from backend.storage.repositories import (
 )
 
 
+def _is_canonical_tradeagent_recovery_intent(intent, broker_row: Dict[str, Any]) -> bool:
+    """Return whether an intent canonically identifies this still-open broker position."""
+    if intent.intent_type != "open":
+        return False
+
+    details = intent.details if isinstance(intent.details, dict) else {}
+    broker_order = details.get("broker_order")
+    if not isinstance(broker_order, dict):
+        return False
+
+    try:
+        intent_position_id = int(broker_order.get("position_id") or 0)
+        broker_position_id = int(broker_row.get("position_id") or 0)
+    except (TypeError, ValueError):
+        return False
+    if intent_position_id <= 0 or intent_position_id != broker_position_id:
+        return False
+
+    broker_symbol = str(broker_row.get("symbol") or "").upper()
+    broker_direction = "long" if str(broker_row.get("direction") or "").lower() == "buy" else "short"
+    if intent.symbol.upper() != broker_symbol or intent.direction != broker_direction:
+        return False
+
+    recorded_symbol = str(broker_order.get("symbol") or "").upper()
+    if recorded_symbol and recorded_symbol != broker_symbol:
+        return False
+
+    if intent.status == "executed":
+        return True
+
+    # A demo order can remain open after broker protection setup and the
+    # fail-safe close both fail. That intent is deliberately marked failed but
+    # retains a local tracker so restart recovery must keep following broker
+    # truth rather than abandoning the still-open TradeAgent position.
+    return bool(
+        intent.status == "failed"
+        and details.get("tracking_retained") is True
+        and details.get("failsafe_closed") is not True
+    )
+
+
 def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any]:
     """Recover local tracking rows for cTrader demo positions opened by TradeAgent.
 
-    Recovery is limited to broker positions whose position id can be traced to
-    an executed TradeAgent order intent. Manually opened broker positions are
-    never silently adopted.
+    Recovery is limited to broker positions canonically linked to a TradeAgent
+    open intent with matching broker position id, symbol, and direction. Normal
+    recovery requires an executed intent; the only failed-intent exception is a
+    still-open fail-safe case explicitly persisted with tracking_retained=true.
+    Manually opened or identity-mismatched broker positions are never silently adopted.
     """
     cfg = config or load_engine_config(EngineConfig())
     if not cfg.demo_autotrade:
@@ -102,18 +145,14 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
         if broker_position_id in local_broker_ids:
             continue
 
-        matching_intent = None
-        for intent in intents:
-            broker_order = intent.details.get("broker_order") if isinstance(intent.details, dict) else None
-            if not isinstance(broker_order, dict):
-                continue
-            try:
-                intent_position_id = int(broker_order.get("position_id") or 0)
-            except (TypeError, ValueError):
-                intent_position_id = 0
-            if intent_position_id == broker_position_id:
-                matching_intent = intent
-                break
+        matching_intent = next(
+            (
+                intent
+                for intent in intents
+                if _is_canonical_tradeagent_recovery_intent(intent, row)
+            ),
+            None,
+        )
 
         if matching_intent is None:
             untracked += 1
@@ -121,7 +160,11 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
                 "error",
                 "ctrader_demo_untracked_broker_position",
                 f"Broker demo position {broker_position_id} for {symbol} has no local tracker.",
-                {"broker_position": row, "automatic_adoption": False},
+                {
+                    "broker_position": row,
+                    "automatic_adoption": False,
+                    "required_identity": "tradeagent_open_intent+broker_position_id+symbol+direction",
+                },
             )
             continue
 
