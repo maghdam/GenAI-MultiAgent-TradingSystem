@@ -155,31 +155,65 @@ async def generate_text(
         text = await _generate_with_gemini(prompt=prompt, model=model_name, timeout=timeout, num_predict=num_predict)
     else:
         available = await model_service.fetch_tags(timeout=min(timeout, 5.0))
-        discovered_models = available.get("models") if isinstance(available, dict) else []
+        if not isinstance(available, dict) or not available.get("ok"):
+            detail = (
+                str(available.get("error") or "Ollama health check failed.")
+                if isinstance(available, dict)
+                else "Ollama health check failed."
+            )
+            raise RuntimeError(
+                f"Ollama is unavailable: {detail} "
+                "Check /api/llm_status and start or reconnect Ollama before retrying."
+            )
+
+        discovered_models = available.get("models") if isinstance(available.get("models"), list) else []
+        installed_by_name = {
+            str(name).strip().lower(): str(name).strip()
+            for name in discovered_models
+            if str(name).strip()
+        }
+        if not installed_by_name:
+            raise RuntimeError(
+                "Ollama is reachable but no models are installed. "
+                "Install a model and verify /api/llm_status before retrying."
+            )
+
         fallback_candidates: list[str] = [model_name, MODEL_DEFAULT]
-        if isinstance(discovered_models, list) and discovered_models:
-            fallback_candidates.append(str(discovered_models[0]))
+        fallback_candidates.append(str(discovered_models[0]))
         if FALLBACK_MODEL:
             fallback_candidates.append(FALLBACK_MODEL)
 
         last_error: Exception | None = None
         seen: set[str] = set()
+        attempted: list[str] = []
         text = ""
         resolved_model = model_name
         for candidate in fallback_candidates:
-            candidate_name = (candidate or "").strip()
-            if not candidate_name or candidate_name in seen:
+            requested_name = (candidate or "").strip()
+            installed_name = installed_by_name.get(requested_name.lower())
+            if not installed_name or installed_name.lower() in seen:
                 continue
-            seen.add(candidate_name)
+            seen.add(installed_name.lower())
+            attempted.append(installed_name)
             try:
-                text = await _generate_with_ollama(prompt=prompt, model=candidate_name, timeout=timeout, num_predict=num_predict)
-                resolved_model = candidate_name
+                text = await _generate_with_ollama(
+                    prompt=prompt,
+                    model=installed_name,
+                    timeout=timeout,
+                    num_predict=num_predict,
+                )
+                resolved_model = installed_name
                 break
             except Exception as exc:
                 last_error = exc
                 continue
         if not text:
-            raise RuntimeError(str(last_error) if last_error else "No working Ollama model is available.")
+            attempts = ", ".join(attempted) if attempted else "none"
+            detail = str(last_error) if last_error else "No installed candidate model was eligible."
+            raise RuntimeError(
+                f"No installed Ollama model completed generation. Attempted models: {attempts}. "
+                f"Last error: {detail}"
+            )
         model_name = resolved_model
 
     return {"provider": provider_key, "model": model_name, "text": (text or "").strip()}
