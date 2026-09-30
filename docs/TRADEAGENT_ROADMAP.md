@@ -567,10 +567,28 @@ Only after enough evidence, evaluate whether one global 60% threshold is inferio
 These features remain research/shadow-only until validated.
 
 ### 6.1 Calendar / events
-- [ ] Event ingestion.
-- [ ] Upcoming event display.
-- [ ] Symbol/event mapping.
-- [ ] Missing/stale data handling.
+**Status:** ✅
+
+- [x] Event ingestion.
+  - Content-hash idempotency prevents duplicate persisted events.
+  - Configured RSS refreshes persist source-run evidence and bound feed size/timeouts.
+- [x] Upcoming event display.
+  - Market Context displays the next scheduled calendar event as read-only evidence.
+  - Past/non-finite `CALENDAR_NEXT_TS` values are rejected so expired events cannot be shown as upcoming.
+- [x] Symbol/event mapping.
+  - Deterministic aliases map recognized companies/instruments to symbols.
+  - Nasdaq-component events propagate NAS100 context.
+- [x] Missing/stale data handling.
+  - Read-only `/api/market/events/status` distinguishes `not_configured`, never-refreshed/missing, stale, failed/degraded, and healthy sources.
+  - Source freshness is derived from persisted refresh runs; no source health is invented when feeds are absent.
+
+**Verification**
+- [x] Focused `backend/tests/test_event_intelligence.py backend/tests/test_calendar_v2.py -q`: 11 passed locally on Windows.
+- [x] Full `backend/tests -q`: passed locally.
+- [x] Frontend production build: passed locally (699 modules transformed).
+- [x] GitHub CI #88 on implementation head `b80aca6`: backend tests + frontend production build passed.
+- [x] Real runtime truth check: event sources currently `not_configured`; next calendar event currently `null`. Both are valid fail-closed states.
+- [x] Event/calendar context remains research/read-only and cannot create, approve, or route trades.
 
 ### 6.2 Event calibration
 - [ ] Outcome windows.
@@ -699,9 +717,10 @@ Add one row after every completed task.
 | 2026-09-29 | Runtime deterministic strategy validation | Add read-only Phase 5.1 audit service/matrix for trusted runtime strategies with OOS, regime, costs, frequency, drawdown, expectancy, and development-only parameter sensitivity | 🟨 10 focused tests + full backend + frontend build + CI #79 passed; connected cTrader historical-feed matrix attempted but unavailable because feed was disconnected | PR #34 / `f4e6038` | Keep real connected-feed evidence pending; proceed to Phase 5.2 development |
 | 2026-09-29 | Signal-strength calibration | Add exact intent→closed-trade calibration report with bucketed win rate, account-currency expectancy, average R, R-drawdown contribution, sample composition, and safe filtering | ✅ 7 focused tests + full backend suite + CI #82 backend/frontend | PR #35 / `c3ee736` | Phase 5.3 only after sufficient sample evidence |
 | 2026-09-29 | Threshold sample sufficiency | Add fail-closed per-cell screening before any threshold study; verify against real persisted runtime data | 🟨 7 focused tests + full backend suite + CI #85; real sample: 0/3 cells sufficient (17, 15, and 25 baseline trades) | PR #36 / `b3691d1` | Keep 60% unchanged; revisit after more evidence and proceed to Phase 6.1 |
+| 2026-09-30 | Calendar / event acceptance | Accept existing ingestion, upcoming-event display, and deterministic symbol mapping; add truthful calendar expiry and persisted event-source freshness states | ✅ 11 focused tests + full backend suite + frontend build + CI #88; runtime sources not configured and next event null fail closed correctly | PR #37 / `b80aca6` | Proceed to Phase 6.2 event calibration acceptance |
 
 ---
 
 ## 14. Next item
 
-**Phase 6.1 — Calendar / events: acceptance-audit event ingestion, upcoming-event display, symbol/event mapping, and missing/stale-data handling while keeping market-intelligence features research/shadow-only. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 6.2 — Event calibration: acceptance-audit outcome windows, sample counts, calibration gates, persistence, and reproducibility while keeping all event/confluence effects research/shadow-only. Do not promote event evidence into execution behavior. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
