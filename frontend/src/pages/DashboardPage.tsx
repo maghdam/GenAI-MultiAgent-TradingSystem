@@ -167,7 +167,7 @@ export default function DashboardPage() {
       const existing = status.config.watchlist || [];
       const deduped = existing.filter((item) => !(item.symbol === symbol && item.timeframe === timeframe));
       await setV2Config({ ...status.config, paper_trade_size: lotSize, watchlist: [...deduped, nextItem] });
-      await loadDashboardState();
+      await loadDashboardState(true);
     } catch (error) { console.error('Failed to add to watchlist', error); }
   };
 
