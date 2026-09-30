@@ -21,6 +21,10 @@ import Journal from '../components/Journal';
 import AIOutput from '../components/AIOutput';
 import SymbolSelector from '../components/SymbolSelector';
 import MarketContextPanel from '../components/MarketContextPanel';
+import {
+  loadFrontendRestartSnapshot,
+  type FrontendRestartSnapshot,
+} from '../services/frontendRestart';
 
 export default function DashboardPage() {
   const [symbol, setSymbol] = useState('XAUUSD');
@@ -37,15 +41,34 @@ export default function DashboardPage() {
   const [status, setStatus] = useState<V2Status | null>(null);
   const [selectedSignal, setSelectedSignal] = useState<AgentSignal | null>(null);
   const [v2Strategies, setV2Strategies] = useState<V2StrategyInfo[]>([]);
+  const [bootstrapError, setBootstrapError] = useState('');
 
   const aiOutputRef = useRef<AIOutputHandle>(null);
+  const initialSyncPendingRef = useRef(true);
+  const selectedContextRef = useRef({ symbol, timeframe, strategy });
+  selectedContextRef.current = { symbol, timeframe, strategy };
 
-  const loadDashboardState = async () => {
-    const [strategies, nextStatus] = await Promise.all([getV2Strategies(), getV2Status()]);
-    setV2Strategies(strategies);
-    setStatus(nextStatus);
+  const applyDashboardSnapshot = (
+    snapshot: FrontendRestartSnapshot,
+    syncSelection: boolean,
+  ) => {
+    if (snapshot.strategies !== null) {
+      setV2Strategies(snapshot.strategies);
+    }
+    if (snapshot.status !== null) {
+      setStatus(snapshot.status);
+    }
+    setBootstrapError(snapshot.errors.join(' · '));
+
+    if (!syncSelection || snapshot.status === null || snapshot.strategies === null) {
+      return;
+    }
+
+    const nextStatus = snapshot.status;
+    const strategies = snapshot.strategies;
+    const currentContext = selectedContextRef.current;
     const currentItem = nextStatus.config.watchlist.find(
-      (item) => item.symbol === symbol && item.timeframe === timeframe,
+      (item) => item.symbol === currentContext.symbol && item.timeframe === currentContext.timeframe,
     );
     if (currentItem) {
       setStrategy(currentItem.strategy);
@@ -53,20 +76,42 @@ export default function DashboardPage() {
     } else {
       setLotSize((current) => (current === 0.01 ? nextStatus.config.paper_trade_size || current : current));
     }
-    if (!currentItem && !strategies.some((item) => item.key === strategy) && strategies[0]?.key) {
+    if (!currentItem && !strategies.some((item) => item.key === currentContext.strategy) && strategies[0]?.key) {
       setStrategy(strategies[0].key);
     }
+    initialSyncPendingRef.current = false;
+  };
+
+  const loadDashboardState = async (syncSelection = false) => {
+    const snapshot = await loadFrontendRestartSnapshot({
+      getStatus: getV2Status,
+      getStrategies: getV2Strategies,
+    });
+    applyDashboardSnapshot(snapshot, syncSelection);
+    return snapshot;
   };
 
   useEffect(() => {
-    loadDashboardState().catch(() => { setV2Strategies([]); setStatus(null); });
-  }, []);
+    let disposed = false;
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      getV2Status().then(setStatus).catch(() => setStatus(null));
+    const refresh = async () => {
+      const snapshot = await loadFrontendRestartSnapshot({
+        getStatus: getV2Status,
+        getStrategies: getV2Strategies,
+      });
+      if (disposed) return;
+      applyDashboardSnapshot(snapshot, initialSyncPendingRef.current);
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => {
+      void refresh();
     }, 6000);
-    return () => clearInterval(interval);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   const strategyOptions = v2Strategies.map((item) => item.key);
@@ -102,7 +147,7 @@ export default function DashboardPage() {
   const handleToggleAgent = async () => {
     try {
       if (status?.config.enabled) { await stopV2Engine(); } else { await startV2Engine(); }
-      await loadDashboardState();
+      await loadDashboardState(true);
     } catch (error) { console.error('Failed to toggle engine', error); }
   };
 
@@ -122,12 +167,12 @@ export default function DashboardPage() {
       const existing = status.config.watchlist || [];
       const deduped = existing.filter((item) => !(item.symbol === symbol && item.timeframe === timeframe));
       await setV2Config({ ...status.config, paper_trade_size: lotSize, watchlist: [...deduped, nextItem] });
-      await loadDashboardState();
+      await loadDashboardState(true);
     } catch (error) { console.error('Failed to add to watchlist', error); }
   };
 
   const handleReloadStrategies = async () => {
-    try { await loadDashboardState(); }
+    try { await loadDashboardState(true); }
     catch (error) { console.error('Failed to refresh', error); }
   };
 
@@ -195,6 +240,12 @@ export default function DashboardPage() {
       <div className="ta-toolbar" style={{ paddingTop: '6px', paddingBottom: '6px', borderBottom: 'none' }}>
         <SymbolSelector onSymbolChange={handleSymbolChange} value={symbol} />
       </div>
+
+      {bootstrapError && (
+        <div className="v2-banner v2-banner-bad">
+          Frontend refresh degraded: {bootstrapError}. Retaining last known backend state and retrying automatically.
+        </div>
+      )}
 
       <MarketContextPanel symbol={symbol} />
 
