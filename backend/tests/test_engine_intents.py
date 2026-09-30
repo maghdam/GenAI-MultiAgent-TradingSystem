@@ -398,7 +398,16 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
     monkeypatch.setattr(
         engine_module,
         "get_broker_status",
-        lambda: type("S", (), {"execution_ready": True})(),
+        lambda: type(
+            "S",
+            (),
+            {
+                "execution_ready": True,
+                "socket_connected": True,
+                "account_authorized": True,
+                "demo_account_confirmed": True,
+            },
+        )(),
     )
     monkeypatch.setattr(
         engine_module,
