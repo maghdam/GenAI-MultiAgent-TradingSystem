@@ -338,6 +338,9 @@ export interface V2EventCalibrationGroup {
 
 export interface V2EventCalibrationResponse {
   generated_at: string;
+  research_only: boolean;
+  methodology_version: string;
+  methodology: Record<string, unknown>;
   evaluated_outcomes: number;
   pending_outcomes: number;
   unavailable_outcomes: number;
