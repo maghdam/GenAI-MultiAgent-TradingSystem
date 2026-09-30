@@ -33,6 +33,12 @@ _MARKET_SYMBOL_ALIASES: dict[str, tuple[str, ...]] = {
     "BTCUSD": ("BTCUSD", "BTC/USD"),
 }
 
+_METHODOLOGY_VERSION = "event-calibration-v1"
+_ELIGIBLE_HIT_RATE_MIN = 0.55
+_ELIGIBLE_BRIER_MAX = 0.24
+_DEGRADED_HIT_RATE_BELOW = 0.45
+_DEGRADED_BRIER_ABOVE = 0.30
+
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -168,6 +174,30 @@ def evaluate_event_against_bars(
     )
 
 
+def _calibration_methodology(minimum_samples: int) -> dict[str, object]:
+    return {
+        "version": _METHODOLOGY_VERSION,
+        "research_only": True,
+        "bar_timeframe": "M5",
+        "reference_rule": "First closed M5 bar at or after the event timestamp.",
+        "outcome_windows": {
+            horizon: {
+                "duration_seconds": int(duration.total_seconds()),
+                "flat_threshold_pct": threshold_pct,
+            }
+            for horizon, (duration, threshold_pct) in _HORIZONS.items()
+        },
+        "gate_policy": {
+            "minimum_samples": minimum_samples,
+            "eligible_hit_rate_min": _ELIGIBLE_HIT_RATE_MIN,
+            "eligible_brier_max": _ELIGIBLE_BRIER_MAX,
+            "degraded_hit_rate_below": _DEGRADED_HIT_RATE_BELOW,
+            "degraded_brier_above": _DEGRADED_BRIER_ABOVE,
+        },
+        "evaluated_outcomes_immutable_on_rerun": True,
+    }
+
+
 def resolve_market_symbol(symbol: str, available_symbols: set[str] | None = None) -> str:
     canonical = symbol.upper()
     available = {item.upper() for item in (available_symbols or set())}
@@ -190,6 +220,18 @@ def calibrate_pending_event_outcomes(event_limit: int = 200) -> EventCalibration
     available_symbols = {symbol.upper() for symbol in list_symbols()}
 
     for symbol, symbol_events in events_by_symbol.items():
+        pending_work = [
+            (event.id, horizon)
+            for event in symbol_events
+            for horizon in _HORIZONS
+            if not (
+                (prior := existing.get((event.id, symbol, horizon)))
+                and prior.status == "evaluated"
+            )
+        ]
+        if not pending_work:
+            continue
+
         market_symbol = resolve_market_symbol(symbol, available_symbols)
         try:
             bars = get_bars(market_symbol, "M5", 5000, prefer_live=True)
@@ -229,9 +271,9 @@ def _gate(samples: int, hit_rate: float | None, brier: float | None, minimum_sam
         return "insufficient_samples", f"Needs {minimum_samples - samples} more evaluated outcomes."
     if hit_rate is None or brier is None:
         return "observe", "Metrics are incomplete."
-    if hit_rate >= 0.55 and brier <= 0.24:
+    if hit_rate >= _ELIGIBLE_HIT_RATE_MIN and brier <= _ELIGIBLE_BRIER_MAX:
         return "eligible", "Historical accuracy and calibration clear the research gate."
-    if hit_rate < 0.45 or brier > 0.30:
+    if hit_rate < _DEGRADED_HIT_RATE_BELOW or brier > _DEGRADED_BRIER_ABOVE:
         return "degraded", "Observed performance is below the evidence gate."
     return "observe", "Sample is sufficient, but performance does not clear the evidence gate."
 
@@ -275,6 +317,9 @@ def build_event_calibration() -> EventCalibrationResponse:
             )
         )
     return EventCalibrationResponse(
+        research_only=True,
+        methodology_version=_METHODOLOGY_VERSION,
+        methodology=_calibration_methodology(minimum_samples),
         evaluated_outcomes=len(evaluated),
         pending_outcomes=sum(1 for outcome in outcomes if outcome.status == "pending"),
         unavailable_outcomes=sum(1 for outcome in outcomes if outcome.status == "unavailable"),
