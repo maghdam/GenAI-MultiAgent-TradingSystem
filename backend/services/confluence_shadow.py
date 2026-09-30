@@ -176,6 +176,11 @@ def build_confluence_shadow(
             "promotion_policy": "manual_review_only",
             "automatic_promotion": False,
             "execution_source": "original_strategy_analysis",
+            "analysis_source": str(
+                analysis.context.get("engine_source")
+                or analysis.context.get("engine_mode")
+                or "unknown"
+            ),
         },
         execution_unchanged=True,
     )
