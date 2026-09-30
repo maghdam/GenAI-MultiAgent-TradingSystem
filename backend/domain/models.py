@@ -541,6 +541,9 @@ class EventCalibrationGroup(BaseModel):
 
 class EventCalibrationResponse(BaseModel):
     generated_at: datetime = Field(default_factory=utcnow_naive)
+    research_only: bool = True
+    methodology_version: str = "event-calibration-v1"
+    methodology: Dict[str, Any] = Field(default_factory=dict)
     evaluated_outcomes: int = 0
     pending_outcomes: int = 0
     unavailable_outcomes: int = 0
