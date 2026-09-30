@@ -591,11 +591,28 @@ These features remain research/shadow-only until validated.
 - [x] Event/calendar context remains research/read-only and cannot create, approve, or route trades.
 
 ### 6.2 Event calibration
-- [ ] Outcome windows.
-- [ ] Sample counts.
-- [ ] Calibration gates.
-- [ ] Persistence.
-- [ ] Reproducibility.
+**Status:** ✅
+
+- [x] Outcome windows.
+  - Fixed 5m, 30m, 4h, and 1d research horizons use the first closed M5 bar at/after the event timestamp as the reference.
+  - Each horizon exposes its exact duration and flat-return threshold in the calibration methodology.
+- [x] Sample counts.
+  - Reports evaluated, pending, and unavailable outcome totals plus per-event-type/per-horizon sample counts.
+- [x] Calibration gates.
+  - Minimum-sample, hit-rate, and Brier-score gates remain research-only and classify groups as insufficient, observe, eligible, or degraded.
+- [x] Persistence.
+  - Outcomes persist per event × symbol × horizon and evaluated outcomes remain unchanged on rerun.
+- [x] Reproducibility.
+  - Stable methodology version `event-calibration-v1` exposes the bar timeframe, reference rule, outcome windows, thresholds, and gate policy.
+  - Fully evaluated symbols skip market-data refetch on rerun, preventing transient feed outages from falsely invalidating completed calibration evidence.
+
+**Verification**
+- [x] Focused `backend/tests/test_event_calibration.py -q`: 7 passed locally on Windows.
+- [x] Full `backend/tests -q`: passed locally.
+- [x] Frontend production build: passed locally (699 modules transformed).
+- [x] GitHub CI #91 on implementation head `84611a5`: backend tests + frontend production build passed.
+- [x] Real runtime calibration report inspected: methodology version `event-calibration-v1`, research-only true, 0 evaluated / 0 pending / 0 unavailable outcomes, and no groups.
+- [x] Calibration remains research/read-only and does not alter confluence promotion or execution behavior.
 
 ### 6.3 Confluence shadow mode
 - [ ] Original vs shadow confidence.
@@ -718,9 +735,10 @@ Add one row after every completed task.
 | 2026-09-29 | Signal-strength calibration | Add exact intent→closed-trade calibration report with bucketed win rate, account-currency expectancy, average R, R-drawdown contribution, sample composition, and safe filtering | ✅ 7 focused tests + full backend suite + CI #82 backend/frontend | PR #35 / `c3ee736` | Phase 5.3 only after sufficient sample evidence |
 | 2026-09-29 | Threshold sample sufficiency | Add fail-closed per-cell screening before any threshold study; verify against real persisted runtime data | 🟨 7 focused tests + full backend suite + CI #85; real sample: 0/3 cells sufficient (17, 15, and 25 baseline trades) | PR #36 / `b3691d1` | Keep 60% unchanged; revisit after more evidence and proceed to Phase 6.1 |
 | 2026-09-30 | Calendar / event acceptance | Accept existing ingestion, upcoming-event display, and deterministic symbol mapping; add truthful calendar expiry and persisted event-source freshness states | ✅ 11 focused tests + full backend suite + frontend build + CI #88; runtime sources not configured and next event null fail closed correctly | PR #37 / `b80aca6` | Proceed to Phase 6.2 event calibration acceptance |
+| 2026-09-30 | Event calibration acceptance | Accept fixed outcome windows, persisted samples, research gates, and reproducible reruns; expose stable calibration methodology | ✅ 7 focused tests + full backend suite + frontend build + CI #91; runtime currently has 0 calibration outcomes/groups | PR #38 / `84611a5` | Proceed to Phase 6.3 confluence shadow-mode acceptance |
 
 ---
 
 ## 14. Next item
 
-**Phase 6.2 — Event calibration: acceptance-audit outcome windows, sample counts, calibration gates, persistence, and reproducibility while keeping all event/confluence effects research/shadow-only. Do not promote event evidence into execution behavior. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 6.3 — Confluence shadow mode: acceptance-audit original vs shadow confidence, no-trade non-promotion, event-evidence caps, replay, forward paper observation, and manual/reviewed promotion only. Keep all event/confluence effects shadow-only and execution-unchanged. Phase 5.3 threshold comparison remains pending because none of the three observed strategy × symbol × timeframe cells has enough closed automatic-trade evidence; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
