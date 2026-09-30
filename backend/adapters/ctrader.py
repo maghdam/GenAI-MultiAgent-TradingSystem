@@ -58,7 +58,12 @@ class CTraderBrokerAdapter:
         return self._thread_started
 
     def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
-        """Return whether broker metadata is ready to safely size a demo order."""
+        """Return whether broker state and metadata are ready to safely submit a demo order."""
+        if not self.connected():
+            return False, "cTrader transport is not connected."
+        if not ctd.is_authorized():
+            reason = ctd.get_auth_error() or "cTrader account is not authorized."
+            return False, reason
         if not ctd.is_demo_account_confirmed():
             reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
             return False, reason
