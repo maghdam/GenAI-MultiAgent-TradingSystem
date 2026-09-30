@@ -318,6 +318,9 @@ def test_symbol_details_preserve_protocol_volume_metadata(monkeypatch) -> None:
 def test_demo_symbol_execution_readiness_waits_for_full_contract(monkeypatch) -> None:
     from backend import ctrader_client as ctd
 
+    monkeypatch.setattr(ctd, "is_connected", lambda: True)
+    monkeypatch.setattr(ctd, "is_authorized", lambda: True)
+    monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})

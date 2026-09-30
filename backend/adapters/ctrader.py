@@ -58,7 +58,12 @@ class CTraderBrokerAdapter:
         return self._thread_started
 
     def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
-        """Return whether broker metadata is ready to safely size a demo order."""
+        """Return whether broker state and metadata are ready to safely submit a demo order."""
+        if not self.connected():
+            return False, "cTrader transport is not connected."
+        if not ctd.is_authorized():
+            reason = ctd.get_auth_error() or "cTrader account is not authorized."
+            return False, reason
         if not ctd.is_demo_account_confirmed():
             reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
             return False, reason
@@ -269,6 +274,11 @@ class CTraderBrokerAdapter:
         take_profit: float | None = None,
         client_msg_id: str | None = None,
     ) -> Dict[str, Any]:
+        if not self.connected():
+            raise RuntimeError("Demo order blocked: cTrader transport is not connected.")
+        if not ctd.is_authorized():
+            reason = ctd.get_auth_error() or "cTrader account is not authorized."
+            raise RuntimeError(f"Demo order blocked: {reason}")
         if not ctd.is_demo_account_confirmed():
             reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
             raise RuntimeError(f"Demo order blocked: {reason}")
