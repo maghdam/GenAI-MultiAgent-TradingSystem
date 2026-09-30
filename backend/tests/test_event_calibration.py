@@ -7,6 +7,7 @@ import pandas as pd
 from backend.domain.models import MarketEventInput
 from backend.services.event_calibration import (
     _gate,
+    build_event_calibration,
     calibrate_pending_event_outcomes,
     evaluate_event_against_bars,
     resolve_market_symbol,
@@ -92,3 +93,97 @@ def test_evidence_gate_requires_sample_size_and_calibration() -> None:
 def test_nasdaq_canonical_symbol_resolves_to_broker_alias() -> None:
     assert resolve_market_symbol("NAS100", {"EURUSD", "US100", "XAUUSD"}) == "US100"
     assert resolve_market_symbol("NAS100", {"USTEC"}) == "USTEC"
+
+def test_calibration_rerun_preserves_evaluated_outcomes_without_refetch(monkeypatch) -> None:
+    _event()
+    bars = _bars(310)
+    monkeypatch.setattr(
+        "backend.services.event_calibration.get_bars",
+        lambda symbol, timeframe, num_bars, prefer_live: bars,
+    )
+
+    first = calibrate_pending_event_outcomes()
+    before = [
+        (
+            outcome.id,
+            outcome.event_id,
+            outcome.symbol,
+            outcome.market_symbol,
+            outcome.horizon,
+            outcome.status,
+            outcome.reference_at,
+            outcome.target_at,
+            outcome.reference_price,
+            outcome.target_price,
+            outcome.forward_return_pct,
+            outcome.direction_hit,
+            outcome.brier_score,
+            outcome.threshold_pct,
+            outcome.computed_at,
+        )
+        for outcome in list_event_outcomes(20)
+    ]
+
+    def _unexpected_fetch(*args, **kwargs):
+        raise AssertionError("evaluated outcomes must not require a market-data refetch")
+
+    monkeypatch.setattr("backend.services.event_calibration.get_bars", _unexpected_fetch)
+
+    second = calibrate_pending_event_outcomes()
+    after = [
+        (
+            outcome.id,
+            outcome.event_id,
+            outcome.symbol,
+            outcome.market_symbol,
+            outcome.horizon,
+            outcome.status,
+            outcome.reference_at,
+            outcome.target_at,
+            outcome.reference_price,
+            outcome.target_price,
+            outcome.forward_return_pct,
+            outcome.direction_hit,
+            outcome.brier_score,
+            outcome.threshold_pct,
+            outcome.computed_at,
+        )
+        for outcome in list_event_outcomes(20)
+    ]
+
+    assert first.ok is True
+    assert first.outcomes_evaluated == 4
+    assert second.ok is True
+    assert second.events_checked == 1
+    assert second.outcomes_evaluated == 0
+    assert second.outcomes_pending == 0
+    assert second.outcomes_unavailable == 0
+    assert after == before
+
+
+def test_calibration_report_exposes_reproducible_research_methodology(monkeypatch) -> None:
+    monkeypatch.setenv("EVENT_CALIBRATION_MIN_SAMPLES", "40")
+
+    report = build_event_calibration()
+
+    assert report.research_only is True
+    assert report.methodology_version == "event-calibration-v1"
+    assert report.minimum_samples == 40
+    assert report.methodology["version"] == "event-calibration-v1"
+    assert report.methodology["research_only"] is True
+    assert report.methodology["bar_timeframe"] == "M5"
+    assert report.methodology["evaluated_outcomes_immutable_on_rerun"] is True
+    assert report.methodology["outcome_windows"] == {
+        "5m": {"duration_seconds": 300, "flat_threshold_pct": 0.05},
+        "30m": {"duration_seconds": 1800, "flat_threshold_pct": 0.10},
+        "4h": {"duration_seconds": 14400, "flat_threshold_pct": 0.25},
+        "1d": {"duration_seconds": 86400, "flat_threshold_pct": 0.50},
+    }
+    assert report.methodology["gate_policy"] == {
+        "minimum_samples": 40,
+        "eligible_hit_rate_min": 0.55,
+        "eligible_brier_max": 0.24,
+        "degraded_hit_rate_below": 0.45,
+        "degraded_brier_above": 0.30,
+    }
+
