@@ -20,6 +20,7 @@ def _analysis(signal: str = "long", confidence: float = 0.65) -> StrategyAnalysi
         signal=signal,
         confidence=confidence,
         created_at=NOW,
+        context={"engine_source": "auto_loop"},
     )
 
 
@@ -83,6 +84,7 @@ def test_aligned_event_evidence_confirms_but_is_bounded() -> None:
     assert shadow.evidence["promotion_policy"] == "manual_review_only"
     assert shadow.evidence["automatic_promotion"] is False
     assert shadow.evidence["execution_source"] == "original_strategy_analysis"
+    assert shadow.evidence["analysis_source"] == "auto_loop"
 
 
 def test_conflicting_evidence_can_change_shadow_threshold_only() -> None:
