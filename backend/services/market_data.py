@@ -122,8 +122,11 @@ def _require_valid_market_frame(
 
     market_data_dependency_state.last_success = False
     market_data_dependency_state.market_data_ready = False
+    reason_text = reason or "Market frame validation failed."
+    if not reason_text.lower().startswith("malformed market data"):
+        reason_text = f"Malformed market data: {reason_text}"
     market_data_dependency_state.last_reason = (
-        f"{reason or 'Malformed market data.'} "
+        f"{reason_text} "
         f"{symbol.upper()}:{timeframe.upper()} source={source}"
     )
     raise MarketDataError(market_data_dependency_state.last_reason)
