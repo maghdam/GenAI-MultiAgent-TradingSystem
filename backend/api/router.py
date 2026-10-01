@@ -249,6 +249,30 @@ def _active_status_incidents(
             )
         )
 
+    unresolved_ack = next(
+        (
+            intent
+            for intent in list_order_intents(100)
+            if intent.intent_type == "open"
+            and intent.status == "failed"
+            and isinstance(intent.details, dict)
+            and intent.details.get("outcome_state") == "ambiguous_post_submit"
+            and intent.details.get("ambiguity_resolved") is not True
+        ),
+        None,
+    )
+    if unresolved_ack is not None:
+        incidents.append(
+            ActiveIncident(
+                level="error",
+                code="order_acknowledgement_ambiguous",
+                message=(
+                    f"cTrader demo order intent {unresolved_ack.id} has an ambiguous post-submission "
+                    "acknowledgement timeout. Automatic resubmission is blocked until broker truth is reconciled."
+                ),
+            )
+        )
+
     if config.demo_autotrade and broker.socket_connected:
         if not broker.demo_account_confirmed:
             incidents.append(
