@@ -12,8 +12,8 @@ from backend.storage.repositories import load_cached_market_bars, upsert_market_
 def _sample_bars(base_close: float = 100.0) -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"open": base_close - 1.0, "high": base_close + 1.0, "low": base_close - 2.0, "close": base_close, "volume": 10},
-            {"open": base_close, "high": base_close + 2.0, "low": base_close - 1.0, "close": base_close + 1.0, "volume": 12},
+            {"open": base_close - 0.25, "high": base_close + 0.5, "low": base_close - 0.5, "close": base_close, "volume": 10},
+            {"open": base_close, "high": base_close + 1.2, "low": base_close - 0.5, "close": base_close + 1.0, "volume": 12},
         ],
         index=pd.to_datetime(["2026-03-29T10:00:00Z", "2026-03-29T10:05:00Z"], utc=True),
     )
