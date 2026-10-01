@@ -178,7 +178,7 @@ def _status_truth_checks(
             detail=(
                 "Configured Ollama model is reachable and installed."
                 if runtime.ollama_ready
-                else "Configured Ollama model is not currently ready."
+                else "Configured Ollama model is not ready; deterministic trading remains independent, while LLM/research actions are degraded. Check /api/llm_status."
             ),
         ),
     ]
@@ -258,7 +258,10 @@ def _active_status_incidents(
             ActiveIncident(
                 level="warning",
                 code="model_not_ready",
-                message="The configured Ollama model is not currently ready.",
+                message=(
+                    "The configured Ollama model is not ready. Deterministic trading remains independent; "
+                    "LLM/research actions are degraded. Check /api/llm_status and restore the configured model."
+                ),
             )
         )
 
