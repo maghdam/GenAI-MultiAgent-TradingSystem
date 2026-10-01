@@ -42,6 +42,7 @@ class V2Engine:
         self._wake = asyncio.Event()
         self._deferred_protection_positions: set[int] = set()
         self._stale_market_items: set[str] = set()
+        self._malformed_market_items: set[str] = set()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -171,7 +172,29 @@ class V2Engine:
         symbol = item.symbol.upper()
         timeframe = item.timeframe.upper()
         key = f"{symbol}|{timeframe}"
-        df = get_bars(symbol, timeframe, 600)
+        try:
+            df = get_bars(symbol, timeframe, 600)
+        except MarketDataError as exc:
+            if "malformed market data" in str(exc).lower():
+                if key not in self._malformed_market_items:
+                    log_incident(
+                        "warning",
+                        "market_data_malformed",
+                        f"Deferred {symbol}:{timeframe} because market data is malformed.",
+                        {
+                            "reason": str(exc),
+                            "retryable": True,
+                            "bar_state_advanced": False,
+                            "strategy_analysis_suppressed": True,
+                            "order_intent_suppressed": True,
+                            "position_mark_suppressed": True,
+                            "broker_mutation_suppressed": True,
+                        },
+                    )
+                    self._malformed_market_items.add(key)
+            raise
+
+        self._malformed_market_items.discard(key)
         last_dt = df.index[-1].to_pydatetime()
         fresh, freshness, stale_reason = record_market_bar_freshness(
             symbol,
