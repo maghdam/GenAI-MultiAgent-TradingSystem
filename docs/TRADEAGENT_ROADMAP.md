@@ -739,7 +739,20 @@ Simulate deliberately:
     - [x] Focused market-data / engine / risk / status / demo regression set passed locally.
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #119 on implementation head `fdb24cc` passed backend tests + frontend production build.
-- [ ] Market data malformed.
+- [x] Market data malformed.
+  - [x] OHLC integrity validation is centralized and shared by the cTrader adapter, market-data service/cache layer, auto-loop trading boundary, and execution risk engine.
+  - [x] Incomplete, non-numeric/non-finite, non-positive, invalid high/low, open/close outside range, and extreme-range bars fail closed.
+  - [x] cTrader no longer silently drops malformed OHLC rows and falls back to an older valid bar; established invalid-timestamp row filtering is preserved when valid timestamped rows remain.
+  - [x] Memory-cache and persisted-cache frames are validated before being marked healthy or returned to the engine.
+  - [x] Auto-loop validation occurs before same-bar marking, broker protection synchronization, strategy analysis, order-intent creation, or broker submission.
+  - [x] Malformed data is treated as retryable: bar state is not advanced and no automatic order intent or broker action is created.
+  - [x] Repeated malformed observations for one symbol/timeframe episode are incident-deduplicated and surfaced as actionable `market_data_malformed`; the active incident clears after valid data returns.
+  - [x] Recovery is deterministic: the first valid bar after a malformed episode processes normally, then the normal bar-state guard prevents duplicate replay.
+  - Verification:
+    - [x] 12 scenario-specific malformed-market-data pytest cases passed locally.
+    - [x] Focused market / engine / risk / status / adapter regression set passed locally.
+    - [x] Full backend suite passed locally.
+    - [x] GitHub CI #123 on implementation head `b21a9f9` passed backend tests + frontend production build.
 - [ ] Order acknowledgement timeout.
 - [ ] Protection amend rejected.
 - [ ] Broker close rejected.
@@ -848,9 +861,10 @@ Add one row after every completed task.
 | 2026-10-01 | Resilience: Ollama/model unavailable | Keep deterministic trading independent from model availability, fail Studio model calls fast and explicitly during outage, bound fallback attempts, and recheck recovery promptly | 🟨 7 scenario tests + 64 focused tests + full backend suite + CI #113 passed; real forced-outage observation pending because Windows immediately respawned Ollama before `ollama_ready=false` could be observed | PR #44 / `637fc00` | Leave field check pending; proceed to Phase 7 symbol-metadata-delayed scenario |
 | 2026-10-01 | Resilience: symbol metadata delayed | Invalidate stale cTrader contract state across sessions, keep fallback/light symbols non-executable, fail closed before intent/order submission, and restore readiness only from complete current-session broker contracts | ✅ 6 scenario tests + focused broker/demo/engine/status regression + full backend suite + CI #116 passed | PR #45 / `6e8e87c` | Proceed to Phase 7 market-bars-stale scenario |
 | 2026-10-01 | Resilience: stale market bars | Fail closed before same-bar maintenance/strategy/intent/broker mutation, preserve retryable bar state, expose active stale-feed status, and process the first fresh recovery bar exactly once | ✅ 6 scenario tests + focused market/engine/risk/status regression + full backend suite + CI #119 passed | PR #46 / `fdb24cc` | Proceed to Phase 7 malformed-market-data scenario |
+| 2026-10-01 | Resilience: malformed market data | Centralize OHLC integrity checks, reject malformed broker/cache data before trading logic, preserve retryable bar state, deduplicate actionable malformed-feed incidents, and recover on the first valid bar exactly once | ✅ 12 scenario cases + focused market/engine/risk/status/adapter regression + full backend suite + CI #123 passed | PR #47 / `b21a9f9` | Proceed to Phase 7 order-acknowledgement-timeout scenario |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, eighth scenario only: acceptance-test malformed market data. Verify incomplete/non-numeric/non-positive/invalid-OHLC/extreme-range bars fail closed before automatic demo execution, do not create duplicate or competing broker actions, preserve broker/source-of-truth invariants, surface an actionable malformed-market-data reason/incident, avoid consuming bar state when retry/recovery is appropriate, and recover deterministically once a valid bar arrives. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, ninth scenario only: acceptance-test order acknowledgement timeout. Verify an ambiguous post-submission acknowledgement timeout never triggers an automatic retry or duplicate demo order, the local intent is marked non-retryable/ambiguous rather than falsely executed, broker/source-of-truth reconciliation is used to resolve whether a position/order actually exists, the incident is actionable, live routing remains blocked, and recovery is deterministic without creating a competing order. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
