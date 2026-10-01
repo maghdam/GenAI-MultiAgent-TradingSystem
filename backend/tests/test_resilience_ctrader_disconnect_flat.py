@@ -15,6 +15,16 @@ from backend.services.execution_engine import ExecutionResult, execute_paper_sig
 from backend.storage.repositories import list_incidents, list_order_intents, list_paper_positions
 
 
+@pytest.fixture(autouse=True)
+def current_market_bar_fixture(monkeypatch):
+    """Disconnect tests isolate transport retry behavior from feed age."""
+    monkeypatch.setattr(
+        engine_module,
+        "record_market_bar_freshness",
+        lambda *args, **kwargs: (True, {}, None),
+    )
+
+
 def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
