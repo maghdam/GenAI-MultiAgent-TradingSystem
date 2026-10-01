@@ -76,6 +76,7 @@ def test_demo_preflight_requires_live_transport_and_authorization_even_with_cach
     monkeypatch.setattr(ctd, "get_auth_error", lambda: "authorization expired")
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
+    monkeypatch.setattr(ctd, "is_symbol_metadata_ready", lambda: True)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_lot_size_map", {7: 100.0})
     monkeypatch.setattr(ctd, "symbol_min_volume_map", {7: 100})
