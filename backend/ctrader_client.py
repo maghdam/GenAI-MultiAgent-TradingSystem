@@ -421,9 +421,16 @@ def symbol_details_response_cb(res):
             symbol_step_verified[sid] = True
         if max_volume_raw is not None:
             symbol_max_volume_map[sid] = int(max_volume_raw)
-        detailed += 1
-    SYMBOL_METADATA_READY = detailed > 0
-    print(f"[DEBUG] Loaded full contract metadata for {detailed} symbols.")
+        if (
+            lot_size_raw
+            and min_volume_raw is not None
+            and step_volume_raw is not None
+            and max_volume_raw is not None
+        ):
+            detailed += 1
+    expected = len(symbol_map)
+    SYMBOL_METADATA_READY = expected > 0 and detailed == expected
+    print(f"[DEBUG] Loaded complete contract metadata for {detailed}/{expected} symbols.")
 
 def account_auth_cb(_):
     global AUTHORIZED, AUTH_ERROR
