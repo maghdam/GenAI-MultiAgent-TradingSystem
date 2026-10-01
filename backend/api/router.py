@@ -235,10 +235,16 @@ def _active_status_incidents(
         and not broker.market_data_ready
         and market_note
     ):
+        market_note_lower = market_note.lower()
+        market_code = (
+            "market_data_malformed"
+            if "malformed market data" in market_note_lower
+            else ("market_data_stale" if "stale" in market_note_lower else "market_data_unavailable")
+        )
         incidents.append(
             ActiveIncident(
                 level="warning",
-                code="market_data_stale" if "stale" in market_note.lower() else "market_data_unavailable",
+                code=market_code,
                 message=market_note,
             )
         )

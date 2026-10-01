@@ -10,6 +10,7 @@ import pandas as pd
 
 from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, InstrumentSpec, SymbolLimits
 from backend.services.runtime_state import external_dependency_state, market_data_dependency_state
+from backend.services.market_bar_validation import assess_market_frame
 
 
 def _utc_now() -> datetime:
@@ -1068,17 +1069,31 @@ class CTraderBrokerAdapter:
         if df.empty:
             raise RuntimeError(f"No market data available for {sym}:{tf}")
 
+        required_columns = {"time", "open", "high", "low", "close"}
+        missing = sorted(required_columns.difference(df.columns))
+        if missing:
+            raise RuntimeError(
+                f"Malformed market data for {sym}:{tf}: missing columns {', '.join(missing)}."
+            )
+
         df["time"] = self._normalize_time_column(df["time"])
-        df = df.dropna(subset=["time"]).set_index("time").sort_index()
+        df = df.dropna(subset=["time"])
+        if df.empty:
+            raise RuntimeError(f"Malformed market data for {sym}:{tf}: no valid bar timestamps.")
+        df = df.set_index("time").sort_index()
         for col in ("open", "high", "low", "close", "volume"):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
-        df = df.dropna(subset=["open", "high", "low", "close"])
-        if df.empty:
-            raise RuntimeError(f"No market data available for {sym}:{tf}")
         if num_bars and len(df) > num_bars:
             df = df.iloc[-num_bars:]
-        live_price = float(df["close"].iloc[-1]) if not df.empty else None
+
+        valid, _details, malformed_reason = assess_market_frame(tf, df)
+        if not valid:
+            raise RuntimeError(
+                f"{malformed_reason or 'Malformed market data.'} {sym}:{tf}"
+            )
+
+        live_price = float(df["close"].iloc[-1])
         return df, live_price
 
     def get_bars(self, symbol: str, timeframe: str, num_bars: int):

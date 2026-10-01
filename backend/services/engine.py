@@ -9,6 +9,7 @@ from backend.services.execution_engine import execute_paper_signal
 from backend.services.broker import close_demo_position, get_broker_status, list_positions, sync_demo_position_targets
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars, record_market_bar_freshness
+from backend.services.market_bar_validation import assess_market_frame
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.runtime_state import market_data_dependency_state
 from backend.services.broker_ledger import (
@@ -42,6 +43,7 @@ class V2Engine:
         self._wake = asyncio.Event()
         self._deferred_protection_positions: set[int] = set()
         self._stale_market_items: set[str] = set()
+        self._malformed_market_items: set[str] = set()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -171,7 +173,62 @@ class V2Engine:
         symbol = item.symbol.upper()
         timeframe = item.timeframe.upper()
         key = f"{symbol}|{timeframe}"
-        df = get_bars(symbol, timeframe, 600)
+        try:
+            df = get_bars(symbol, timeframe, 600)
+        except MarketDataError as exc:
+            if "malformed market data" in str(exc).lower():
+                if key not in self._malformed_market_items:
+                    log_incident(
+                        "warning",
+                        "market_data_malformed",
+                        f"Deferred {symbol}:{timeframe} because market data is malformed.",
+                        {
+                            "reason": str(exc),
+                            "retryable": True,
+                            "bar_state_advanced": False,
+                            "strategy_analysis_suppressed": True,
+                            "order_intent_suppressed": True,
+                            "position_mark_suppressed": True,
+                            "broker_mutation_suppressed": True,
+                        },
+                    )
+                    self._malformed_market_items.add(key)
+            raise
+
+        valid_frame, malformed_details, malformed_reason = assess_market_frame(
+            timeframe,
+            df,
+        )
+        if not valid_frame:
+            reason_text = malformed_reason or "Malformed market data."
+            if not reason_text.lower().startswith("malformed market data"):
+                reason_text = f"Malformed market data: {reason_text}"
+            market_data_dependency_state.last_success = False
+            market_data_dependency_state.market_data_ready = False
+            market_data_dependency_state.last_symbol = symbol
+            market_data_dependency_state.last_timeframe = timeframe
+            market_data_dependency_state.last_checked_at = datetime.now(UTC).replace(tzinfo=None)
+            market_data_dependency_state.last_reason = f"{reason_text} {symbol}:{timeframe}"
+            if key not in self._malformed_market_items:
+                log_incident(
+                    "warning",
+                    "market_data_malformed",
+                    f"Deferred {symbol}:{timeframe} because market data is malformed.",
+                    {
+                        **malformed_details,
+                        "reason": reason_text,
+                        "retryable": True,
+                        "bar_state_advanced": False,
+                        "strategy_analysis_suppressed": True,
+                        "order_intent_suppressed": True,
+                        "position_mark_suppressed": True,
+                        "broker_mutation_suppressed": True,
+                    },
+                )
+                self._malformed_market_items.add(key)
+            raise MarketDataError(reason_text)
+
+        self._malformed_market_items.discard(key)
         last_dt = df.index[-1].to_pydatetime()
         fresh, freshness, stale_reason = record_market_bar_freshness(
             symbol,
