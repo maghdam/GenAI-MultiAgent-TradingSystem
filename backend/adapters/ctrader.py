@@ -235,6 +235,13 @@ class CTraderBrokerAdapter:
 
         ready = connected and authorized and metadata_ready and symbols_loaded > 0
         market_data_ready = bool(market_data_dependency_state.market_data_ready and ready)
+        if (
+            ready
+            and market_data_dependency_state.last_checked_at is not None
+            and not market_data_dependency_state.market_data_ready
+        ):
+            reason = str(market_data_dependency_state.last_reason or "Market data is not ready.")
+            notes.append(f"market_data_unavailable: {reason}")
         monetary_snapshot_ready = bool(
             account_snapshot is not None
             and account_snapshot.verified
@@ -1087,13 +1094,22 @@ class CTraderBrokerAdapter:
             "timeframe": tf,
             "ok": False,
             "reason": "",
+            "latest_bar_at": None,
         }
 
         try:
             df, _ = self._get_real_bars(sym, tf, 5)
             if df is not None and not df.empty:
+                latest = df.index[-1]
+                if hasattr(latest, "to_pydatetime"):
+                    latest = latest.to_pydatetime()
                 status["ok"] = True
                 status["reason"] = f"Fetched {len(df)} bars"
+                status["latest_bar_at"] = (
+                    latest.isoformat()
+                    if isinstance(latest, datetime)
+                    else str(latest)
+                )
                 return status
         except Exception as exc:
             status["reason"] = str(exc)
