@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+import pytest
+
 from backend.adapters.ctrader import CTraderBrokerAdapter
 from backend.domain.models import BrokerAccountSnapshot
+
+
+@pytest.fixture(autouse=True)
+def current_session_symbol_metadata(monkeypatch):
+    """Legacy adapter tests model a broker session whose contract load has completed."""
+    monkeypatch.setattr(
+        "backend.adapters.ctrader.ctd.is_symbol_metadata_ready",
+        lambda: True,
+    )
 
 
 def test_start_transport_is_idempotent(monkeypatch) -> None:
