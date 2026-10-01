@@ -8,6 +8,7 @@ from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis,
 from backend.storage.repositories import daily_realized_pnl, daily_trade_count, list_paper_positions
 from backend.services.financial_units import MonetaryBasis, daily_loss_budget, resolve_monetary_basis
 from backend.services.market_data import assess_market_bar_freshness
+from backend.services.market_bar_validation import assess_market_bar_snapshot
 from backend.services.strategy_lifecycle import paper_execution_gate
 
 
@@ -17,56 +18,6 @@ class RiskDecision:
     reasons: List[str] = field(default_factory=list)
     details: Dict[str, object] = field(default_factory=dict)
     intent_type: str = "skip"
-
-
-def _max_bar_range_pct(timeframe: str) -> float:
-    return {
-        "M1": 1.5,
-        "M5": 2.0,
-        "M15": 3.0,
-        "M30": 4.0,
-        "H1": 5.0,
-        "H4": 8.0,
-        "D1": 15.0,
-        "W1": 25.0,
-    }.get((timeframe or "M5").upper(), 3.0)
-
-
-def _validate_bar_snapshot(
-    timeframe: str,
-    bar_snapshot: Dict[str, object] | None,
-) -> tuple[bool, Dict[str, object], str | None]:
-    if not bar_snapshot:
-        return True, {}, None
-
-    details: Dict[str, object] = {
-        "bar_open": bar_snapshot.get("open"),
-        "bar_high": bar_snapshot.get("high"),
-        "bar_low": bar_snapshot.get("low"),
-        "bar_close": bar_snapshot.get("close"),
-    }
-    try:
-        open_price = float(bar_snapshot["open"])
-        high_price = float(bar_snapshot["high"])
-        low_price = float(bar_snapshot["low"])
-        close_price = float(bar_snapshot["close"])
-    except (KeyError, TypeError, ValueError):
-        return False, details, "Latest market bar is incomplete or non-numeric."
-
-    if min(open_price, high_price, low_price, close_price) <= 0:
-        return False, details, "Latest market bar contains non-positive prices."
-    if high_price < low_price:
-        return False, details, "Latest market bar has invalid high/low ordering."
-    if not (low_price <= open_price <= high_price and low_price <= close_price <= high_price):
-        return False, details, "Latest market bar has open/close outside the high-low range."
-
-    range_pct = ((high_price - low_price) / close_price) * 100.0 if close_price > 0 else 0.0
-    details["bar_range_pct"] = range_pct
-    details["max_bar_range_pct"] = _max_bar_range_pct(timeframe)
-    if range_pct > details["max_bar_range_pct"]:
-        return False, details, "Latest market bar range is too wide for the configured timeframe."
-
-    return True, details, None
 
 
 def _validate_protective_levels(
@@ -198,7 +149,7 @@ def evaluate_risk(
             return decision
 
     if source != "manual" or bar_snapshot:
-        bar_ok, bar_details, bar_error = _validate_bar_snapshot(analysis.timeframe, bar_snapshot)
+        bar_ok, bar_details, bar_error = assess_market_bar_snapshot(analysis.timeframe, bar_snapshot)
         decision.details.update(bar_details)
         if not bar_ok and bar_error:
             decision.reasons.append(bar_error)
