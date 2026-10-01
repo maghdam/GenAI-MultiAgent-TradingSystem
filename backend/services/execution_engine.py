@@ -1209,8 +1209,16 @@ def execute_paper_signal(
         timeframe=analysis.timeframe,
         strategy=analysis.strategy,
         direction=analysis.signal,
-        quantity=trade_quantity,
-        entry_price=analysis.entry_price or mark_price,
+        quantity=(
+            float((broker_order or {}).get("quantity_lots") or trade_quantity)
+            if ack_timeout_reconciled
+            else trade_quantity
+        ),
+        entry_price=(
+            float((broker_order or {}).get("entry_price"))
+            if ack_timeout_reconciled and (broker_order or {}).get("entry_price") is not None
+            else (analysis.entry_price or mark_price)
+        ),
         stop_loss=analysis.stop_loss,
         take_profit=analysis.take_profit,
         lifecycle_version_hash=lifecycle_version_hash,
