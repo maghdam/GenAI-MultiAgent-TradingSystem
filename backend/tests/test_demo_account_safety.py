@@ -13,6 +13,12 @@ from backend.api.router import v2_set_config
 from backend.domain.models import EngineConfig
 
 
+@pytest.fixture(autouse=True)
+def current_session_symbol_metadata(monkeypatch):
+    """Account-safety tests assume broker contract metadata is already current."""
+    monkeypatch.setattr(ctd, "is_symbol_metadata_ready", lambda: True)
+
+
 class _Deferred:
     def __init__(self) -> None:
         self.callbacks = None
@@ -189,6 +195,10 @@ def test_verified_demo_order_uses_broker_symbol_and_lot_volume(monkeypatch) -> N
     monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
     monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
+    monkeypatch.setattr(ctd, "symbol_lot_size_map", {7: 100.0})
+    monkeypatch.setattr(ctd, "symbol_min_volume_map", {7: 100})
+    monkeypatch.setattr(ctd, "symbol_step_volume_map", {7: 100})
+    monkeypatch.setattr(ctd, "symbol_max_volume_map", {7: 500_000})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
     monkeypatch.setattr(ctd, "volume_lots_to_units", lambda symbol_id, lots: 250)
     monkeypatch.setattr(ctd, "place_order", lambda **kwargs: captured.update(kwargs) or object())
