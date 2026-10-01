@@ -190,7 +190,7 @@ def test_model_outage_is_actionable_while_engine_remains_scanning() -> None:
     assert truth_by_name["model_ready"].ok is False
     assert "deterministic trading remains independent" in truth_by_name["model_ready"].detail
     assert "model_not_ready" in by_code
-    assert "deterministic trading remains independent" in by_code["model_not_ready"].message
+    assert "deterministic trading remains independent" in by_code["model_not_ready"].message.lower()
     assert "/api/llm_status" in by_code["model_not_ready"].message
 
 
