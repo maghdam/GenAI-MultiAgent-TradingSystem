@@ -1085,10 +1085,11 @@ def execute_paper_signal(
                 return ExecutionResult(
                     action_taken=True,
                     intent_id=intent.id,
-                    status="executed",
+                    status="failed" if ack_timeout_reconciled else "executed",
                     summary=broker_protection.get("status") or "protective exit",
                     mode="demo_enabled",
                     broker_position_id=int(broker_order.get("position_id") or 0) or None,
+                    retryable=False,
                 )
             broker_order["protection_verified"] = True
         except Exception as exc:
