@@ -8,8 +8,9 @@ from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.broker import close_demo_position, get_broker_status, list_positions, sync_demo_position_targets
 from backend.services.confluence_shadow import record_confluence_shadow
-from backend.services.market_data import MarketDataError, get_bars
+from backend.services.market_data import MarketDataError, get_bars, record_market_bar_freshness
 from backend.services.paper_book import apply_mark, reconcile_position
+from backend.services.runtime_state import market_data_dependency_state
 from backend.services.broker_ledger import (
     close_local_position_after_broker_close,
     close_local_position_from_broker,
@@ -40,6 +41,7 @@ class V2Engine:
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
         self._deferred_protection_positions: set[int] = set()
+        self._stale_market_items: set[str] = set()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -113,14 +115,18 @@ class V2Engine:
         processed = 0
         actions = 0
         skipped_market_data = 0
+        market_data_errors: list[str] = []
 
         for item in watchlist:
             try:
                 did_process, did_act = await self._scan_item(config, item, bar_state)
                 processed += 1 if did_process else 0
                 actions += 1 if did_act else 0
-            except MarketDataError:
+            except MarketDataError as exc:
                 skipped_market_data += 1
+                market_data_errors.append(
+                    f"{item.symbol.upper()}:{item.timeframe.upper()} {exc}"
+                )
             except Exception as exc:
                 runtime.last_error = f"{item.symbol}:{item.timeframe} {exc}"
                 log_incident(
@@ -129,6 +135,11 @@ class V2Engine:
                     f"V2 scan failed for {item.symbol}:{item.timeframe}",
                     {"error": str(exc)},
                 )
+
+        if market_data_errors:
+            market_data_dependency_state.last_success = False
+            market_data_dependency_state.market_data_ready = False
+            market_data_dependency_state.last_reason = "; ".join(market_data_errors)
 
         save_bar_state(bar_state)
         summary = f"processed={processed} actions={actions} watchlist={len(watchlist)} market_skips={skipped_market_data}"
@@ -157,10 +168,41 @@ class V2Engine:
                 pass
 
     async def _scan_item(self, config: EngineConfig, item: WatchlistItem, bar_state: Dict[str, int]) -> tuple[bool, bool]:
-        df = get_bars(item.symbol.upper(), item.timeframe.upper(), 600)
+        symbol = item.symbol.upper()
+        timeframe = item.timeframe.upper()
+        key = f"{symbol}|{timeframe}"
+        df = get_bars(symbol, timeframe, 600)
         last_dt = df.index[-1].to_pydatetime()
+        fresh, freshness, stale_reason = record_market_bar_freshness(
+            symbol,
+            timeframe,
+            last_dt,
+        )
+        if not fresh:
+            if key not in self._stale_market_items:
+                log_incident(
+                    "warning",
+                    "market_data_stale",
+                    f"Deferred {symbol}:{timeframe} because the latest market bar is stale.",
+                    {
+                        **freshness,
+                        "reason": stale_reason,
+                        "retryable": True,
+                        "bar_state_advanced": False,
+                        "strategy_analysis_suppressed": True,
+                        "order_intent_suppressed": True,
+                        "position_mark_suppressed": True,
+                        "broker_mutation_suppressed": True,
+                    },
+                )
+                self._stale_market_items.add(key)
+            raise MarketDataError(
+                f"{stale_reason or 'Latest market bar is not fresh.'} "
+                f"{symbol}:{timeframe}"
+            )
+
+        self._stale_market_items.discard(key)
         last_ts = int(last_dt.timestamp())
-        key = f"{item.symbol.upper()}|{item.timeframe.upper()}"
         if bar_state.get(key) == last_ts:
             last_price = float(df["close"].iloc[-1])
             self._mark_positions(config, item, last_price)
