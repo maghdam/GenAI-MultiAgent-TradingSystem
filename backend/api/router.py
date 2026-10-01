@@ -164,7 +164,7 @@ def _status_truth_checks(
             detail=(
                 f"{broker.symbols_loaded} broker symbols are loaded."
                 if broker.symbols_loaded > 0
-                else "Broker symbol metadata is not loaded."
+                else "Current-session broker symbol contract metadata is not loaded; demo execution remains blocked."
             ),
         ),
         ReadinessCheck(
@@ -217,7 +217,7 @@ def _active_status_incidents(
             ActiveIncident(
                 level="warning",
                 code="symbol_metadata_unavailable",
-                message="Broker symbol metadata is currently unavailable.",
+                message="Current-session broker symbol contract metadata is unavailable; demo execution is blocked until the broker contract load completes.",
             )
         )
 
