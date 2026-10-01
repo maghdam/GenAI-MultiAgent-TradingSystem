@@ -67,6 +67,8 @@ class CTraderBrokerAdapter:
         if not ctd.is_demo_account_confirmed():
             reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
             return False, reason
+        if not ctd.is_symbol_metadata_ready():
+            return False, "Broker symbol contract metadata is not loaded for the current cTrader session yet."
 
         sym = (symbol or "").strip().upper()
         symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
@@ -186,7 +188,8 @@ class CTraderBrokerAdapter:
             authorized = False
             auth_error = market_reason
             notes.append(market_reason)
-        symbols_loaded = len(ctd.symbol_name_to_id or {})
+        metadata_ready = bool(ctd.is_symbol_metadata_ready())
+        symbols_loaded = len(ctd.symbol_name_to_id or {}) if metadata_ready else 0
 
         positions = []
         pending_orders = []
@@ -204,7 +207,9 @@ class CTraderBrokerAdapter:
             notes.append("cTrader transport is not connected.")
         if not authorized:
             notes.append("cTrader account is not authorized.")
-        if symbols_loaded == 0:
+        if not metadata_ready:
+            notes.append("Broker symbol contract metadata is not loaded for the current cTrader session.")
+        elif symbols_loaded == 0:
             notes.append("No broker symbols are loaded.")
         demo_confirmed = bool(ctd.is_demo_account_confirmed())
         account_snapshot = self.get_account_snapshot() if demo_confirmed else None
@@ -228,7 +233,7 @@ class CTraderBrokerAdapter:
             authorized = False
             auth_error = auth_note
 
-        ready = connected and symbols_loaded > 0 and authorized
+        ready = connected and authorized and metadata_ready and symbols_loaded > 0
         market_data_ready = bool(market_data_dependency_state.market_data_ready and ready)
         monetary_snapshot_ready = bool(
             account_snapshot is not None
@@ -284,6 +289,10 @@ class CTraderBrokerAdapter:
             raise RuntimeError(f"Demo order blocked: {reason}")
 
         sym = (symbol or "").strip().upper()
+        metadata_ready, metadata_reason = self.demo_symbol_execution_readiness(sym)
+        if not metadata_ready:
+            raise RuntimeError(f"Demo order blocked: {metadata_reason}")
+
         symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
         if symbol_id is None:
             raise RuntimeError(f"Demo order blocked: broker symbol {sym!r} is unavailable.")
@@ -845,17 +854,20 @@ class CTraderBrokerAdapter:
         return out
 
     def list_symbols(self) -> List[str]:
-        # Quick check if symbols changed via length
-        # (Usually enough for broker symbol list changes)
+        if not ctd.is_symbol_metadata_ready():
+            self._symbol_cache = []
+            self._symbol_cache_count = 0
+            return sorted(ctd.FALLBACK_SYMBOLS)
+
+        # Quick check if symbols changed via length within the current verified session.
         current_id_map = ctd.symbol_name_to_id or {}
         count = len(current_id_map)
-        
+
         if self._symbol_cache and self._symbol_cache_count == count and count > 0:
             return self._symbol_cache
 
         symbols = sorted(current_id_map.keys())
         if not symbols:
-            # Fallback symbols don't need caching
             return sorted(ctd.FALLBACK_SYMBOLS)
 
         self._symbol_cache = symbols
@@ -864,7 +876,7 @@ class CTraderBrokerAdapter:
 
     def get_symbol_limits(self, symbol: str) -> SymbolLimits:
         sym = (symbol or "").strip().upper()
-        if not sym:
+        if not sym or not ctd.is_symbol_metadata_ready():
             return self._default_symbol_limits(sym)
 
         symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
@@ -947,8 +959,16 @@ class CTraderBrokerAdapter:
     def get_instrument_spec(self, symbol: str, account_currency: str = "USD") -> InstrumentSpec:
         sym = (symbol or "").strip().upper()
         account_ccy = (account_currency or "USD").strip().upper()
-        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
         quote_ccy = self._quote_currency(sym)
+        if not ctd.is_symbol_metadata_ready():
+            return InstrumentSpec(
+                symbol=sym,
+                account_currency=account_ccy,
+                quote_currency=quote_ccy,
+                notes=["Broker symbol contract metadata is not loaded for the current cTrader session."],
+            )
+
+        symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
         if symbol_id is None:
             return InstrumentSpec(
                 symbol=sym,
