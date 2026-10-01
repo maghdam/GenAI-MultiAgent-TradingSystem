@@ -13,6 +13,12 @@ from backend.api.router import v2_set_config
 from backend.domain.models import EngineConfig
 
 
+@pytest.fixture(autouse=True)
+def current_session_symbol_metadata(monkeypatch):
+    """Account-safety tests assume broker contract metadata is already current."""
+    monkeypatch.setattr(ctd, "is_symbol_metadata_ready", lambda: True)
+
+
 class _Deferred:
     def __init__(self) -> None:
         self.callbacks = None
