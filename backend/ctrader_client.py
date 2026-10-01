@@ -61,6 +61,7 @@ symbol_max_volume_map: dict[int, int] = {}   # {id: maximum volume in units}
 symbol_lot_size_map: dict[int, float] = {}   # {id: one lot's underlying units}
 symbol_min_verified: dict[int, bool] = {}     # {id: True if learned from broker error}
 symbol_step_verified: dict[int, bool] = {}    # {id: True if learned from broker error}
+SYMBOL_METADATA_READY: bool = False        # full contract metadata loaded for current session
 
 # Optional fallback if cTrader rejects symbol list (e.g., invalid credentials or maintenance)
 _fallback_symbols_cfg = os.getenv("CTRADER_FALLBACK_SYMBOLS", "XAUUSD,EURUSD,GBPUSD,US500").strip()
@@ -84,6 +85,21 @@ _PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurem
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
 _LAST_ORDER_CTX: dict[str, int] = {"symbol_id": -1}
+
+def _clear_symbol_metadata() -> None:
+    global SYMBOL_METADATA_READY
+    symbol_map.clear()
+    symbol_name_to_id.clear()
+    symbol_digits_map.clear()
+    symbol_money_digits_map.clear()
+    symbol_min_volume_map.clear()
+    symbol_step_volume_map.clear()
+    symbol_max_volume_map.clear()
+    symbol_lot_size_map.clear()
+    symbol_min_verified.clear()
+    symbol_step_verified.clear()
+    SYMBOL_METADATA_READY = False
+
 
 def _px(x):
     """Pass-through float price (no integer scaling)."""
@@ -310,10 +326,8 @@ def on_error(failure):
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
 def _install_fallback_symbols(reason: str | None = None):
-    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map, symbol_min_verified, symbol_step_verified
     print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
-    symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
-    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear(); symbol_min_verified.clear(); symbol_step_verified.clear()
+    _clear_symbol_metadata()
 
     for idx, name in enumerate(FALLBACK_SYMBOLS, start=1):
         symbol_map[idx] = name
@@ -331,9 +345,7 @@ def _install_fallback_symbols(reason: str | None = None):
         print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
 
 def symbols_response_cb(res):
-    global symbol_map, symbol_name_to_id, symbol_digits_map, symbol_min_volume_map, symbol_step_volume_map, symbol_max_volume_map, symbol_lot_size_map, symbol_min_verified, symbol_step_verified
-    symbol_map.clear(); symbol_name_to_id.clear(); symbol_digits_map.clear()
-    symbol_min_volume_map.clear(); symbol_step_volume_map.clear(); symbol_max_volume_map.clear(); symbol_lot_size_map.clear(); symbol_min_verified.clear(); symbol_step_verified.clear()
+    _clear_symbol_metadata()
 
     symbols = Protobuf.extract(res)
     # Some responses are error envelopes instead of the expected list
@@ -378,7 +390,14 @@ def symbols_response_cb(res):
 
 
 def symbol_details_response_cb(res):
+    global SYMBOL_METADATA_READY
     payload = Protobuf.extract(res)
+    if hasattr(payload, "errorCode") or payload.__class__.__name__ == "ProtoOAErrorRes":
+        SYMBOL_METADATA_READY = False
+        err = f"{getattr(payload, 'errorCode', 'ERR')} {getattr(payload, 'description', '').strip()}".strip()
+        print(f"[WARN] Full symbol contract metadata unavailable: {err or 'ProtoOAErrorRes'}")
+        return
+
     detailed = 0
     for item in getattr(payload, "symbol", []):
         sid = int(item.symbolId)
@@ -403,6 +422,7 @@ def symbol_details_response_cb(res):
         if max_volume_raw is not None:
             symbol_max_volume_map[sid] = int(max_volume_raw)
         detailed += 1
+    SYMBOL_METADATA_READY = detailed > 0
     print(f"[DEBUG] Loaded full contract metadata for {detailed} symbols.")
 
 def account_auth_cb(_):
@@ -487,6 +507,7 @@ def app_auth_cb(_):
 def _on_connected(_):
     global CONNECTED, AUTHORIZED, AUTH_ERROR, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
     _clear_asset_cache()
+    _clear_symbol_metadata()
     CONNECTED = True
     AUTHORIZED = False
     AUTH_ERROR = None
@@ -498,6 +519,7 @@ def _on_connected(_):
 def _on_disconnected(c, reason):
     global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
     _clear_asset_cache()
+    _clear_symbol_metadata()
     CONNECTED = False
     AUTHORIZED = False
     ACCOUNT_IS_DEMO = None
@@ -621,6 +643,10 @@ def is_connected() -> bool:
 
 def is_authorized() -> bool:
     return AUTHORIZED
+
+def is_symbol_metadata_ready() -> bool:
+    return bool(CONNECTED and AUTHORIZED and SYMBOL_METADATA_READY)
+
 
 def get_auth_error() -> str | None:
     return AUTH_ERROR
