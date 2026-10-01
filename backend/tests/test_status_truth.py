@@ -11,7 +11,7 @@ def test_broker_status_structure():
     assert hasattr(status, "account_authorized")
     assert hasattr(status, "market_data_ready")
 
-def test_status_transitions():
+def test_status_transitions(monkeypatch):
     """Simulate state transitions and verify adapter reflects them."""
     # Reset state
     ctd.CONNECTED = False
@@ -33,7 +33,8 @@ def test_status_transitions():
     
     # State 3: Authorized
     ctd.AUTHORIZED = True
-    # Note: ready also requires symbols_loaded > 0.
+    monkeypatch.setattr(ctd, "SYMBOL_METADATA_READY", True)
+    # Note: ready also requires current-session symbol metadata and symbols_loaded > 0.
     # We'll assume symbols are loaded for this test to check logic.
     # adapter.get_status calls symbols_loaded = len(ctd.symbol_name_to_id or {})
     ctd.symbol_name_to_id = {"XAUUSD": 1} 
