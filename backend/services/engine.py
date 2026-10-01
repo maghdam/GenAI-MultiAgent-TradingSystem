@@ -197,8 +197,7 @@ class V2Engine:
                 )
                 self._stale_market_items.add(key)
             raise MarketDataError(
-                f"{stale_reason or 'Latest market bar is not fresh.'} "
-                f"{symbol}:{timeframe}"
+                stale_reason or "Latest market bar is not fresh."
             )
 
         self._stale_market_items.discard(key)
