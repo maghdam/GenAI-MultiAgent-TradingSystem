@@ -24,6 +24,16 @@ from backend.storage.repositories import (
 )
 
 
+@pytest.fixture(autouse=True)
+def current_market_bar_fixture(monkeypatch):
+    """Legacy engine tests model a fresh feed unless they test freshness explicitly."""
+    monkeypatch.setattr(
+        engine_module,
+        "record_market_bar_freshness",
+        lambda *args, **kwargs: (True, {}, None),
+    )
+
+
 def _config(**overrides) -> EngineConfig:
     payload = EngineConfig(
         enabled=True,
