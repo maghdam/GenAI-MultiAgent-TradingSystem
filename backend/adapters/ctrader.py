@@ -1077,8 +1077,9 @@ class CTraderBrokerAdapter:
             )
 
         df["time"] = self._normalize_time_column(df["time"])
-        if bool(df["time"].isna().any()):
-            raise RuntimeError(f"Malformed market data for {sym}:{tf}: invalid bar timestamp.")
+        df = df.dropna(subset=["time"])
+        if df.empty:
+            raise RuntimeError(f"Malformed market data for {sym}:{tf}: no valid bar timestamps.")
         df = df.set_index("time").sort_index()
         for col in ("open", "high", "low", "close", "volume"):
             if col in df.columns:
