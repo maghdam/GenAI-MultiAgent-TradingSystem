@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from backend.domain.models import BrokerAccountSnapshot, EngineConfig, StrategyAnalysis, WatchlistItem
 from backend.services import engine as engine_module
@@ -16,6 +17,16 @@ from backend.storage.repositories import (
     load_engine_config,
     save_engine_config,
 )
+
+
+@pytest.fixture(autouse=True)
+def current_market_bar_fixture(monkeypatch):
+    """Workflow tests assume fresh bars unless freshness is the subject."""
+    monkeypatch.setattr(
+        engine_module,
+        "record_market_bar_freshness",
+        lambda *args, **kwargs: (True, {}, None),
+    )
 
 
 def _analysis() -> StrategyAnalysis:

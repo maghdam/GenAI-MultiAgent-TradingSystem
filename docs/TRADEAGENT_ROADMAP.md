@@ -726,7 +726,19 @@ Simulate deliberately:
     - [x] Focused broker / demo-account / disconnect / engine / status regression set passed locally.
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #116 on implementation head `6e8e87c` passed backend tests + frontend production build.
-- [ ] Market bars stale.
+- [x] Market bars stale.
+  - [x] Market-bar freshness is classified by one shared timeframe-aware rule used by both runtime preflight and execution risk checks.
+  - [x] Auto-loop freshness is checked immediately after bars are fetched and before same-bar marking, broker protection synchronization, strategy analysis, order-intent creation, or broker submission.
+  - [x] A stale bar is treated as a retryable market-data dependency skip rather than a consumed trading decision; bar state is not advanced and no order intent is created.
+  - [x] Stale same-bar data cannot mark/close local positions or mutate broker protection.
+  - [x] Repeated stale observations for one symbol/timeframe episode produce one actionable `market_data_stale` incident instead of an incident/rejection storm.
+  - [x] Current broker/market status exposes the latest bar timestamp and an active stale-market-data reason while stale; the incident clears after a fresh bar is observed.
+  - [x] Recovery is deterministic: the first fresh bar is processed normally, then the persisted bar-state guard prevents duplicate replay of that same bar.
+  - Verification:
+    - [x] 6 scenario-specific stale-market-bar resilience tests passed locally.
+    - [x] Focused market-data / engine / risk / status / demo regression set passed locally.
+    - [x] Full backend suite passed locally.
+    - [x] GitHub CI #119 on implementation head `fdb24cc` passed backend tests + frontend production build.
 - [ ] Market data malformed.
 - [ ] Order acknowledgement timeout.
 - [ ] Protection amend rejected.
@@ -835,9 +847,10 @@ Add one row after every completed task.
 | 2026-09-30 | Resilience: frontend restart | Keep restart bootstrap read-only, retain partial/last-known-good UI state through transient read failures, and automatically reconstruct backend truth after reload | ✅ 3 restart tests + frontend build + CI #109; real frontend-only restart preserved config/engine/mode/demo/position invariants and UI reloaded normally; observed intent 2128 was normal backend rejected skip activity | PR #43 / `669139b` | Proceed to Phase 7 Ollama/model-unavailable scenario |
 | 2026-10-01 | Resilience: Ollama/model unavailable | Keep deterministic trading independent from model availability, fail Studio model calls fast and explicitly during outage, bound fallback attempts, and recheck recovery promptly | 🟨 7 scenario tests + 64 focused tests + full backend suite + CI #113 passed; real forced-outage observation pending because Windows immediately respawned Ollama before `ollama_ready=false` could be observed | PR #44 / `637fc00` | Leave field check pending; proceed to Phase 7 symbol-metadata-delayed scenario |
 | 2026-10-01 | Resilience: symbol metadata delayed | Invalidate stale cTrader contract state across sessions, keep fallback/light symbols non-executable, fail closed before intent/order submission, and restore readiness only from complete current-session broker contracts | ✅ 6 scenario tests + focused broker/demo/engine/status regression + full backend suite + CI #116 passed | PR #45 / `6e8e87c` | Proceed to Phase 7 market-bars-stale scenario |
+| 2026-10-01 | Resilience: stale market bars | Fail closed before same-bar maintenance/strategy/intent/broker mutation, preserve retryable bar state, expose active stale-feed status, and process the first fresh recovery bar exactly once | ✅ 6 scenario tests + focused market/engine/risk/status regression + full backend suite + CI #119 passed | PR #46 / `fdb24cc` | Proceed to Phase 7 malformed-market-data scenario |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, seventh scenario only: acceptance-test stale market bars. Verify stale bars fail closed before demo execution, do not create duplicate or competing broker actions, preserve broker/source-of-truth invariants, surface an actionable stale-market-data reason/incident, do not advance bar state as if the stale bar were safely consumed when retry is required, and recover deterministically once a fresh valid bar arrives. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, eighth scenario only: acceptance-test malformed market data. Verify incomplete/non-numeric/non-positive/invalid-OHLC/extreme-range bars fail closed before automatic demo execution, do not create duplicate or competing broker actions, preserve broker/source-of-truth invariants, surface an actionable malformed-market-data reason/incident, avoid consuming bar state when retry/recovery is appropriate, and recover deterministically once a valid bar arrives. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**

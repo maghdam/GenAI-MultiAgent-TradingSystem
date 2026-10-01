@@ -7,6 +7,7 @@ from typing import Dict, List
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.storage.repositories import daily_realized_pnl, daily_trade_count, list_paper_positions
 from backend.services.financial_units import MonetaryBasis, daily_loss_budget, resolve_monetary_basis
+from backend.services.market_data import assess_market_bar_freshness
 from backend.services.strategy_lifecycle import paper_execution_gate
 
 
@@ -16,53 +17,6 @@ class RiskDecision:
     reasons: List[str] = field(default_factory=list)
     details: Dict[str, object] = field(default_factory=dict)
     intent_type: str = "skip"
-
-
-def _timeframe_delta(timeframe: str) -> timedelta:
-    return {
-        "M1": timedelta(minutes=1),
-        "M5": timedelta(minutes=5),
-        "M15": timedelta(minutes=15),
-        "M30": timedelta(minutes=30),
-        "H1": timedelta(hours=1),
-        "H4": timedelta(hours=4),
-        "D1": timedelta(days=1),
-        "W1": timedelta(days=7),
-    }.get((timeframe or "M5").upper(), timedelta(minutes=5))
-
-
-def _validate_market_freshness(
-    timeframe: str,
-    bar_timestamp: datetime | None,
-    now: datetime,
-) -> tuple[bool, Dict[str, object], str | None]:
-    details: Dict[str, object] = {
-        "bar_timestamp": bar_timestamp.isoformat() if bar_timestamp else None,
-        "evaluated_at": now.isoformat(),
-        "timeframe": timeframe.upper(),
-    }
-    if bar_timestamp is None:
-        return False, details, "No market-data timestamp was available for the signal."
-
-    # Broker/Pandas timestamps are UTC-aware while persisted/runtime timestamps
-    # are historically UTC-naive. Normalize both before subtraction so a fresh
-    # aware market bar cannot crash the scan loop.
-    normalized_now = now.astimezone(UTC).replace(tzinfo=None) if now.tzinfo is not None else now
-    normalized_bar = (
-        bar_timestamp.astimezone(UTC).replace(tzinfo=None)
-        if bar_timestamp.tzinfo is not None
-        else bar_timestamp
-    )
-    details["bar_timestamp"] = normalized_bar.isoformat()
-    details["evaluated_at"] = normalized_now.isoformat()
-
-    age = normalized_now - normalized_bar
-    max_age = (_timeframe_delta(timeframe) * 3) + timedelta(seconds=30)
-    details["bar_age_seconds"] = max(0.0, age.total_seconds())
-    details["max_bar_age_seconds"] = max_age.total_seconds()
-    if age > max_age:
-        return False, details, "Latest market bar is stale for the configured timeframe."
-    return True, details, None
 
 
 def _max_bar_range_pct(timeframe: str) -> float:
@@ -233,10 +187,10 @@ def evaluate_risk(
         return decision
 
     if source != "manual" or bar_timestamp is not None:
-        market_ok, market_details, market_error = _validate_market_freshness(
+        market_ok, market_details, market_error = assess_market_bar_freshness(
             analysis.timeframe,
             bar_timestamp,
-            now,
+            now=now,
         )
         decision.details.update(market_details)
         if not market_ok and market_error:

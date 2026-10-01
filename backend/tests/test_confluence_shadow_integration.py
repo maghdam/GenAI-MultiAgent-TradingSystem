@@ -4,11 +4,22 @@ import asyncio
 from datetime import UTC, datetime
 
 import pandas as pd
+import pytest
 
 from backend.domain.models import ConfluenceShadowRecord, EngineConfig, StrategyAnalysis, WatchlistItem
 from backend.services import engine as engine_module
 from backend.services.engine import V2Engine
 from backend.services.execution_engine import ExecutionResult
+
+
+@pytest.fixture(autouse=True)
+def current_market_bar_fixture(monkeypatch):
+    """Shadow integration tests isolate confluence behavior from feed age."""
+    monkeypatch.setattr(
+        engine_module,
+        "record_market_bar_freshness",
+        lambda *args, **kwargs: (True, {}, None),
+    )
 
 
 def _bars() -> pd.DataFrame:

@@ -221,6 +221,28 @@ def _active_status_incidents(
             )
         )
 
+    market_note = next(
+        (
+            note.split("market_data_unavailable:", 1)[1].strip()
+            for note in broker.notes
+            if note.startswith("market_data_unavailable:")
+        ),
+        "",
+    )
+    if (
+        broker.socket_connected
+        and broker.account_authorized
+        and not broker.market_data_ready
+        and market_note
+    ):
+        incidents.append(
+            ActiveIncident(
+                level="warning",
+                code="market_data_stale" if "stale" in market_note.lower() else "market_data_unavailable",
+                message=market_note,
+            )
+        )
+
     if config.demo_autotrade and broker.socket_connected:
         if not broker.demo_account_confirmed:
             incidents.append(
