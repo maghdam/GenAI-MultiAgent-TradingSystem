@@ -9,6 +9,7 @@ import pandas as pd
 from backend.adapters.ctrader import adapter
 from backend.storage.repositories import load_cached_market_bars, upsert_market_bars
 from backend.services.runtime_state import market_data_dependency_state
+from backend.services.market_bar_validation import assess_market_frame
 
 
 class MarketDataError(RuntimeError):
@@ -108,6 +109,26 @@ def record_market_bar_freshness(
     return ok, details, reason
 
 
+def _require_valid_market_frame(
+    symbol: str,
+    timeframe: str,
+    df: pd.DataFrame,
+    *,
+    source: str,
+) -> pd.DataFrame:
+    ok, details, reason = assess_market_frame(timeframe, df)
+    if ok:
+        return df
+
+    market_data_dependency_state.last_success = False
+    market_data_dependency_state.market_data_ready = False
+    market_data_dependency_state.last_reason = (
+        f"{reason or 'Malformed market data.'} "
+        f"{symbol.upper()}:{timeframe.upper()} source={source}"
+    )
+    raise MarketDataError(market_data_dependency_state.last_reason)
+
+
 def _cache_ttl_for_request(prefer_live: bool) -> float:
     return _LIVE_BARS_CACHE_TTL_SEC if prefer_live else _DEFAULT_BARS_CACHE_TTL_SEC
 
@@ -149,6 +170,12 @@ def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = 
     market_data_dependency_state.last_checked_at = datetime.now(UTC).replace(tzinfo=None)
 
     if cached is not None:
+        cached = _require_valid_market_frame(
+            symbol,
+            timeframe,
+            cached,
+            source="memory_cache",
+        )
         market_data_dependency_state.last_success = True
         market_data_dependency_state.last_success_at = datetime.now(UTC).replace(tzinfo=None)
         market_data_dependency_state.market_data_ready = True
@@ -158,6 +185,12 @@ def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = 
     if not prefer_live:
         persisted, fetched_at = load_cached_market_bars(symbol, timeframe, num_bars)
         if len(persisted) >= num_bars and _persistent_cache_fresh_enough(fetched_at, timeframe):
+            persisted = _require_valid_market_frame(
+                symbol,
+                timeframe,
+                persisted,
+                source="persisted_cache",
+            )
             _store_cached_bars(symbol, timeframe, persisted)
             market_data_dependency_state.last_success = True
             market_data_dependency_state.last_success_at = datetime.now(UTC).replace(tzinfo=None)
@@ -179,6 +212,12 @@ def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = 
         market_data_dependency_state.market_data_ready = False
         market_data_dependency_state.last_reason = f"No market data available for {symbol}:{timeframe}"
         raise MarketDataError(market_data_dependency_state.last_reason)
+    df = _require_valid_market_frame(
+        symbol,
+        timeframe,
+        df,
+        source="broker",
+    )
     _store_cached_bars(symbol, timeframe, df)
     upsert_market_bars(symbol, timeframe, df)
     market_data_dependency_state.last_success = True
