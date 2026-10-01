@@ -249,10 +249,14 @@ def _active_status_incidents(
             )
         )
 
+    try:
+        recent_intents = list_order_intents(100)
+    except Exception:
+        recent_intents = []
     unresolved_ack = next(
         (
             intent
-            for intent in list_order_intents(100)
+            for intent in recent_intents
             if intent.intent_type == "open"
             and intent.status == "failed"
             and isinstance(intent.details, dict)
