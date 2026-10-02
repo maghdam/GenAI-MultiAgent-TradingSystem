@@ -8,7 +8,6 @@ from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.broker import (
     DemoProtectionSyncFailure,
-    close_demo_position,
     get_broker_status,
     list_positions,
     sync_demo_position_targets,
@@ -16,6 +15,7 @@ from backend.services.broker import (
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars, record_market_bar_freshness
 from backend.services.market_bar_validation import assess_market_frame
+from backend.services.close_safety import attempt_verified_demo_close
 from backend.services.protection_safety import (
     broker_protection_matches,
     fail_safe_close_unverified_demo_position,
@@ -23,7 +23,6 @@ from backend.services.protection_safety import (
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.runtime_state import market_data_dependency_state
 from backend.services.broker_ledger import (
-    close_local_position_after_broker_close,
     close_local_position_from_broker,
     reconcile_open_demo_position_ledger,
 )
@@ -457,31 +456,28 @@ class V2Engine:
                 reference_price=last_price,
             )
             if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
-                broker_close = close_demo_position(
-                    symbol=position.symbol,
-                    position_id=int(broker_match.get("position_id") or 0),
-                    quantity_lots=float(broker_match.get("volume_lots") or position.quantity),
-                )
                 reason = (
                     "broker_stop_loss"
                     if protection.get("status") == "exit_due_stop_loss"
                     else "broker_take_profit"
                 )
-                close_local_position_after_broker_close(
+                close_result = attempt_verified_demo_close(
                     position,
-                    broker_close=broker_close,
                     fallback_price=last_price,
                     reason=reason,
+                    phase="same_bar_protective_exit",
+                    quantity_lots=float(broker_match.get("volume_lots") or position.quantity),
                 )
-                add_trade_audit(
-                    event_type="ctrader_demo_protective_exit",
-                    symbol=position.symbol,
-                    timeframe=position.timeframe,
-                    strategy=position.strategy,
-                    position_id=position.id,
-                    summary="Closed cTrader demo position after its intended protective target was crossed.",
-                    details={"protection": protection, "broker_close": broker_close},
-                )
+                if close_result.get("closed"):
+                    add_trade_audit(
+                        event_type="ctrader_demo_protective_exit",
+                        symbol=position.symbol,
+                        timeframe=position.timeframe,
+                        strategy=position.strategy,
+                        position_id=position.id,
+                        summary="Closed cTrader demo position after its intended protective target was crossed.",
+                        details={"protection": protection, "close_result": close_result},
+                    )
                 return
             if protection.get("status") in {"synced", "already_synced"}:
                 self._protection_failsafe_pending_positions.discard(int(position.id))
