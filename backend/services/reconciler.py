@@ -69,6 +69,16 @@ def _is_canonical_tradeagent_recovery_intent(intent, broker_row: Dict[str, Any])
     if intent.status == "executed":
         return True
 
+    # A broker-confirmed order can exist before the local tracker is durably
+    # written. Preserve that canonical handoff so SQLite busy/restart recovery
+    # never falls back to symbol-only adoption or a duplicate order.
+    if (
+        intent.status == "accepted"
+        and details.get("outcome_state") == "broker_confirmed_tracking_pending"
+        and details.get("tracking_retained") is True
+    ):
+        return True
+
     # A demo order can remain open after broker protection setup and the
     # fail-safe close both fail. That intent is deliberately marked failed but
     # retains a local tracker so restart recovery must keep following broker
@@ -85,9 +95,10 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
 
     Recovery is limited to broker positions canonically linked to a TradeAgent
     open intent with matching broker position id, symbol, and direction. Normal
-    recovery requires an executed intent; the only failed-intent exception is a
-    still-open fail-safe case explicitly persisted with tracking_retained=true.
-    Manually opened or identity-mismatched broker positions are never silently adopted.
+    recovery uses executed intents; a broker-confirmed accepted handoff may also
+    be recovered when local tracker persistence was interrupted, and the existing
+    failed-intent tracking-retained exception remains supported. Manually opened
+    or identity-mismatched broker positions are never silently adopted.
     """
     cfg = config or load_engine_config(EngineConfig())
     if not cfg.demo_autotrade:
