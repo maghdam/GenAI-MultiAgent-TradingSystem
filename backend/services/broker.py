@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
-from backend.adapters.ctrader import DemoOrderAcknowledgementTimeout, adapter
+from backend.adapters.ctrader import (
+    DemoOrderAcknowledgementTimeout,
+    DemoProtectionSyncFailure,
+    adapter,
+)
 from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, InstrumentSpec, SymbolLimits
 
 
