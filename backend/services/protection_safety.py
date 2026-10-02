@@ -75,6 +75,10 @@ def fail_safe_close_unverified_demo_position(
         "observed_stop_loss": broker_row.get("stop_loss"),
         "observed_take_profit": broker_row.get("take_profit"),
         "quantity_lots": quantity_lots,
+        "action_required": (
+            "Reconcile the canonical broker position/protection state. "
+            "Do not submit a competing open order while protection is unresolved."
+        ),
     }
 
     log_incident(
