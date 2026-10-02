@@ -307,7 +307,7 @@ def _refresh_open_position(
                 f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                 {"position_id": position.id, **ledger_sync},
             )
-        elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+        elif ledger_sync.get("status") in {"identity_mismatch", "volume_increase_mismatch", "unavailable"}:
             message = f"Could not safely reconcile broker volume for {position.symbol}:{position.timeframe}."
             log_incident(
                 "error",
