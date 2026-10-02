@@ -34,6 +34,7 @@ from backend.services.close_safety import (
 )
 from backend.services.protection_safety import fail_safe_close_unverified_demo_position
 from backend.services.risk_engine import evaluate_risk
+from backend.storage.db import SQLiteBusyError
 from backend.storage.repositories import (
     add_trade_audit,
     close_paper_position,
@@ -192,17 +193,205 @@ def _unresolved_order_ack_timeout(symbol: str, timeframe: str):
     for intent in list_order_intents(200):
         if (
             intent.intent_type == "open"
-            and intent.status == "failed"
+            and intent.status in {"accepted", "failed"}
             and intent.symbol.upper() == symbol.upper()
             and intent.timeframe.upper() == timeframe.upper()
         ):
             details = intent.details if isinstance(intent.details, dict) else {}
+            outcome_state = str(details.get("outcome_state") or "")
             if (
-                details.get("outcome_state") == "ambiguous_post_submit"
+                outcome_state == "ambiguous_post_submit"
                 and details.get("ambiguity_resolved") is not True
             ):
                 return intent
+            if outcome_state in {
+                "submission_reserved",
+                "broker_confirmed_tracking_pending",
+            }:
+                return intent
     return None
+
+
+def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
+    details = intent.details if isinstance(intent.details, dict) else {}
+    baseline_available = bool(details.get("baseline_snapshot_available"))
+    baseline_ids = {
+        int(value)
+        for value in (details.get("baseline_position_ids") or [])
+        if str(value).isdigit() and int(value) > 0
+    }
+    try:
+        quantity_lots = float(intent.quantity or 0.0)
+    except (TypeError, ValueError):
+        quantity_lots = 0.0
+
+    confirmed_row, reconciliation = _reconcile_order_ack_timeout(
+        baseline_available=baseline_available,
+        baseline_ids=baseline_ids,
+        symbol=intent.symbol,
+        direction=intent.direction,
+        quantity_lots=quantity_lots,
+    )
+
+    if confirmed_row is not None:
+        broker_position_id = _broker_position_id(confirmed_row)
+        broker_order = {
+            "status": "executed_reconciled",
+            "account_type": "demo",
+            "symbol": intent.symbol.upper(),
+            "direction": intent.direction,
+            "quantity_lots": float(confirmed_row.get("volume_lots") or quantity_lots),
+            "position_id": broker_position_id,
+            "entry_price": confirmed_row.get("entry_price"),
+            "ack": {},
+            "reconciled_from_broker": True,
+            "reconciliation": reconciliation,
+            "client_msg_id": details.get("client_msg_id"),
+        }
+        try:
+            update_order_intent_status(
+                intent.id,
+                "failed",
+                {
+                    "broker_order": broker_order,
+                    "outcome_state": "broker_confirmed_tracking_pending",
+                    "submission_may_have_succeeded": True,
+                    "ambiguity_resolved": True,
+                    "broker_position_confirmed": True,
+                    "tracking_retained": True,
+                    "failsafe_closed": False,
+                    "automatic_retry": False,
+                    "retryable": False,
+                    "persistence_recovered": True,
+                    "reconciliation": reconciliation,
+                },
+                reason="sqlite_persistence_recovered_broker_position",
+            )
+        except SQLiteBusyError as exc:
+            log_incident(
+                "error",
+                "sqlite_persistence_busy_post_submit",
+                f"SQLite remained busy while reconciling a submitted demo order for {intent.symbol}:{intent.timeframe}.",
+                {
+                    "intent_id": intent.id,
+                    "phase": "submission_reservation_recovery",
+                    "broker_position_id": broker_position_id,
+                    "error": str(exc),
+                    "automatic_resubmission": False,
+                    "action_required": "Keep automatic resubmission blocked and retry local persistence only.",
+                },
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=intent.id,
+                status="persistence_pending",
+                summary="Broker position is confirmed but SQLite persistence is still busy; automatic resubmission remains blocked.",
+                mode="demo_enabled",
+                broker_position_id=broker_position_id,
+                retryable=False,
+            )
+
+        log_incident(
+            "warning",
+            "sqlite_persistence_post_submit_reconciled",
+            f"Recovered broker truth after SQLite interrupted the demo-order handoff for {intent.symbol}:{intent.timeframe}.",
+            {
+                "intent_id": intent.id,
+                "broker_position_id": broker_position_id,
+                "reconciliation": reconciliation,
+                "automatic_resubmission": False,
+                "action_required": "Recover the canonical local tracker from the persisted broker position before any new order.",
+            },
+        )
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=intent.id,
+            status="blocked",
+            summary="Broker position confirmed after persistence recovery; tracker recovery is required before any new order.",
+            mode="demo_enabled",
+            broker_position_id=broker_position_id,
+            retryable=False,
+        )
+
+    if reconciliation.get("status") == "broker_position_not_observed":
+        try:
+            update_order_intent_status(
+                intent.id,
+                "failed",
+                {
+                    "outcome_state": "submission_resolved_no_position",
+                    "submission_may_have_succeeded": True,
+                    "ambiguity_resolved": True,
+                    "broker_position_confirmed": False,
+                    "tracking_retained": False,
+                    "automatic_retry": False,
+                    "retryable": True,
+                    "persistence_recovered": True,
+                    "reconciliation": reconciliation,
+                },
+                reason="sqlite_persistence_submission_resolved_no_position",
+            )
+        except SQLiteBusyError as exc:
+            log_incident(
+                "error",
+                "sqlite_persistence_busy_post_submit",
+                f"SQLite remained busy while resolving a submitted demo order for {intent.symbol}:{intent.timeframe}.",
+                {
+                    "intent_id": intent.id,
+                    "phase": "submission_reservation_recovery",
+                    "error": str(exc),
+                    "automatic_resubmission": False,
+                    "action_required": "Keep automatic resubmission blocked and retry local persistence only.",
+                },
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=intent.id,
+                status="persistence_pending",
+                summary="SQLite persistence is still busy; automatic resubmission remains blocked.",
+                mode="demo_enabled",
+                retryable=False,
+            )
+
+        log_incident(
+            "warning",
+            "sqlite_persistence_submission_resolved",
+            f"Resolved SQLite-interrupted demo submission for {intent.symbol}:{intent.timeframe}; no broker position remains.",
+            {
+                "intent_id": intent.id,
+                "reconciliation": reconciliation,
+                "automatic_resubmission": False,
+                "action_required": "The interrupted submission is resolved; a later engine cycle may evaluate a fresh signal.",
+            },
+        )
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=intent.id,
+            status="deferred",
+            summary="Interrupted submission resolved with no broker position; a later cycle may evaluate a fresh order.",
+            mode="demo_enabled",
+            retryable=True,
+        )
+
+    log_incident(
+        "error",
+        "sqlite_persistence_post_submit_unresolved",
+        f"Could not safely resolve an SQLite-interrupted demo submission for {intent.symbol}:{intent.timeframe}.",
+        {
+            "intent_id": intent.id,
+            "reconciliation": reconciliation,
+            "automatic_resubmission": False,
+            "action_required": "Keep automatic resubmission blocked until broker truth is unique and durable persistence succeeds.",
+        },
+    )
+    return ExecutionResult(
+        action_taken=False,
+        intent_id=intent.id,
+        status="blocked",
+        summary="Prior demo submission remains unresolved; automatic resubmission is blocked.",
+        mode="demo_enabled",
+        retryable=False,
+    )
 
 
 def _journal_rejection_summary(
