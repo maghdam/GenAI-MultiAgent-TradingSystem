@@ -316,16 +316,24 @@ def _active_status_incidents(
         if latest_state is None or latest_state.event_type in terminal_close_events:
             continue
         level, code = unresolved_close_events[latest_state.event_type]
+        if latest_state.event_type == "ctrader_demo_close_ambiguous":
+            message = (
+                f"cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"(broker position {position.broker_position_id}) has an ambiguous post-submission outcome. "
+                "Local tracking remains open and automatic duplicate close submission is blocked "
+                "while broker truth is reconciled."
+            )
+        else:
+            message = (
+                f"Broker rejected the cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"(broker position {position.broker_position_id}). Local tracking remains open; "
+                "inspect the rejection and broker truth before a later close retry."
+            )
         incidents.append(
             ActiveIncident(
                 level=level,
                 code=code,
-                message=(
-                    f"cTrader demo close for {position.symbol}:{position.timeframe} "
-                    f"(broker position {position.broker_position_id}) is unresolved. "
-                    "Local tracking remains open and automatic duplicate close submission is blocked "
-                    "while broker truth is reconciled."
-                ),
+                message=message,
             )
         )
 
