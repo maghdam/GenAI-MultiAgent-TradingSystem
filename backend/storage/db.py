@@ -10,6 +10,27 @@ from backend.config import DB_PATH, LEGACY_DB_PATH, SETTINGS
 
 
 _LOCAL = local()
+SQLITE_BUSY_TIMEOUT_MS = 1000
+
+
+class SQLiteBusyError(RuntimeError):
+    """Raised when durable SQLite persistence is temporarily unavailable."""
+
+    retryable = True
+
+
+def _is_sqlite_busy_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "database is locked" in text or "database is busy" in text or "database table is locked" in text
+
+
+def _discard_connection(conn: sqlite3.Connection) -> None:
+    if getattr(_LOCAL, "connection", None) is conn:
+        _LOCAL.connection = None
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 def _ensure_parent(path: Path) -> None:
@@ -30,15 +51,35 @@ def _get_connection() -> sqlite3.Connection:
     if conn is None:
         _ensure_parent(SETTINGS.db_path)
         _migrate_legacy_db_if_needed(SETTINGS.db_path)
-        conn = sqlite3.connect(SETTINGS.db_path, check_same_thread=False)
+        timeout_sec = max(0.001, float(SQLITE_BUSY_TIMEOUT_MS) / 1000.0)
+        conn = sqlite3.connect(
+            SETTINGS.db_path,
+            check_same_thread=False,
+            timeout=timeout_sec,
+        )
         conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout = {max(1, int(SQLITE_BUSY_TIMEOUT_MS))}")
         _LOCAL.connection = conn
     return conn
 
 
 @contextmanager
 def get_db() -> Iterator[sqlite3.Connection]:
-    yield _get_connection()
+    conn = _get_connection()
+    try:
+        yield conn
+    except sqlite3.OperationalError as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if _is_sqlite_busy_error(exc):
+            _discard_connection(conn)
+            raise SQLiteBusyError(
+                "SQLite persistence is busy/locked; durable state was not committed. "
+                "Retry only the local persistence step after the current writer releases the database."
+            ) from exc
+        raise
 
 
 def init_db() -> None:
