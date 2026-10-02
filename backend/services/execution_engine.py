@@ -19,13 +19,13 @@ from backend.services.broker import (
 )
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.broker_ledger import (
-    close_local_position_after_broker_close,
     close_local_position_from_broker,
     reconcile_open_demo_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.financial_units import resolve_monetary_basis
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
+from backend.services.close_safety import attempt_verified_demo_close
 from backend.services.protection_safety import fail_safe_close_unverified_demo_position
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
@@ -352,39 +352,48 @@ def execute_paper_signal(
                 reference_price=mark_price,
             )
             if protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
-                broker_close = close_demo_position(
-                    symbol=position.symbol,
-                    position_id=int(protection.get("position_id") or 0),
-                    quantity_lots=float(protection.get("quantity_lots") or position.quantity),
-                )
                 reason = (
                     "broker_stop_loss"
                     if protection.get("status") == "exit_due_stop_loss"
                     else "broker_take_profit"
                 )
-                closed = close_local_position_after_broker_close(
+                close_result = attempt_verified_demo_close(
                     position,
-                    broker_close=broker_close,
                     fallback_price=mark_price,
                     reason=reason,
+                    phase="pre_signal_protective_exit",
+                    quantity_lots=float(protection.get("quantity_lots") or position.quantity),
                 )
-                add_trade_audit(
-                    event_type="ctrader_demo_protective_exit",
-                    symbol=position.symbol,
-                    timeframe=position.timeframe,
-                    strategy=position.strategy,
-                    position_id=closed.id,
-                    summary="Closed cTrader demo position because an intended protective target was already crossed.",
-                    details={"protection": protection, "broker_close": broker_close},
-                )
+                if close_result.get("closed"):
+                    closed = close_result["position"]
+                    add_trade_audit(
+                        event_type="ctrader_demo_protective_exit",
+                        symbol=position.symbol,
+                        timeframe=position.timeframe,
+                        strategy=position.strategy,
+                        position_id=closed.id,
+                        summary="Closed cTrader demo position because an intended protective target was already crossed.",
+                        details={"protection": protection, "close_result": close_result},
+                    )
+                    return ExecutionResult(
+                        action_taken=True,
+                        intent_id=None,
+                        status="executed",
+                        summary=reason,
+                        position_id=closed.id,
+                        mode="demo_enabled",
+                        broker_position_id=position.broker_position_id,
+                        retryable=False,
+                    )
                 return ExecutionResult(
-                    action_taken=True,
+                    action_taken=False,
                     intent_id=None,
-                    status="executed",
-                    summary=reason,
-                    position_id=closed.id,
+                    status=str(close_result.get("status") or "failed"),
+                    summary="Broker close was not verified; local tracker remains open.",
+                    position_id=position.id,
                     mode="demo_enabled",
-                    broker_position_id=int(protection.get("position_id") or 0) or None,
+                    broker_position_id=position.broker_position_id,
+                    retryable=bool(close_result.get("retryable")),
                 )
             if protection.get("status") == "synced":
                 add_trade_audit(
@@ -853,50 +862,70 @@ def execute_paper_signal(
                     reference_price=mark_price,
                 )
                 if broker_protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
-                    broker_close = close_demo_position(
-                        symbol=position.symbol,
-                        position_id=int(broker_protection.get("position_id") or 0),
-                        quantity_lots=float(broker_protection.get("quantity_lots") or position.quantity),
-                    )
                     reason = (
                         "broker_stop_loss"
                         if broker_protection.get("status") == "exit_due_stop_loss"
                         else "broker_take_profit"
                     )
-                    closed = close_local_position_after_broker_close(
-                    position,
-                    broker_close=broker_close,
-                    fallback_price=mark_price,
-                    reason=reason,
-                )
+                    close_result = attempt_verified_demo_close(
+                        position,
+                        fallback_price=mark_price,
+                        reason=reason,
+                        phase="signal_target_protective_exit",
+                        quantity_lots=float(broker_protection.get("quantity_lots") or position.quantity),
+                    )
+                    if close_result.get("closed"):
+                        closed = close_result["position"]
+                        update_order_intent_status(
+                            intent.id,
+                            "executed",
+                            {
+                                "closed_position_id": closed.id,
+                                "broker_protection": broker_protection,
+                                "close_result": close_result,
+                            },
+                            reason="protective_exit_before_target_update",
+                        )
+                        add_trade_audit(
+                            event_type="ctrader_demo_protective_exit",
+                            symbol=analysis.symbol,
+                            timeframe=analysis.timeframe,
+                            strategy=analysis.strategy,
+                            intent_id=intent.id,
+                            position_id=closed.id,
+                            summary="Closed cTrader demo position because the refreshed target was already crossed.",
+                            details={"protection": broker_protection, "close_result": close_result},
+                        )
+                        return ExecutionResult(
+                            action_taken=True,
+                            intent_id=intent.id,
+                            status="executed",
+                            summary=reason,
+                            position_id=closed.id,
+                            mode="demo_enabled",
+                            broker_position_id=position.broker_position_id,
+                            retryable=False,
+                        )
+
                     update_order_intent_status(
                         intent.id,
-                        "executed",
+                        "failed",
                         {
-                            "closed_position_id": closed.id,
                             "broker_protection": broker_protection,
-                            "broker_close": broker_close,
+                            "close_result": close_result,
+                            "tracking_retained": True,
                         },
-                        reason="protective_exit_before_target_update",
-                    )
-                    add_trade_audit(
-                        event_type="ctrader_demo_protective_exit",
-                        symbol=analysis.symbol,
-                        timeframe=analysis.timeframe,
-                        strategy=analysis.strategy,
-                        intent_id=intent.id,
-                        position_id=closed.id,
-                        summary="Closed cTrader demo position because the refreshed target was already crossed.",
-                        details={"protection": broker_protection, "broker_close": broker_close},
+                        reason="protective_exit_close_not_verified",
                     )
                     return ExecutionResult(
-                        action_taken=True,
+                        action_taken=False,
                         intent_id=intent.id,
-                        status="executed",
-                        summary=reason,
-                        position_id=closed.id,
+                        status=str(close_result.get("status") or "failed"),
+                        summary="Broker close was not verified; local tracker remains open.",
+                        position_id=position.id,
                         mode="demo_enabled",
-                        broker_position_id=int(broker_protection.get("position_id") or 0) or None,
+                        broker_position_id=position.broker_position_id,
+                        retryable=bool(close_result.get("retryable")),
                     )
             except DemoProtectionSyncFailure as exc:
                 try:
