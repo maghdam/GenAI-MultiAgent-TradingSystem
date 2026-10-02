@@ -45,9 +45,9 @@ def unresolved_demo_close_event(position: PaperPosition) -> PaperEvent | None:
     for event in list_paper_events(500):
         if not _event_matches_position(event, position):
             continue
-        if event.event_type == _RESOLVED_EVENT:
+        if event.event_type in {_RESOLVED_EVENT, "ctrader_demo_close_verified"}:
             return None
-        if event.event_type == _AMBIGUOUS_EVENT:
+        if event.event_type in {_AMBIGUOUS_EVENT, "ctrader_demo_close_rejected"}:
             return event
     return None
 
@@ -209,6 +209,8 @@ def attempt_verified_demo_close(
 
     unresolved = unresolved_demo_close_event(position)
     if unresolved is not None:
+        prior_ambiguous = unresolved.event_type == _AMBIGUOUS_EVENT
+        pending_status = "ambiguous_pending" if prior_ambiguous else "rejected_pending"
         try:
             broker_row = _canonical_broker_row(position)
         except Exception as exc:
@@ -216,6 +218,7 @@ def attempt_verified_demo_close(
                 "position_id": position.id,
                 "broker_position_id": broker_id,
                 "phase": phase,
+                "prior_close_event": unresolved.event_type,
                 "error": str(exc),
                 "automatic_retry": False,
                 "tracking_retained": True,
@@ -224,11 +227,11 @@ def attempt_verified_demo_close(
             log_incident(
                 "error",
                 "ctrader_demo_close_reconciliation_deferred",
-                f"Could not reconcile ambiguous close for {position.symbol}:{position.timeframe}.",
+                f"Could not reconcile prior demo close failure for {position.symbol}:{position.timeframe}.",
                 details,
             )
             return {
-                "status": "ambiguous_pending",
+                "status": pending_status,
                 "closed": False,
                 "retryable": False,
                 **details,
@@ -239,6 +242,7 @@ def attempt_verified_demo_close(
                 "position_id": position.id,
                 "broker_position_id": broker_id,
                 "phase": phase,
+                "prior_close_event": unresolved.event_type,
                 "automatic_retry": False,
                 "tracking_retained": True,
                 "close_request_sent": False,
@@ -246,12 +250,20 @@ def attempt_verified_demo_close(
             }
             log_incident(
                 "warning",
-                "ctrader_demo_close_ambiguity_pending",
-                f"Canonical broker position is still open after an ambiguous close for {position.symbol}:{position.timeframe}; no second close was sent.",
+                (
+                    "ctrader_demo_close_ambiguity_pending"
+                    if prior_ambiguous
+                    else "ctrader_demo_close_rejection_pending"
+                ),
+                (
+                    f"Canonical broker position is still open after an ambiguous close for {position.symbol}:{position.timeframe}; no second close was sent."
+                    if prior_ambiguous
+                    else f"Canonical broker position is still open after a rejected close for {position.symbol}:{position.timeframe}; automatic re-close remains blocked."
+                ),
                 details,
             )
             return {
-                "status": "ambiguous_pending",
+                "status": pending_status,
                 "closed": False,
                 "retryable": False,
                 **details,
