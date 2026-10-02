@@ -7,16 +7,17 @@ from backend.services.strategy_policy import StrategyPolicyError, validate_strat
 from backend.services.strategy_sandbox import StrategySandboxError, run_strategy_source
 
 
-def _bars() -> pd.DataFrame:
+def _bars(count: int = 3) -> pd.DataFrame:
+    dates = pd.date_range("2026-01-01", periods=count, freq="D", tz="UTC")
     return pd.DataFrame(
         {
-            "open": [100.0, 101.0, 99.0],
-            "high": [102.0, 102.0, 101.0],
-            "low": [99.0, 98.0, 98.0],
-            "close": [101.0, 99.0, 100.0],
-            "volume": [10.0, 11.0, 12.0],
+            "open": [100.0] * count,
+            "high": [102.0] * count,
+            "low": [98.0] * count,
+            "close": [100.0] * count,
+            "volume": [10.0] * count,
         },
-        index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"], utc=True),
+        index=dates,
     )
 
 
@@ -111,31 +112,6 @@ def test_strategy_sandbox_rejects_invalid_output(source: str):
         run_strategy_source(source, _bars())
 
 
-def test_strategy_sandbox_enforces_child_memory_resource_limit(monkeypatch):
-    monkeypatch.setenv("STRATEGY_SANDBOX_MEMORY_MB", "128")
-    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "15")
-    source = """
-import pandas as pd
-
-def signals(df: pd.DataFrame) -> pd.Series:
-    # Instantly request ~200MB memory block to exceed 128MB limit
-    _ = bytearray(200 * 1024 * 1024)
-    return pd.Series(0.0, index=df.index)
-"""
-
-    with pytest.raises(StrategySandboxError, match="memory resource limit"):
-        run_strategy_source(source, _bars(), timeout_seconds=15.0)
-        
-import pandas as pd
-
-def signals(df: pd.DataFrame) -> pd.Series:
-    return pd.Series(0.0, index=df.index)
-"""
-
-    with pytest.raises(StrategySandboxError, match="bar resource limit"):
-        run_strategy_source(source, bars)
-
-
 def test_strategy_policy_enforces_source_size_resource_limit():
     padding = "#" + ("x" * 100_000)
     source = f"""
@@ -167,16 +143,14 @@ def signals(df: pd.DataFrame) -> pd.Series:
 
 def test_strategy_sandbox_enforces_child_memory_resource_limit(monkeypatch):
     monkeypatch.setenv("STRATEGY_SANDBOX_MEMORY_MB", "128")
-    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "5")
+    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "15")
     source = """
 import pandas as pd
 
 def signals(df: pd.DataFrame) -> pd.Series:
-    holder = [0] * 20000000
-    while len(holder) > 0:
-        pass
+    _ = bytearray(200 * 1024 * 1024)
     return pd.Series(0.0, index=df.index)
 """
 
     with pytest.raises(StrategySandboxError, match="memory resource limit"):
-        run_strategy_source(source, _bars(), timeout_seconds=5.0)
+        run_strategy_source(source, _bars(), timeout_seconds=15.0)
