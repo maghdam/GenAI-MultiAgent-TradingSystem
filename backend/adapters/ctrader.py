@@ -22,6 +22,23 @@ class DemoOrderAcknowledgementTimeout(RuntimeError):
         self.submitted = True
 
 
+class DemoProtectionSyncFailure(RuntimeError):
+    """Broker protection amend/verification failed after the target-sync path began."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_kind: str,
+        broker_position_id: int,
+        ack: Dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_kind = failure_kind
+        self.broker_position_id = int(broker_position_id)
+        self.ack = dict(ack or {})
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -513,7 +530,17 @@ class CTraderBrokerAdapter:
             ack_payload = dict(ack)
             if ack.get("status") in {"failed", "order_rejected"}:
                 reason = ack.get("error") or ack.get("reject_reason") or ack["status"]
-                raise RuntimeError(f"cTrader demo target sync failed: {reason}; ack={ack_payload}")
+                failure_kind = (
+                    "ack_timeout"
+                    if "timeout" in str(reason).lower()
+                    else ("amend_rejected" if ack.get("status") == "order_rejected" else "amend_failed")
+                )
+                raise DemoProtectionSyncFailure(
+                    f"cTrader demo target sync failed: {reason}; ack={ack_payload}",
+                    failure_kind=failure_kind,
+                    broker_position_id=broker_position_id,
+                    ack=ack_payload,
+                )
         else:
             try:
                 event = ctd.Protobuf.extract(ack)
@@ -523,18 +550,29 @@ class CTraderBrokerAdapter:
                 reject_reason = getattr(event, "rejectReason", None)
                 execution_type = getattr(event, "executionType", None)
                 if error_code:
-                    raise RuntimeError(
+                    raise DemoProtectionSyncFailure(
                         f"cTrader demo target sync rejected: errorCode={error_code} "
-                        f"description={description or ''}; ack={ack_payload}"
+                        f"description={description or ''}; ack={ack_payload}",
+                        failure_kind="amend_rejected",
+                        broker_position_id=broker_position_id,
+                        ack=ack_payload,
                     )
                 if reject_reason:
-                    raise RuntimeError(
-                        f"cTrader demo target sync rejected: rejectReason={reject_reason}; ack={ack_payload}"
+                    raise DemoProtectionSyncFailure(
+                        f"cTrader demo target sync rejected: rejectReason={reject_reason}; ack={ack_payload}",
+                        failure_kind="amend_rejected",
+                        broker_position_id=broker_position_id,
+                        ack=ack_payload,
                     )
                 # ProtoOAExecutionType.ORDER_REJECTED == 7.
                 if execution_type is not None and int(execution_type) == 7:
-                    raise RuntimeError(f"cTrader demo target sync rejected; ack={ack_payload}")
-            except RuntimeError:
+                    raise DemoProtectionSyncFailure(
+                        f"cTrader demo target sync rejected; ack={ack_payload}",
+                        failure_kind="amend_rejected",
+                        broker_position_id=broker_position_id,
+                        ack=ack_payload,
+                    )
+            except DemoProtectionSyncFailure:
                 raise
             except Exception as exc:
                 ack_payload = {"parse_error": str(exc), "raw_type": type(ack).__name__}
@@ -557,10 +595,13 @@ class CTraderBrokerAdapter:
         if verified_row is None:
             observed_sl = (last_observed or {}).get("stop_loss")
             observed_tp = (last_observed or {}).get("take_profit")
-            raise RuntimeError(
+            raise DemoProtectionSyncFailure(
                 "cTrader demo target sync could not verify SL/TP on "
                 f"position {broker_position_id}; requested_sl={stop_loss} requested_tp={take_profit} "
-                f"observed_sl={observed_sl} observed_tp={observed_tp} ack={ack_payload}"
+                f"observed_sl={observed_sl} observed_tp={observed_tp} ack={ack_payload}",
+                failure_kind="verification_failed",
+                broker_position_id=broker_position_id,
+                ack=ack_payload,
             )
 
         return {
