@@ -767,7 +767,22 @@ Simulate deliberately:
     - [x] Focused execution / broker / reconciliation / disconnect / restart / status regression set passed locally.
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #126 on implementation head `77c6261` passed backend tests + frontend production build.
-- [ ] Protection amend rejected.
+- [x] Protection amend rejected.
+  - [x] cTrader demo protection amend/verification failures are classified separately from ordinary broker precondition errors.
+  - [x] Rejected/unverified protection never causes new local SL/TP targets to be written before broker verification succeeds.
+  - [x] The protection fail-safe close policy is shared across new-bar signal execution, same-bar maintenance, and startup/manual reconciliation.
+  - [x] Fail-safe close requires the persisted canonical broker position ID to match the broker row; no symbol-only adoption or competing open order is allowed.
+  - [x] A successful fail-safe close closes the broker position first and only then closes the local tracker.
+  - [x] If fail-safe close is also rejected/unavailable, the canonical local tracker is retained, the result is non-retryable for the current bar, and the incident is actionable.
+  - [x] After a failed fail-safe close, repeated scans of the same bar suppress duplicate protection amendments/closes and only watch broker truth.
+  - [x] Broker-truth recovery clears same-bar suppression once the intended SL/TP is later verified, without sending another amend.
+  - [x] Generic disconnect/precondition failures keep the existing deferred/retry behavior and do not trigger fail-safe close.
+  - Verification:
+    - [x] 7 scenario-specific rejected-protection-amend resilience tests passed locally.
+    - [x] Focused protection / execution / reconciliation regression set passed locally after one narrow compatibility fix.
+    - [x] Full backend suite passed locally on corrected head `23c6de4`.
+    - [x] GitHub CI #130 on corrected implementation head `23c6de4` passed backend tests + frontend production build.
+    - [x] Initial CI #129 on `4c757a2` failed only because new optional engine bookkeeping assumed an older test double exposed `position_id`/`status`; corrected with optional `getattr` access and no protection-safety behavior change.
 - [ ] Broker close rejected.
 - [ ] Partial close.
 - [ ] SQLite busy/locked.
@@ -876,9 +891,10 @@ Add one row after every completed task.
 | 2026-10-01 | Resilience: stale market bars | Fail closed before same-bar maintenance/strategy/intent/broker mutation, preserve retryable bar state, expose active stale-feed status, and process the first fresh recovery bar exactly once | ✅ 6 scenario tests + focused market/engine/risk/status regression + full backend suite + CI #119 passed | PR #46 / `fdb24cc` | Proceed to Phase 7 malformed-market-data scenario |
 | 2026-10-01 | Resilience: malformed market data | Centralize OHLC integrity checks, reject malformed broker/cache data before trading logic, preserve retryable bar state, deduplicate actionable malformed-feed incidents, and recover on the first valid bar exactly once | ✅ 12 scenario cases + focused market/engine/risk/status/adapter regression + full backend suite + CI #123 passed | PR #47 / `b21a9f9` | Proceed to Phase 7 order-acknowledgement-timeout scenario |
 | 2026-10-02 | Resilience: order acknowledgement timeout | Distinguish ambiguous post-submit timeouts from known failures, reconcile against a pre-submit broker-position baseline, forbid symbol-only adoption/resubmission, and track broker-confirmed recovery without a second order | ✅ 6 scenario tests + focused execution/broker/reconciliation/status regression + full backend suite + CI #126 passed | PR #48 / `77c6261` | Proceed to Phase 7 protection-amend-rejected scenario |
+| 2026-10-02 | Resilience: protection amend rejected | Keep local SL/TP truthful, apply one canonical fail-safe close on rejected/unverified broker protection, retain tracking if close also fails, suppress duplicate same-bar amend loops, and recover from later broker-truth verification | ✅ 7 scenario tests + focused protection/execution/reconciliation regression + full backend suite + corrected CI #130 passed; initial CI #129 exposed one legacy test-double compatibility issue only | PR #49 / `23c6de4` | Proceed to Phase 7 broker-close-rejected scenario |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, tenth scenario only: acceptance-test protection amend rejected. Verify a broker rejection of SL/TP amendment never causes the local tracker to claim protection that the broker did not confirm, does not create a competing order or duplicate amend loop, preserves the canonical broker position ID/source-of-truth relationship, surfaces an actionable protection failure/deferred incident, applies the existing fail-safe close policy deterministically when protection cannot be verified, and recovers safely when a later protection verification succeeds. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, eleventh scenario only: acceptance-test broker close rejected. Verify a broker rejection/failure of a TradeAgent-initiated demo position close never causes the local tracker to be marked closed unless broker truth confirms the close, does not create duplicate/competing close requests, preserves the canonical broker position ID and broker source-of-truth semantics, surfaces an actionable close-failure/deferred incident, distinguishes known rejection from ambiguous post-submit close outcome where relevant, and recovers deterministically from later broker reconciliation without synthesizing a local-only exit. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**

@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from backend.domain.models import EngineConfig
 from backend.services.broker import (
+    DemoProtectionSyncFailure,
     close_demo_position,
     get_broker_account_snapshot,
     get_broker_status,
@@ -21,6 +22,7 @@ from backend.services.broker_ledger import (
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.paper_book import apply_mark, reconcile_position
+from backend.services.protection_safety import fail_safe_close_unverified_demo_position
 from backend.storage.repositories import (
     add_paper_event,
     add_trade_audit,
@@ -439,6 +441,18 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                             "reference_price": last_price,
                         },
                     )
+            except DemoProtectionSyncFailure as exc:
+                failsafe = fail_safe_close_unverified_demo_position(
+                    position,
+                    broker_row=broker_match,
+                    fallback_price=last_price,
+                    protection_error=exc,
+                    phase=f"reconcile:{reason}",
+                )
+                if failsafe.get("closed"):
+                    closed += 1
+                else:
+                    skipped += 1
             except Exception as exc:
                 skipped += 1
                 log_incident(
