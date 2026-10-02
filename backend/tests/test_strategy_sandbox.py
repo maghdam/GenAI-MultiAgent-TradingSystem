@@ -7,17 +7,16 @@ from backend.services.strategy_policy import StrategyPolicyError, validate_strat
 from backend.services.strategy_sandbox import StrategySandboxError, run_strategy_source
 
 
-def _bars(count: int = 3) -> pd.DataFrame:
-    dates = pd.date_range("2026-01-01", periods=count, freq="D", tz="UTC")
+def _bars() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "open": [100.0] * count,
-            "high": [102.0] * count,
-            "low": [98.0] * count,
-            "close": [100.0] * count,
-            "volume": [10.0] * count,
+            "open": [100.0, 101.0, 99.0],
+            "high": [102.0, 102.0, 101.0],
+            "low": [99.0, 98.0, 98.0],
+            "close": [101.0, 99.0, 100.0],
+            "volume": [10.0, 11.0, 12.0],
         },
-        index=dates,
+        index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"], utc=True),
     )
 
 
@@ -146,9 +145,11 @@ def test_strategy_sandbox_enforces_child_memory_resource_limit(monkeypatch):
     monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "15")
     source = """
 import pandas as pd
+import numpy as np
 
 def signals(df: pd.DataFrame) -> pd.Series:
-    _ = bytearray(200 * 1024 * 1024)
+    # Use numpy to quickly allocate ~200MB memory block without triggering builtins error
+    _ = np.ones((25000000,), dtype=np.int64)
     return pd.Series(0.0, index=df.index)
 """
 
