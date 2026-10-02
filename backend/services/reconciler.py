@@ -6,6 +6,7 @@ from typing import Any, Dict
 from backend.domain.models import EngineConfig
 from backend.services.broker import (
     DemoProtectionSyncFailure,
+    close_demo_position,
     get_broker_account_snapshot,
     get_broker_status,
     get_instrument_spec,
