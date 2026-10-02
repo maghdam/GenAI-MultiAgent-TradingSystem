@@ -95,7 +95,7 @@ def _verified_absence_payload(
     }
 
 
-def _record_ambiguous(
+def record_ambiguous_demo_close(
     position: PaperPosition,
     *,
     error: DemoCloseOutcomeAmbiguous,
@@ -143,7 +143,7 @@ def _record_ambiguous(
     )
 
 
-def _record_rejected(
+def record_rejected_demo_close(
     position: PaperPosition,
     *,
     error: DemoCloseRejected,
@@ -309,7 +309,7 @@ def attempt_verified_demo_close(
             quantity_lots=quantity,
         )
     except DemoCloseRejected as exc:
-        _record_rejected(
+        record_rejected_demo_close(
             position,
             error=exc,
             phase=phase,
@@ -325,7 +325,7 @@ def attempt_verified_demo_close(
             "close_request_sent": True,
         }
     except DemoCloseOutcomeAmbiguous as exc:
-        _record_ambiguous(
+        record_ambiguous_demo_close(
             position,
             error=exc,
             phase=phase,
