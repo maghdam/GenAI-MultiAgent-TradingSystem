@@ -87,13 +87,8 @@ def test_same_bar_disconnect_preserves_protected_tracker_and_suppresses_broker_a
     )
     monkeypatch.setattr(
         engine_module,
-        "close_demo_position",
-        lambda **kwargs: pytest.fail("disconnected maintenance must not close broker position"),
-    )
-    monkeypatch.setattr(
-        engine_module,
-        "close_local_position_after_broker_close",
-        lambda *args, **kwargs: pytest.fail("disconnected maintenance must not close local tracker"),
+        "attempt_verified_demo_close",
+        lambda *args, **kwargs: pytest.fail("disconnected maintenance must not close broker or local position"),
     )
 
     # The mark is deliberately beyond the stored take-profit. In demo-managed
@@ -176,8 +171,8 @@ def test_recovery_reconciles_canonical_broker_position_id_and_resumes_protection
     )
     monkeypatch.setattr(
         engine_module,
-        "close_demo_position",
-        lambda **kwargs: pytest.fail("healthy protected position must not be closed on recovery"),
+        "attempt_verified_demo_close",
+        lambda *args, **kwargs: pytest.fail("healthy protected position must not be closed on recovery"),
     )
 
     engine._sync_existing_demo_protection(_config(), _watch_item(), 100.5)
