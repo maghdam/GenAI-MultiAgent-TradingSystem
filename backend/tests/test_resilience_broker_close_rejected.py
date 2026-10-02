@@ -273,6 +273,18 @@ def test_explicit_rejection_retains_tracker_and_surfaces_active_incident(monkeyp
     assert calls["close"] == 1
     assert list_paper_positions("open")[0].broker_position_id == 111
 
+    monkeypatch.setattr(close_safety, "list_positions", lambda: [_broker_row()])
+    second = close_safety.attempt_verified_demo_close(
+        position,
+        fallback_price=100.0,
+        reason="broker_take_profit",
+        phase="same_bar_repeat",
+    )
+    assert second["status"] == "rejected_pending"
+    assert second["close_request_sent"] is False
+    assert second["broker_position_still_open"] is True
+    assert calls["close"] == 1
+
     events = list_paper_events(20)
     rejected = next(event for event in events if event.event_type == "ctrader_demo_close_rejected")
     assert rejected.details["broker_position_id"] == 111
