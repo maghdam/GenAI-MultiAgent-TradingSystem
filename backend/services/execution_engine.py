@@ -1449,7 +1449,16 @@ def execute_paper_signal(
             update_order_intent_status(
                 intent.id,
                 "failed",
-                {"broker": "ctrader", "account_type": "demo", "error": str(exc)},
+                {
+                    "broker": "ctrader",
+                    "account_type": "demo",
+                    "error": str(exc),
+                    "outcome_state": "submission_failed",
+                    "submission_may_have_succeeded": False,
+                    "ambiguity_resolved": True,
+                    "automatic_retry": False,
+                    "retryable": True,
+                },
                 reason="ctrader_demo_order_failed",
             )
             log_incident(
@@ -1750,24 +1759,26 @@ def execute_paper_signal(
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
             direction=analysis.signal,
-        quantity=(
-            float((broker_order or {}).get("quantity_lots") or trade_quantity)
-            if ack_timeout_reconciled
-            else trade_quantity
-        ),
-        entry_price=(
-            float((broker_order or {}).get("entry_price"))
-            if ack_timeout_reconciled and (broker_order or {}).get("entry_price") is not None
-            else (analysis.entry_price or mark_price)
-        ),
-        stop_loss=analysis.stop_loss,
-        take_profit=analysis.take_profit,
-        lifecycle_version_hash=lifecycle_version_hash,
-        account_currency=monetary_basis.currency or config.account_currency,
-        cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
-        instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
+            quantity=(
+                float((broker_order or {}).get("quantity_lots") or trade_quantity)
+                if ack_timeout_reconciled
+                else trade_quantity
+            ),
+            entry_price=(
+                float((broker_order or {}).get("entry_price"))
+                if ack_timeout_reconciled and (broker_order or {}).get("entry_price") is not None
+                else (analysis.entry_price or mark_price)
+            ),
+            stop_loss=analysis.stop_loss,
+            take_profit=analysis.take_profit,
+            lifecycle_version_hash=lifecycle_version_hash,
+            account_currency=monetary_basis.currency or config.account_currency,
+            cash_per_price_unit_per_lot=float(instrument.cash_per_price_unit_per_lot or 1.0),
+            instrument_spec_source=instrument.source if instrument.valuation_ready else "unvalued_fallback",
             broker_position_id=(
-                int(broker_order.get("position_id") or 0) if broker_order and broker_order.get("position_id") else None
+                int(broker_order.get("position_id") or 0)
+                if broker_order and broker_order.get("position_id")
+                else None
             ),
         )
     except SQLiteBusyError as exc:
