@@ -1826,7 +1826,7 @@ def daily_realized_pnl() -> float:
             SELECT COALESCE(SUM(p.realized_pnl), 0) AS total
             FROM paper_positions p
             WHERE p.status = 'closed'
-              AND substr(p.closed_at, 1, 10) = ?
+              AND date(p.closed_at) = ?
               AND NOT EXISTS (
                   SELECT 1 FROM broker_deals d
                   WHERE d.local_position_id = p.id
@@ -1838,7 +1838,7 @@ def daily_realized_pnl() -> float:
             """
             SELECT COALESCE(SUM(net_profit), 0) AS total
             FROM broker_deals
-            WHERE substr(execution_at, 1, 10) = ?
+            WHERE date(execution_at) = ?
             """,
             (today,),
         ).fetchone()
@@ -1855,7 +1855,7 @@ def daily_trade_count() -> int:
             """
             SELECT COUNT(*) AS total
             FROM paper_positions
-            WHERE substr(opened_at, 1, 10) = ?
+            WHERE date(opened_at) = ?
             """,
             (today,),
         ).fetchone()

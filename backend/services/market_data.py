@@ -30,6 +30,15 @@ _TIMEFRAME_SECONDS = {
     "D1": 86_400,
     "W1": 604_800,
 }
+_MAX_FUTURE_CLOCK_SKEW_SECONDS = 30.0
+
+
+def _utc_naive(value: datetime) -> datetime:
+    return (
+        value.astimezone(UTC).replace(tzinfo=None)
+        if value.tzinfo is not None
+        else value
+    )
 
 
 def assess_market_bar_freshness(
@@ -47,16 +56,8 @@ def assess_market_bar_freshness(
     if bar_timestamp is None:
         return False, details, "No market-data timestamp was available for the signal."
 
-    normalized_now = (
-        evaluated_at.astimezone(UTC).replace(tzinfo=None)
-        if evaluated_at.tzinfo is not None
-        else evaluated_at
-    )
-    normalized_bar = (
-        bar_timestamp.astimezone(UTC).replace(tzinfo=None)
-        if bar_timestamp.tzinfo is not None
-        else bar_timestamp
-    )
+    normalized_now = _utc_naive(evaluated_at)
+    normalized_bar = _utc_naive(bar_timestamp)
     timeframe_key = (timeframe or "M5").upper()
     max_age_seconds = (_TIMEFRAME_SECONDS.get(timeframe_key, 300) * 3) + 30
     age_seconds = (normalized_now - normalized_bar).total_seconds()
@@ -64,8 +65,12 @@ def assess_market_bar_freshness(
     details["bar_timestamp"] = normalized_bar.isoformat()
     details["evaluated_at"] = normalized_now.isoformat()
     details["bar_age_seconds"] = max(0.0, age_seconds)
+    details["bar_clock_skew_seconds"] = max(0.0, -age_seconds)
     details["max_bar_age_seconds"] = float(max_age_seconds)
+    details["max_future_clock_skew_seconds"] = _MAX_FUTURE_CLOCK_SKEW_SECONDS
 
+    if age_seconds < -_MAX_FUTURE_CLOCK_SKEW_SECONDS:
+        return False, details, "Latest market bar timestamp is ahead of the evaluation clock."
     if age_seconds > max_age_seconds:
         return False, details, "Latest market bar is stale for the configured timeframe."
     return True, details, None
@@ -157,13 +162,20 @@ def _store_cached_bars(symbol: str, timeframe: str, df: pd.DataFrame) -> None:
         _bars_cache[key] = (monotonic(), df.copy())
 
 
-def _persistent_cache_fresh_enough(fetched_at: datetime | None, timeframe: str) -> bool:
+def _persistent_cache_fresh_enough(
+    fetched_at: datetime | None,
+    timeframe: str,
+    *,
+    now: datetime | None = None,
+) -> bool:
     if fetched_at is None:
         return False
     tf_seconds = _TIMEFRAME_SECONDS.get((timeframe or "").upper(), 300)
     max_age = max(30, tf_seconds * 2)
-    age_seconds = (datetime.now(UTC).replace(tzinfo=None) - fetched_at.replace(tzinfo=None)).total_seconds()
-    return age_seconds <= max_age
+    evaluated_at = _utc_naive(now or datetime.now(UTC))
+    normalized_fetched = _utc_naive(fetched_at)
+    age_seconds = (evaluated_at - normalized_fetched).total_seconds()
+    return -_MAX_FUTURE_CLOCK_SKEW_SECONDS <= age_seconds <= max_age
 
 
 def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = False) -> pd.DataFrame:

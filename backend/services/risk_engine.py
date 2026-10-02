@@ -60,12 +60,20 @@ def _validate_protective_levels(
     return True, details, None
 
 
+def _utc_naive(value: datetime) -> datetime:
+    return (
+        value.astimezone(UTC).replace(tzinfo=None)
+        if value.tzinfo is not None
+        else value
+    )
+
+
 def _within_session(config: EngineConfig, now: datetime) -> bool:
     if not config.session_filter_enabled:
         return True
     start = int(config.session_start_hour_utc)
     end = int(config.session_end_hour_utc)
-    hour = now.hour
+    hour = _utc_naive(now).hour
     if start == end:
         return True
     if start < end:
@@ -85,7 +93,7 @@ def _in_symbol_cooldown(config: EngineConfig, open_positions: List[PaperPosition
     for position in list_paper_positions():
         if position.symbol.upper() != symbol.upper() or position.timeframe.upper() != timeframe.upper():
             continue
-        if position.closed_at and position.closed_at >= cutoff:
+        if position.closed_at and _utc_naive(position.closed_at) >= cutoff:
             return True
     return False
 

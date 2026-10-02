@@ -850,7 +850,20 @@ Simulate deliberately:
     - [x] Focused API/persistence/engine-safety regression passed locally on `154f02b`.
     - [x] Full backend suite passed locally on `154f02b` with a clean working tree.
     - [x] GitHub CI #151 on `154f02b` passed backend tests + frontend build.
-- [ ] Clock/time-zone edge cases / DST.
+- [x] Clock/time-zone edge cases / DST.
+  - [x] UTC session filters normalize aware timestamps before comparing configured UTC hours, including Zurich spring-forward and repeated autumn-hour cases.
+  - [x] Symbol cooldown timestamps are normalized to UTC before comparison.
+  - [x] Market-bar freshness normalizes offset-aware timestamps to UTC and rejects materially future-dated bars instead of treating negative age as fresh.
+  - [x] Persisted market-cache age compares UTC instants across offsets/DST.
+  - [x] Daily trade-count and realized-P&L SQL date filters use SQLite UTC-aware `date(...)` semantics for offset-bearing timestamps.
+  - [x] Broker-reconciled close timestamps preserve the source instant while daily safety accounting uses the UTC trading date.
+  - [x] Event calibration selects the correct closed bar through the repeated autumn DST hour.
+  - [x] The same market-bar instant represented in UTC vs Europe/Zurich remains idempotent and does not create a duplicate action.
+  - Verification:
+    - [x] 7 clock/time-zone/DST resilience tests passed locally on `99067bd`.
+    - [x] Focused time/risk/market/event/reconciliation regression passed locally on `99067bd`.
+    - [x] Full backend suite passed locally on `99067bd` with a clean working tree.
+    - [x] GitHub CI #154 on `99067bd` passed backend tests + frontend build.
 
 For every scenario verify:
 - no unintended live routing,
@@ -959,9 +972,10 @@ Add one row after every completed task.
 | 2026-10-02 | Resilience: SQLite busy/locked | Make SQLite lock handling transactional and keep demo-order recovery deterministic across pre-submit and post-submit persistence interruptions | ✅ 5 scenario tests + focused regression + full backend suite + CI #141 passed on `ac50103` | PR #52 / `ac50103` | Proceed to Phase 7 DB restart/recovery scenario |
 | 2026-10-02 | Resilience: DB restart/recovery | Verify durable SQLite reopen behavior, canonical tracker/intent recovery, idempotent broker ledger, protection resumption, and persistent duplicate-order blocking across restart | ✅ 5 scenario tests + focused regression + full backend suite + CI #148 passed on cleaned head `f02c926` | PR #53 / `f02c926` | Proceed to Phase 7 Google Drive unavailable scenario |
 | 2026-10-02 | Resilience: Google Drive unavailable | Verify the repo/runtime remains independent of Drive, local API/SQLite continue to work, and demo/live safety controls are unchanged when Drive is unavailable | ✅ 5 scenario tests + focused regression + full backend suite + CI #151 passed on `154f02b` | PR #54 / `154f02b` | Proceed to Phase 7 clock/time-zone/DST edge cases |
+| 2026-10-02 | Resilience: clock/time-zone/DST | Normalize risk/market/daily-accounting time boundaries to UTC; reject future-clock market data; verify Zurich DST, event timing, reconciliation timestamps, and same-instant replay idempotence | ✅ 7 scenario tests + focused regression + full backend suite + CI #154 passed on `99067bd` | PR #55 / `99067bd` | Phase 7 automated resilience scenarios complete; proceed to Phase 8 daily observability summary while pending real cTrader field observations remain open |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, sixteenth scenario only: acceptance-test clock/time-zone edge cases and DST. Verify UTC/local-time boundaries, DST transitions, persisted timestamps, session filters, bar freshness, daily counters/limits, event timing, and reconciliation logic remain deterministic and do not create duplicate demo actions or incorrect safety state when local time shifts or clocks cross day boundaries. Preserve cTrader demo-only routing and broker source-of-truth/canonical-position safeguards. Do not proceed beyond Phase 7 resilience completion until this item is locally validated and CI passes. The existing pending real cTrader field observations and Phase 5.3 threshold comparison remain pending; keep the global 60% threshold unchanged.**
+**Phase 8 — Observability & reporting, first item only: implement a deterministic daily summary covering trades, realized P&L, drawdown, win/loss, and rejected signals grouped by reason. Reuse persisted broker/local truth rather than inventing new execution state, keep reporting read-only with respect to broker actions, and preserve cTrader demo-only/live-routing safeguards. Do not proceed to broker-vs-local reconciliation health until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
