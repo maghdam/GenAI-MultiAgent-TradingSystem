@@ -753,7 +753,20 @@ Simulate deliberately:
     - [x] Focused market / engine / risk / status / adapter regression set passed locally.
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #123 on implementation head `b21a9f9` passed backend tests + frontend production build.
-- [ ] Order acknowledgement timeout.
+- [x] Order acknowledgement timeout.
+  - [x] A cTrader demo acknowledgement timeout is classified explicitly as a post-submission ambiguity, distinct from a known pre-submit/rejected order failure.
+  - [x] Broker position IDs are snapshotted immediately before demo submission; timeout reconciliation may auto-resolve only from that baseline.
+  - [x] Exactly one new broker position matching symbol, direction, and quantity may resolve the timeout automatically; broker position ID, entry price, and volume become the canonical local tracker truth.
+  - [x] Missing baseline or multiple new broker candidates remain unresolved; symbol-only adoption is forbidden.
+  - [x] Unresolved ambiguity persists on the failed open intent with `retryable=false`, `automatic_retry=false`, and `submission_may_have_succeeded=true`.
+  - [x] Later automatic open attempts for the same symbol/timeframe are blocked before a new intent or broker submission is created while the ambiguity remains unresolved.
+  - [x] Current status surfaces actionable `order_acknowledgement_ambiguous`; resolved broker-confirmed timeout cases do not leave that active incident.
+  - [x] Live-account routing remains blocked before submission.
+  - Verification:
+    - [x] 6 scenario-specific order-acknowledgement-timeout resilience tests passed locally.
+    - [x] Focused execution / broker / reconciliation / disconnect / restart / status regression set passed locally.
+    - [x] Full backend suite passed locally.
+    - [x] GitHub CI #126 on implementation head `77c6261` passed backend tests + frontend production build.
 - [ ] Protection amend rejected.
 - [ ] Broker close rejected.
 - [ ] Partial close.
@@ -862,9 +875,10 @@ Add one row after every completed task.
 | 2026-10-01 | Resilience: symbol metadata delayed | Invalidate stale cTrader contract state across sessions, keep fallback/light symbols non-executable, fail closed before intent/order submission, and restore readiness only from complete current-session broker contracts | ✅ 6 scenario tests + focused broker/demo/engine/status regression + full backend suite + CI #116 passed | PR #45 / `6e8e87c` | Proceed to Phase 7 market-bars-stale scenario |
 | 2026-10-01 | Resilience: stale market bars | Fail closed before same-bar maintenance/strategy/intent/broker mutation, preserve retryable bar state, expose active stale-feed status, and process the first fresh recovery bar exactly once | ✅ 6 scenario tests + focused market/engine/risk/status regression + full backend suite + CI #119 passed | PR #46 / `fdb24cc` | Proceed to Phase 7 malformed-market-data scenario |
 | 2026-10-01 | Resilience: malformed market data | Centralize OHLC integrity checks, reject malformed broker/cache data before trading logic, preserve retryable bar state, deduplicate actionable malformed-feed incidents, and recover on the first valid bar exactly once | ✅ 12 scenario cases + focused market/engine/risk/status/adapter regression + full backend suite + CI #123 passed | PR #47 / `b21a9f9` | Proceed to Phase 7 order-acknowledgement-timeout scenario |
+| 2026-10-02 | Resilience: order acknowledgement timeout | Distinguish ambiguous post-submit timeouts from known failures, reconcile against a pre-submit broker-position baseline, forbid symbol-only adoption/resubmission, and track broker-confirmed recovery without a second order | ✅ 6 scenario tests + focused execution/broker/reconciliation/status regression + full backend suite + CI #126 passed | PR #48 / `77c6261` | Proceed to Phase 7 protection-amend-rejected scenario |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, ninth scenario only: acceptance-test order acknowledgement timeout. Verify an ambiguous post-submission acknowledgement timeout never triggers an automatic retry or duplicate demo order, the local intent is marked non-retryable/ambiguous rather than falsely executed, broker/source-of-truth reconciliation is used to resolve whether a position/order actually exists, the incident is actionable, live routing remains blocked, and recovery is deterministic without creating a competing order. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, tenth scenario only: acceptance-test protection amend rejected. Verify a broker rejection of SL/TP amendment never causes the local tracker to claim protection that the broker did not confirm, does not create a competing order or duplicate amend loop, preserves the canonical broker position ID/source-of-truth relationship, surfaces an actionable protection failure/deferred incident, applies the existing fail-safe close policy deterministically when protection cannot be verified, and recovers safely when a later protection verification succeeds. Do not proceed to the next failure scenario until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, and forced Ollama-down field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**

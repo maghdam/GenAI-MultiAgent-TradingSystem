@@ -13,6 +13,15 @@ from backend.services.runtime_state import external_dependency_state, market_dat
 from backend.services.market_bar_validation import assess_market_frame
 
 
+class DemoOrderAcknowledgementTimeout(RuntimeError):
+    """Broker submission was sent, but the acknowledgement outcome is unknown."""
+
+    def __init__(self, message: str, *, client_msg_id: str | None = None) -> None:
+        super().__init__(message)
+        self.client_msg_id = client_msg_id
+        self.submitted = True
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -324,6 +333,11 @@ class CTraderBrokerAdapter:
         result = ctd.wait_for_deferred(deferred, timeout=20)
         if isinstance(result, dict) and result.get("status") in {"failed", "order_rejected"}:
             reason = result.get("error") or result.get("reject_reason") or result["status"]
+            if result.get("status") == "failed" and "timeout" in str(reason).lower():
+                raise DemoOrderAcknowledgementTimeout(
+                    "cTrader demo order acknowledgement timed out after submission; broker outcome is ambiguous.",
+                    client_msg_id=client_msg_id,
+                )
             raise RuntimeError(f"cTrader demo order failed: {reason}")
         if not isinstance(result, dict):
             raise RuntimeError("cTrader demo order returned an unrecognized acknowledgement.")

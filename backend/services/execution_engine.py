@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import sleep
 from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
+    DemoOrderAcknowledgementTimeout,
     close_demo_position,
     get_broker_account_snapshot,
     get_broker_status,
@@ -30,6 +32,7 @@ from backend.storage.repositories import (
     create_decision_record,
     create_order_intent,
     get_open_position,
+    list_order_intents,
     log_incident,
     open_paper_position,
     update_order_intent_status,
@@ -52,6 +55,127 @@ class ExecutionResult:
 
 class BrokerPositionIdentityError(RuntimeError):
     pass
+
+
+def _broker_position_id(row: dict[str, object]) -> int | None:
+    try:
+        value = int(row.get("position_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _matching_new_broker_positions(
+    rows: list[dict[str, object]],
+    *,
+    baseline_ids: set[int],
+    symbol: str,
+    direction: str,
+    quantity_lots: float,
+) -> list[dict[str, object]]:
+    expected_side = "buy" if direction == "long" else "sell"
+    tolerance = max(1e-6, abs(float(quantity_lots)) * 1e-3)
+    matches: list[dict[str, object]] = []
+    for row in rows:
+        position_id = _broker_position_id(row)
+        if position_id is None or position_id in baseline_ids:
+            continue
+        if str(row.get("symbol") or "").upper() != symbol.upper():
+            continue
+        if str(row.get("direction") or "").lower() != expected_side:
+            continue
+        try:
+            broker_quantity = float(row.get("volume_lots"))
+        except (TypeError, ValueError):
+            continue
+        if abs(broker_quantity - float(quantity_lots)) > tolerance:
+            continue
+        matches.append(row)
+    return matches
+
+
+def _reconcile_order_ack_timeout(
+    *,
+    baseline_available: bool,
+    baseline_ids: set[int],
+    symbol: str,
+    direction: str,
+    quantity_lots: float,
+) -> tuple[dict[str, object] | None, dict[str, object]]:
+    if not baseline_available:
+        return None, {
+            "status": "baseline_unavailable",
+            "candidate_count": 0,
+            "automatic_adoption": False,
+        }
+
+    last_rows: list[dict[str, object]] = []
+    for attempt in range(3):
+        try:
+            last_rows = [dict(row) for row in (list_positions() or [])]
+        except Exception as exc:
+            return None, {
+                "status": "reconcile_unavailable",
+                "error": str(exc),
+                "candidate_count": 0,
+                "automatic_adoption": False,
+            }
+        candidates = _matching_new_broker_positions(
+            last_rows,
+            baseline_ids=baseline_ids,
+            symbol=symbol,
+            direction=direction,
+            quantity_lots=quantity_lots,
+        )
+        if len(candidates) == 1:
+            return candidates[0], {
+                "status": "broker_position_confirmed",
+                "attempt": attempt + 1,
+                "candidate_count": 1,
+                "broker_position_id": _broker_position_id(candidates[0]),
+                "automatic_adoption": True,
+            }
+        if len(candidates) > 1:
+            return None, {
+                "status": "multiple_new_candidates",
+                "attempt": attempt + 1,
+                "candidate_count": len(candidates),
+                "candidate_position_ids": [
+                    _broker_position_id(row) for row in candidates
+                ],
+                "automatic_adoption": False,
+            }
+        if attempt < 2:
+            sleep(0.2)
+
+    return None, {
+        "status": "broker_position_not_observed",
+        "attempt": 3,
+        "candidate_count": 0,
+        "observed_position_ids": [
+            position_id
+            for row in last_rows
+            if (position_id := _broker_position_id(row)) is not None
+        ],
+        "automatic_adoption": False,
+    }
+
+
+def _unresolved_order_ack_timeout(symbol: str, timeframe: str):
+    for intent in list_order_intents(200):
+        if (
+            intent.intent_type == "open"
+            and intent.status == "failed"
+            and intent.symbol.upper() == symbol.upper()
+            and intent.timeframe.upper() == timeframe.upper()
+        ):
+            details = intent.details if isinstance(intent.details, dict) else {}
+            if (
+                details.get("outcome_state") == "ambiguous_post_submit"
+                and details.get("ambiguity_resolved") is not True
+            ):
+                return intent
+    return None
 
 
 def _journal_rejection_summary(
@@ -498,6 +622,30 @@ def execute_paper_signal(
     if quantity_decision.details.get("quantity_normalized"):
         intent_reasons = [*quantity_decision.reasons, *intent_reasons]
 
+    if (
+        demo_execution
+        and position is None
+        and risk.accepted
+        and risk.intent_type == "open"
+    ):
+        unresolved_ack = _unresolved_order_ack_timeout(
+            analysis.symbol,
+            analysis.timeframe,
+        )
+        if unresolved_ack is not None:
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=unresolved_ack.id,
+                status="blocked",
+                summary=(
+                    "Automatic demo order blocked because a prior post-submission "
+                    "acknowledgement timeout is still ambiguous. Reconcile broker truth "
+                    "before any new order is allowed."
+                ),
+                mode="demo_enabled",
+                retryable=False,
+            )
+
     decision_evidence = {
         **(sizing.details if sizing else {}),
         **quantity_decision.details,
@@ -733,7 +881,20 @@ def execute_paper_signal(
 
     broker_order = None
     unprotected_close_error: str | None = None
+    ack_timeout_reconciled = False
     if demo_execution:
+        baseline_rows: list[dict[str, object]] = []
+        baseline_error: str | None = None
+        try:
+            baseline_rows = [dict(row) for row in (list_positions() or [])]
+        except Exception as exc:
+            baseline_error = str(exc)
+        baseline_ids = {
+            position_id
+            for row in baseline_rows
+            if (position_id := _broker_position_id(row)) is not None
+        }
+        client_msg_id = f"tradeagent-intent-{intent.id}"
         try:
             broker_order = place_demo_market_order(
                 symbol=analysis.symbol,
@@ -741,8 +902,107 @@ def execute_paper_signal(
                 quantity_lots=trade_quantity,
                 stop_loss=analysis.stop_loss,
                 take_profit=analysis.take_profit,
-                client_msg_id=f"tradeagent-intent-{intent.id}",
+                client_msg_id=client_msg_id,
             )
+        except DemoOrderAcknowledgementTimeout as exc:
+            confirmed_row, reconciliation = _reconcile_order_ack_timeout(
+                baseline_available=baseline_error is None,
+                baseline_ids=baseline_ids,
+                symbol=analysis.symbol,
+                direction=analysis.signal,
+                quantity_lots=trade_quantity,
+            )
+            if confirmed_row is not None:
+                broker_order = {
+                    "status": "executed_reconciled",
+                    "account_type": "demo",
+                    "symbol": analysis.symbol.upper(),
+                    "direction": analysis.signal,
+                    "quantity_lots": float(confirmed_row.get("volume_lots") or trade_quantity),
+                    "position_id": _broker_position_id(confirmed_row),
+                    "entry_price": confirmed_row.get("entry_price"),
+                    "ack": {},
+                    "acknowledgement_timeout": True,
+                    "reconciled_from_broker": True,
+                    "client_msg_id": client_msg_id,
+                    "reconciliation": reconciliation,
+                }
+                ack_timeout_reconciled = True
+                log_incident(
+                    "warning",
+                    "ctrader_demo_order_ack_timeout_reconciled",
+                    f"cTrader demo order acknowledgement timed out for {analysis.symbol}:{analysis.timeframe}, but broker reconciliation confirmed one new position.",
+                    {
+                        "intent_id": intent.id,
+                        "client_msg_id": client_msg_id,
+                        "baseline_position_ids": sorted(baseline_ids),
+                        "reconciliation": reconciliation,
+                        "automatic_retry": False,
+                    },
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_order_ack_timeout_reconciled",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    summary="Broker truth confirmed one new demo position after the order acknowledgement timed out.",
+                    details={
+                        "client_msg_id": client_msg_id,
+                        "baseline_position_ids": sorted(baseline_ids),
+                        "reconciliation": reconciliation,
+                        "quantity": trade_quantity,
+                    },
+                )
+            else:
+                details = {
+                    "broker": "ctrader",
+                    "account_type": "demo",
+                    "error": str(exc),
+                    "outcome_state": "ambiguous_post_submit",
+                    "acknowledgement_timeout": True,
+                    "submission_may_have_succeeded": True,
+                    "ambiguity_resolved": False,
+                    "retryable": False,
+                    "automatic_retry": False,
+                    "client_msg_id": client_msg_id,
+                    "baseline_snapshot_available": baseline_error is None,
+                    "baseline_snapshot_error": baseline_error,
+                    "baseline_position_ids": sorted(baseline_ids),
+                    "reconciliation": reconciliation,
+                }
+                update_order_intent_status(
+                    intent.id,
+                    "failed",
+                    details,
+                    reason="ctrader_demo_order_ack_timeout_ambiguous",
+                )
+                log_incident(
+                    "error",
+                    "ctrader_demo_order_ack_timeout_ambiguous",
+                    f"cTrader demo order acknowledgement timed out after submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
+                    {"intent_id": intent.id, **details},
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_order_ack_timeout_ambiguous",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    summary="Demo order acknowledgement timed out after submission; broker outcome remains ambiguous and automatic retry is blocked.",
+                    details=details,
+                )
+                return ExecutionResult(
+                    action_taken=False,
+                    intent_id=intent.id,
+                    status="failed",
+                    summary=(
+                        "cTrader demo order acknowledgement timed out after submission; "
+                        "broker outcome is ambiguous and automatic retry is blocked."
+                    ),
+                    mode="demo_enabled",
+                    retryable=False,
+                )
         except Exception as exc:
             update_order_intent_status(
                 intent.id,
@@ -794,9 +1054,24 @@ def execute_paper_signal(
                 broker_order["protection_verified"] = False
                 update_order_intent_status(
                     intent.id,
-                    "executed",
-                    {"broker_order": broker_order},
-                    reason="ctrader_demo_immediate_protective_exit",
+                    "failed" if ack_timeout_reconciled else "executed",
+                    {
+                        "broker_order": broker_order,
+                        "outcome_state": (
+                            "ack_timeout_reconciled_protective_exit"
+                            if ack_timeout_reconciled
+                            else "executed"
+                        ),
+                        "acknowledgement_timeout": ack_timeout_reconciled,
+                        "ambiguity_resolved": ack_timeout_reconciled,
+                        "retryable": False,
+                        "tracking_retained": False,
+                    },
+                    reason=(
+                        "ctrader_demo_order_ack_timeout_reconciled_protective_exit"
+                        if ack_timeout_reconciled
+                        else "ctrader_demo_immediate_protective_exit"
+                    ),
                 )
                 add_trade_audit(
                     event_type="ctrader_demo_protective_exit",
@@ -810,10 +1085,11 @@ def execute_paper_signal(
                 return ExecutionResult(
                     action_taken=True,
                     intent_id=intent.id,
-                    status="executed",
+                    status="failed" if ack_timeout_reconciled else "executed",
                     summary=broker_protection.get("status") or "protective exit",
                     mode="demo_enabled",
                     broker_position_id=int(broker_order.get("position_id") or 0) or None,
+                    retryable=False,
                 )
             broker_order["protection_verified"] = True
         except Exception as exc:
@@ -933,8 +1209,16 @@ def execute_paper_signal(
         timeframe=analysis.timeframe,
         strategy=analysis.strategy,
         direction=analysis.signal,
-        quantity=trade_quantity,
-        entry_price=analysis.entry_price or mark_price,
+        quantity=(
+            float((broker_order or {}).get("quantity_lots") or trade_quantity)
+            if ack_timeout_reconciled
+            else trade_quantity
+        ),
+        entry_price=(
+            float((broker_order or {}).get("entry_price"))
+            if ack_timeout_reconciled and (broker_order or {}).get("entry_price") is not None
+            else (analysis.entry_price or mark_price)
+        ),
         stop_loss=analysis.stop_loss,
         take_profit=analysis.take_profit,
         lifecycle_version_hash=lifecycle_version_hash,
@@ -982,6 +1266,53 @@ def execute_paper_signal(
             mode="demo_enabled",
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=True,
+        )
+
+    if ack_timeout_reconciled:
+        update_order_intent_status(
+            intent.id,
+            "failed",
+            {
+                "opened_position_id": created.id,
+                "execution_mode": "ctrader_demo",
+                "broker_order": broker_order or {},
+                "outcome_state": "ack_timeout_reconciled_broker_position",
+                "acknowledgement_timeout": True,
+                "submission_may_have_succeeded": True,
+                "ambiguity_resolved": True,
+                "broker_position_confirmed": True,
+                "retryable": False,
+                "automatic_retry": False,
+                "tracking_retained": True,
+            },
+            reason="ctrader_demo_order_ack_timeout_reconciled",
+        )
+        add_trade_audit(
+            event_type="ctrader_demo_order_ack_timeout_tracking_retained",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            intent_id=intent.id,
+            position_id=created.id,
+            summary="Tracked the broker-confirmed demo position after an acknowledgement timeout without resubmitting the order.",
+            details={
+                "broker_position_id": (broker_order or {}).get("position_id"),
+                "broker_order": broker_order or {},
+                "automatic_retry": False,
+            },
+        )
+        return ExecutionResult(
+            action_taken=True,
+            intent_id=intent.id,
+            status="failed",
+            summary=(
+                "Order acknowledgement timed out, but broker reconciliation confirmed "
+                "the demo position; local tracking was created and automatic retry stayed blocked."
+            ),
+            position_id=created.id,
+            mode="demo_enabled",
+            broker_position_id=(broker_order or {}).get("position_id"),
+            retryable=False,
         )
 
     update_order_intent_status(
