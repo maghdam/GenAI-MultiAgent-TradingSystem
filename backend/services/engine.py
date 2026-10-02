@@ -405,7 +405,7 @@ class V2Engine:
                 f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                 {"position_id": position.id, **ledger_sync, "phase": "same_bar_maintenance"},
             )
-        elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+        elif ledger_sync.get("status") in {"identity_mismatch", "volume_increase_mismatch", "unavailable"}:
             log_incident(
                 "error",
                 "ctrader_demo_volume_reconciliation_failed",
@@ -571,7 +571,7 @@ class V2Engine:
                 f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                 {"position_id": position.id, **ledger_sync, "phase": "same_bar_mark"},
             )
-        elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+        elif ledger_sync.get("status") in {"identity_mismatch", "volume_increase_mismatch", "unavailable"}:
             log_incident(
                 "error",
                 "ctrader_demo_volume_reconciliation_failed",

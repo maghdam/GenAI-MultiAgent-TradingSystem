@@ -391,7 +391,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                     f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                     {"position_id": position.id, **ledger_sync},
                 )
-            elif ledger_sync.get("status") in {"volume_increase_mismatch", "unavailable"}:
+            elif ledger_sync.get("status") in {"identity_mismatch", "volume_increase_mismatch", "unavailable"}:
                 skipped += 1
                 log_incident(
                     "error",

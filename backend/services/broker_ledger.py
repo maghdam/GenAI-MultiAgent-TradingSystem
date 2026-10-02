@@ -97,6 +97,21 @@ def _persist_summary_deals(
     )
 
 
+def _tracked_initial_quantity(position: PaperPosition) -> float | None:
+    """Return the quantity recorded when this local tracker was created."""
+    for audit in list_trade_audits(1000):
+        if audit.position_id != position.id or audit.event_type != "paper_position_opened":
+            continue
+        details = audit.details if isinstance(audit.details, dict) else {}
+        try:
+            quantity = float(details.get("quantity"))
+        except (TypeError, ValueError):
+            continue
+        if quantity > 0:
+            return quantity
+    return None
+
+
 def reconcile_open_demo_position_ledger(
     position: PaperPosition,
     broker_position: Dict[str, Any],
@@ -107,14 +122,52 @@ def reconcile_open_demo_position_ledger(
     the local tracker. This keeps normal reconciliation lightweight while
     repeatedly retrying a partial close until its authoritative deal appears.
     """
-    broker_position_id = int(
-        broker_position.get("position_id")
-        or position.broker_position_id
+    try:
+        observed_broker_id = int(broker_position.get("position_id") or 0)
+    except (TypeError, ValueError):
+        observed_broker_id = 0
+    canonical_broker_id = int(
+        position.broker_position_id
         or resolve_broker_position_id(position)
         or 0
     )
+    if (
+        canonical_broker_id > 0
+        and observed_broker_id > 0
+        and observed_broker_id != canonical_broker_id
+    ):
+        return {
+            "status": "identity_mismatch",
+            "reason": "Broker position id does not match the canonical local tracker.",
+            "canonical_broker_position_id": canonical_broker_id,
+            "observed_broker_position_id": observed_broker_id,
+        }
+
+    broker_position_id = canonical_broker_id or observed_broker_id
     if broker_position_id <= 0:
         return {"status": "unavailable", "reason": "Broker position id is unavailable."}
+
+    broker_symbol = str(broker_position.get("symbol") or "").strip().upper()
+    broker_side = str(broker_position.get("direction") or "").strip().lower()
+    normalized_direction = {
+        "buy": "long",
+        "long": "long",
+        "sell": "short",
+        "short": "short",
+    }.get(broker_side)
+    if (
+        (broker_symbol and broker_symbol != position.symbol.upper())
+        or (normalized_direction and normalized_direction != position.direction)
+    ):
+        return {
+            "status": "identity_mismatch",
+            "reason": "Broker symbol/direction does not match the canonical local tracker.",
+            "broker_position_id": broker_position_id,
+            "local_symbol": position.symbol.upper(),
+            "broker_symbol": broker_symbol or None,
+            "local_direction": position.direction,
+            "broker_direction": normalized_direction,
+        }
 
     try:
         remaining_quantity = float(broker_position.get("volume_lots"))
@@ -163,11 +216,19 @@ def reconcile_open_demo_position_ledger(
     total_closed_lots = sum(float(row.get("closed_volume_lots") or 0.0) for row in all_rows)
     realized_pnl = broker_realized_pnl_for_position(position.id)
     newly_closed_lots = max(0.0, total_closed_lots - before_closed_lots)
-    crash_recovery = (
-        position.realized_pnl_source != "ctrader_deal_partial"
-        and total_closed_lots + tolerance >= reduction
-    )
-    if newly_closed_lots + tolerance < reduction and not crash_recovery:
+
+    tracked_initial_quantity = _tracked_initial_quantity(position)
+    if (
+        tracked_initial_quantity is not None
+        and tracked_initial_quantity + tolerance >= local_quantity
+    ):
+        required_closed_lots = max(0.0, tracked_initial_quantity - remaining_quantity)
+    else:
+        # Fail closed when the tracker's original quantity cannot be recovered:
+        # require the already-booked volume plus the newly observed reduction.
+        required_closed_lots = before_closed_lots + reduction
+
+    if total_closed_lots + tolerance < required_closed_lots:
         return {
             "status": "pending_deal_history",
             "broker_position_id": broker_position_id,
@@ -176,8 +237,14 @@ def reconcile_open_demo_position_ledger(
             "observed_reduction": reduction,
             "newly_closed_lots": newly_closed_lots,
             "total_closed_lots": total_closed_lots,
+            "required_closed_lots": required_closed_lots,
+            "tracked_initial_quantity": tracked_initial_quantity,
             "inserted_deals": recorded["inserted"],
             "deal_ids": recorded["deal_ids"],
+            "action_required": (
+                "Keep the canonical tracker open and retry broker deal-history reconciliation; "
+                "do not synthesize realized P&L or treat the residual broker position as closed."
+            ),
         }
 
     updated = update_open_paper_position_from_broker_partial(
@@ -195,6 +262,8 @@ def reconcile_open_demo_position_ledger(
         "inserted_deals": recorded["inserted"],
         "deal_ids": recorded["deal_ids"],
         "total_closed_lots": total_closed_lots,
+        "required_closed_lots": required_closed_lots,
+        "tracked_initial_quantity": tracked_initial_quantity,
     }
 
 def close_local_position_from_broker(
