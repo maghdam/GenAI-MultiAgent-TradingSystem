@@ -6,10 +6,20 @@ from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
-from backend.services.broker import close_demo_position, get_broker_status, list_positions, sync_demo_position_targets
+from backend.services.broker import (
+    DemoProtectionSyncFailure,
+    close_demo_position,
+    get_broker_status,
+    list_positions,
+    sync_demo_position_targets,
+)
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars, record_market_bar_freshness
 from backend.services.market_bar_validation import assess_market_frame
+from backend.services.protection_safety import (
+    broker_protection_matches,
+    fail_safe_close_unverified_demo_position,
+)
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.runtime_state import market_data_dependency_state
 from backend.services.broker_ledger import (
@@ -42,6 +52,7 @@ class V2Engine:
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
         self._deferred_protection_positions: set[int] = set()
+        self._protection_failsafe_pending_positions: set[int] = set()
         self._stale_market_items: set[str] = set()
         self._malformed_market_items: set[str] = set()
 
@@ -295,6 +306,11 @@ class V2Engine:
                 "close": float(df["close"].iloc[-1]),
             },
         )
+        if result.position_id is not None:
+            if result.status == "protection_failsafe_pending":
+                self._protection_failsafe_pending_positions.add(int(result.position_id))
+            else:
+                self._protection_failsafe_pending_positions.discard(int(result.position_id))
         if not result.retryable:
             bar_state[key] = last_ts
         return True, result.action_taken
@@ -398,6 +414,38 @@ class V2Engine:
             )
             return
 
+        position_key = int(position.id)
+        if position_key in self._protection_failsafe_pending_positions:
+            if broker_protection_matches(position, broker_match):
+                self._protection_failsafe_pending_positions.discard(position_key)
+                log_incident(
+                    "warning",
+                    "ctrader_demo_protection_recovered",
+                    f"Broker protection is verified again for {position.symbol}:{position.timeframe}.",
+                    {
+                        "position_id": position.id,
+                        "broker_position_id": position.broker_position_id,
+                        "phase": "same_bar_maintenance",
+                        "recovery": "broker_truth_verified",
+                        "amend_suppressed": True,
+                    },
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_protection_recovered",
+                    symbol=position.symbol,
+                    timeframe=position.timeframe,
+                    strategy=position.strategy,
+                    position_id=position.id,
+                    summary="Verified broker SL/TP after a prior protection fail-safe close failure.",
+                    details={
+                        "broker_position_id": position.broker_position_id,
+                        "stop_loss": broker_match.get("stop_loss"),
+                        "take_profit": broker_match.get("take_profit"),
+                        "amend_suppressed": True,
+                    },
+                )
+            return
+
         try:
             protection = sync_demo_position_targets(
                 symbol=position.symbol,
@@ -434,16 +482,30 @@ class V2Engine:
                     details={"protection": protection, "broker_close": broker_close},
                 )
                 return
-            if protection.get("status") == "synced":
-                add_trade_audit(
-                    event_type="ctrader_demo_protection_repaired",
-                    symbol=position.symbol,
-                    timeframe=position.timeframe,
-                    strategy=position.strategy,
-                    position_id=position.id,
-                    summary="Repaired broker SL/TP during same-bar engine maintenance.",
-                    details=protection,
-                )
+            if protection.get("status") in {"synced", "already_synced"}:
+                self._protection_failsafe_pending_positions.discard(int(position.id))
+                if protection.get("status") == "synced":
+                    add_trade_audit(
+                        event_type="ctrader_demo_protection_repaired",
+                        symbol=position.symbol,
+                        timeframe=position.timeframe,
+                        strategy=position.strategy,
+                        position_id=position.id,
+                        summary="Repaired broker SL/TP during same-bar engine maintenance.",
+                        details=protection,
+                    )
+        except DemoProtectionSyncFailure as exc:
+            failsafe = fail_safe_close_unverified_demo_position(
+                position,
+                broker_row=broker_match,
+                fallback_price=last_price,
+                protection_error=exc,
+                phase="same_bar_maintenance",
+            )
+            if failsafe.get("closed"):
+                self._protection_failsafe_pending_positions.discard(int(position.id))
+            else:
+                self._protection_failsafe_pending_positions.add(int(position.id))
         except Exception as exc:
             log_incident(
                 "error",
