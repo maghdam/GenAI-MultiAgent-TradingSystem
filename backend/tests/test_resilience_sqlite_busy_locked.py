@@ -222,10 +222,11 @@ def test_real_sqlite_lock_rolls_back_surfaces_incident_and_recovers_idempotently
         volatile = list_incidents(10)
         assert volatile[0].code == "sqlite_test_lock_visible"
         assert volatile[0].details["broker_submission_suppressed"] is True
-        assert list_broker_deals(local_position_id=position.id) == []
     finally:
         locker.rollback()
         locker.close()
+
+    assert list_broker_deals(local_position_id=position.id) == []
 
     first = record_broker_deals(
         local_position_id=position.id,
