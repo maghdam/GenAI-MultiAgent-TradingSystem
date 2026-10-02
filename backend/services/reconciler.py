@@ -311,7 +311,16 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 "error",
                 "ctrader_demo_tracker_recovery_failed",
                 "Could not reconcile cTrader demo positions with local trackers.",
-                {"reason": reason, "error": str(exc)},
+                {
+                    "reason": reason,
+                    "error": str(exc),
+                    "automatic_adoption": False,
+                    "broker_mutation_suppressed": True,
+                    "action_required": (
+                        "Keep existing durable tracker/intent state unchanged, restore the recovery dependency, "
+                        "and rerun reconciliation before any new demo order is allowed."
+                    ),
+                },
             )
     positions = list_paper_positions("open")
     checked = 0

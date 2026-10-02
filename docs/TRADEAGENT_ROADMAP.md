@@ -825,7 +825,19 @@ Simulate deliberately:
     - [x] Focused persistence/execution/reconciliation regression passed locally on `ac50103`.
     - [x] Full backend suite passed locally on `ac50103` with a clean working tree.
     - [x] GitHub CI #141 on `ac50103` passed backend tests + frontend restart/build.
-- [ ] DB restart/recovery.
+- [x] DB restart/recovery.
+  - [x] Durable engine config/runtime state survives an actual SQLite connection close/reopen against the same database file.
+  - [x] Open TradeAgent tracker and executed order intent survive restart with the same canonical broker position ID.
+  - [x] Immutable broker deal IDs remain idempotent after database reopen.
+  - [x] Repeated startup reconciliation preserves exactly one local tracker/intent and resumes protection against the canonical broker position.
+  - [x] A broker-confirmed tracking handoff survives restart and recovers exactly one canonical local tracker.
+  - [x] An unresolved durable submission reservation survives restart and continues blocking duplicate demo submission.
+  - [x] Tracker-recovery dependency failure suppresses broker mutation/automatic adoption and records an actionable durable incident.
+  - Verification:
+    - [x] 5 DB restart/recovery resilience tests passed locally on `f02c926`.
+    - [x] Focused restart/persistence/reconciliation/execution regression passed locally on `f02c926`.
+    - [x] Full backend suite passed locally on `f02c926` with a clean working tree.
+    - [x] GitHub CI #148 on cleaned head `f02c926` passed backend tests + frontend restart/build.
 - [ ] Google Drive unavailable (repo code still usable).
 - [ ] Clock/time-zone edge cases / DST.
 
@@ -934,9 +946,10 @@ Add one row after every completed task.
 | 2026-10-02 | Resilience: broker close rejected | Separate explicit rejection from ambiguous post-submit outcomes, require verified canonical broker truth before local closure, block duplicate close submissions, retain tracking on failure, and reconcile later broker absence deterministically | ✅ 7 scenario tests + 4 compatibility tests + 62 focused regression tests + full backend suite + CI #134 passed on `fde9b62`; CI #133 compatibility regression corrected | PR #50 / `fde9b62` | Proceed to Phase 7 partial-close scenario |
 | 2026-10-02 | Resilience: partial close | Make broker-volume reconciliation cumulative and identity-safe; preserve residual exposure, recover persisted-deal/local-quantity crash gaps, keep deal ingestion idempotent, and fail closed while later broker history is incomplete | 🟨 5 scenario tests + focused regression + full backend suite + CI #137 passed on `37b60dd`; real cTrader demo partial-close field observation pending | PR #51 / `37b60dd` | Leave field check pending; proceed to Phase 7 SQLite busy/locked scenario |
 | 2026-10-02 | Resilience: SQLite busy/locked | Make SQLite lock handling transactional and keep demo-order recovery deterministic across pre-submit and post-submit persistence interruptions | ✅ 5 scenario tests + focused regression + full backend suite + CI #141 passed on `ac50103` | PR #52 / `ac50103` | Proceed to Phase 7 DB restart/recovery scenario |
+| 2026-10-02 | Resilience: DB restart/recovery | Verify durable SQLite reopen behavior, canonical tracker/intent recovery, idempotent broker ledger, protection resumption, and persistent duplicate-order blocking across restart | ✅ 5 scenario tests + focused regression + full backend suite + CI #148 passed on cleaned head `f02c926` | PR #53 / `f02c926` | Proceed to Phase 7 Google Drive unavailable scenario |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, fourteenth scenario only: acceptance-test DB restart/recovery. Verify durable runtime and trade state survive restart, canonical broker position identity is re-established from persisted evidence, reconciliation/protection resumes deterministically, duplicate demo orders and duplicate broker-ledger effects are prevented, unresolved post-submit state remains blocked from automatic resubmission, and recovery faults are surfaced actionably. Preserve cTrader demo-only routing and the existing broker source-of-truth safeguards. Do not proceed to Google Drive unavailable until this item is locally validated and CI passes. The existing pending real cTrader field observations and Phase 5.3 threshold comparison remain pending; keep the global 60% threshold unchanged.**
+**Phase 7 — Resilience / failure testing, fifteenth scenario only: acceptance-test Google Drive unavailable while repository code remains usable. Verify loss/unavailability of the Google Drive integration does not prevent the local/GitHub repository codebase, backend startup, engine safety controls, persistence, tests, or demo-only execution safeguards from operating independently; any Drive-dependent workflow must fail clearly and actionably without corrupting local state or creating unintended broker actions. Preserve cTrader demo-only routing and the existing broker source-of-truth/canonical-position safeguards. Do not proceed to clock/time-zone/DST edge cases until this item is locally validated and CI passes. The existing pending real cTrader field observations and Phase 5.3 threshold comparison remain pending; keep the global 60% threshold unchanged.**
