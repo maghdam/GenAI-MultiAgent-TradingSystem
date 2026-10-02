@@ -838,7 +838,18 @@ Simulate deliberately:
     - [x] Focused restart/persistence/reconciliation/execution regression passed locally on `f02c926`.
     - [x] Full backend suite passed locally on `f02c926` with a clean working tree.
     - [x] GitHub CI #148 on cleaned head `f02c926` passed backend tests + frontend restart/build.
-- [ ] Google Drive unavailable (repo code still usable).
+- [x] Google Drive unavailable (repo code still usable).
+  - [x] Runtime dependencies remain free of Google Drive SDK coupling.
+  - [x] Local API/config/incident endpoints remain usable while Drive network endpoints are unavailable.
+  - [x] SQLite-backed configuration persists normally during the simulated Drive outage.
+  - [x] The live-account guard still rejects `allow_live=true`; Drive unavailability cannot weaken demo-only routing.
+  - [x] Engine kill-switch execution remains local and persists runtime state without Drive access.
+  - [x] Runtime DB resolution remains under local application state and ignores Drive environment paths.
+  - Verification:
+    - [x] 5 Google Drive unavailable resilience tests passed locally on `154f02b`.
+    - [x] Focused API/persistence/engine-safety regression passed locally on `154f02b`.
+    - [x] Full backend suite passed locally on `154f02b` with a clean working tree.
+    - [x] GitHub CI #151 on `154f02b` passed backend tests + frontend build.
 - [ ] Clock/time-zone edge cases / DST.
 
 For every scenario verify:
@@ -947,9 +958,10 @@ Add one row after every completed task.
 | 2026-10-02 | Resilience: partial close | Make broker-volume reconciliation cumulative and identity-safe; preserve residual exposure, recover persisted-deal/local-quantity crash gaps, keep deal ingestion idempotent, and fail closed while later broker history is incomplete | 🟨 5 scenario tests + focused regression + full backend suite + CI #137 passed on `37b60dd`; real cTrader demo partial-close field observation pending | PR #51 / `37b60dd` | Leave field check pending; proceed to Phase 7 SQLite busy/locked scenario |
 | 2026-10-02 | Resilience: SQLite busy/locked | Make SQLite lock handling transactional and keep demo-order recovery deterministic across pre-submit and post-submit persistence interruptions | ✅ 5 scenario tests + focused regression + full backend suite + CI #141 passed on `ac50103` | PR #52 / `ac50103` | Proceed to Phase 7 DB restart/recovery scenario |
 | 2026-10-02 | Resilience: DB restart/recovery | Verify durable SQLite reopen behavior, canonical tracker/intent recovery, idempotent broker ledger, protection resumption, and persistent duplicate-order blocking across restart | ✅ 5 scenario tests + focused regression + full backend suite + CI #148 passed on cleaned head `f02c926` | PR #53 / `f02c926` | Proceed to Phase 7 Google Drive unavailable scenario |
+| 2026-10-02 | Resilience: Google Drive unavailable | Verify the repo/runtime remains independent of Drive, local API/SQLite continue to work, and demo/live safety controls are unchanged when Drive is unavailable | ✅ 5 scenario tests + focused regression + full backend suite + CI #151 passed on `154f02b` | PR #54 / `154f02b` | Proceed to Phase 7 clock/time-zone/DST edge cases |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, fifteenth scenario only: acceptance-test Google Drive unavailable while repository code remains usable. Verify loss/unavailability of the Google Drive integration does not prevent the local/GitHub repository codebase, backend startup, engine safety controls, persistence, tests, or demo-only execution safeguards from operating independently; any Drive-dependent workflow must fail clearly and actionably without corrupting local state or creating unintended broker actions. Preserve cTrader demo-only routing and the existing broker source-of-truth/canonical-position safeguards. Do not proceed to clock/time-zone/DST edge cases until this item is locally validated and CI passes. The existing pending real cTrader field observations and Phase 5.3 threshold comparison remain pending; keep the global 60% threshold unchanged.**
+**Phase 7 — Resilience / failure testing, sixteenth scenario only: acceptance-test clock/time-zone edge cases and DST. Verify UTC/local-time boundaries, DST transitions, persisted timestamps, session filters, bar freshness, daily counters/limits, event timing, and reconciliation logic remain deterministic and do not create duplicate demo actions or incorrect safety state when local time shifts or clocks cross day boundaries. Preserve cTrader demo-only routing and broker source-of-truth/canonical-position safeguards. Do not proceed beyond Phase 7 resilience completion until this item is locally validated and CI passes. The existing pending real cTrader field observations and Phase 5.3 threshold comparison remain pending; keep the global 60% threshold unchanged.**
