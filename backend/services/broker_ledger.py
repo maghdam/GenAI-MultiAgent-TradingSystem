@@ -243,14 +243,22 @@ def close_local_position_after_broker_close(
     reason: str,
 ) -> PaperPosition:
     broker_close = broker_close if isinstance(broker_close, dict) else {}
-    broker_position_id = int(
-        broker_close.get("position_id")
-        or position.broker_position_id
+    if broker_close.get("status") != "closed" or broker_close.get("verified") is not True:
+        raise RuntimeError(
+            "Local demo tracker close blocked because broker close is not verified."
+        )
+
+    canonical_broker_id = int(
+        position.broker_position_id
         or resolve_broker_position_id(position)
         or 0
     )
-    if broker_position_id and position.broker_position_id != broker_position_id:
-        position = set_paper_position_broker_id(position.id, broker_position_id)
+    broker_position_id = int(broker_close.get("position_id") or 0)
+    if canonical_broker_id <= 0 or broker_position_id != canonical_broker_id:
+        raise RuntimeError(
+            "Local demo tracker close blocked because broker position identity does not match: "
+            f"local={canonical_broker_id or None} broker={broker_position_id or None}."
+        )
 
     summary = broker_close.get("close_summary")
     # The real close adapter always includes close_summary (possibly None).

@@ -277,6 +277,66 @@ def _active_status_incidents(
             )
         )
 
+    try:
+        recent_close_events = list_paper_events(200)
+        open_trackers = list_paper_positions("open")
+    except Exception:
+        recent_close_events = []
+        open_trackers = []
+
+    terminal_close_events = {
+        "ctrader_demo_close_verified",
+        "ctrader_demo_close_reconciled",
+    }
+    unresolved_close_events = {
+        "ctrader_demo_close_ambiguous": ("error", "broker_close_ambiguous"),
+        "ctrader_demo_close_rejected": ("error", "broker_close_rejected"),
+    }
+    for position in open_trackers:
+        if not position.broker_position_id:
+            continue
+        latest_state = None
+        for event in recent_close_events:
+            details = event.details if isinstance(event.details, dict) else {}
+            try:
+                event_position_id = int(details.get("position_id") or 0)
+                event_broker_id = int(details.get("broker_position_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if (
+                event_position_id == int(position.id)
+                and event_broker_id == int(position.broker_position_id)
+                and (
+                    event.event_type in terminal_close_events
+                    or event.event_type in unresolved_close_events
+                )
+            ):
+                latest_state = event
+                break
+        if latest_state is None or latest_state.event_type in terminal_close_events:
+            continue
+        level, code = unresolved_close_events[latest_state.event_type]
+        if latest_state.event_type == "ctrader_demo_close_ambiguous":
+            message = (
+                f"cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"(broker position {position.broker_position_id}) has an ambiguous post-submission outcome. "
+                "Local tracking remains open and automatic duplicate close submission is blocked "
+                "while broker truth is reconciled."
+            )
+        else:
+            message = (
+                f"Broker rejected the cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"(broker position {position.broker_position_id}). Local tracking remains open and "
+                "automatic re-close is blocked; inspect the rejection and reconcile broker truth."
+            )
+        incidents.append(
+            ActiveIncident(
+                level=level,
+                code=code,
+                message=message,
+            )
+        )
+
     if config.demo_autotrade and broker.socket_connected:
         if not broker.demo_account_confirmed:
             incidents.append(

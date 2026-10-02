@@ -4,7 +4,7 @@ from math import isclose
 from typing import Any, Dict
 
 from backend.domain.models import PaperPosition
-from backend.services.broker import close_demo_position
+from backend.services.close_safety import attempt_verified_demo_close
 from backend.storage.repositories import add_trade_audit, log_incident
 
 
@@ -32,6 +32,16 @@ def broker_protection_matches(
     return _same(broker_row.get("stop_loss"), position.stop_loss) and _same(
         broker_row.get("take_profit"), position.take_profit
     )
+
+
+def _json_safe_close_result(close_result: Dict[str, Any]) -> Dict[str, Any]:
+    safe: Dict[str, Any] = {}
+    for key, value in close_result.items():
+        if isinstance(value, PaperPosition):
+            safe[key] = value.model_dump(mode="json")
+        else:
+            safe[key] = value
+    return safe
 
 
 def fail_safe_close_unverified_demo_position(
@@ -97,24 +107,29 @@ def fail_safe_close_unverified_demo_position(
         details=details,
     )
 
-    try:
-        broker_close = close_demo_position(
-            symbol=position.symbol,
-            position_id=local_broker_id,
-            quantity_lots=quantity_lots,
-        )
-    except Exception as close_exc:
+    close_result = attempt_verified_demo_close(
+        position,
+        fallback_price=fallback_price,
+        reason="broker_protection_unverified_failsafe",
+        phase=phase,
+        quantity_lots=quantity_lots,
+    )
+    if not close_result.get("closed"):
         failed = {
             **details,
-            "status": "failsafe_close_failed",
+            "status": (
+                "failsafe_close_ambiguous"
+                if close_result.get("status") == "ambiguous_pending"
+                else "failsafe_close_failed"
+            ),
             "closed": False,
             "tracking_retained": True,
-            "close_error": str(close_exc),
+            "close_result": _json_safe_close_result(close_result),
         }
         log_incident(
             "error",
             "ctrader_demo_protection_failsafe_close_failed",
-            f"Fail-safe close failed for unverified cTrader demo protection on {position.symbol}:{position.timeframe}.",
+            f"Fail-safe close did not reach verified broker closure for unverified cTrader demo protection on {position.symbol}:{position.timeframe}.",
             failed,
         )
         add_trade_audit(
@@ -123,25 +138,19 @@ def fail_safe_close_unverified_demo_position(
             timeframe=position.timeframe,
             strategy=position.strategy,
             position_id=position.id,
-            summary="Fail-safe close failed; retained the canonical local tracker for broker-truth recovery.",
+            summary="Fail-safe close did not verify broker closure; retained the canonical local tracker for broker-truth recovery.",
             details=failed,
         )
         return failed
 
-    from backend.services.broker_ledger import close_local_position_after_broker_close
-
-    closed_position = close_local_position_after_broker_close(
-        position,
-        broker_close=broker_close,
-        fallback_price=fallback_price,
-        reason="broker_protection_unverified_failsafe",
-    )
+    closed_position = close_result["position"]
     succeeded = {
         **details,
         "status": "failsafe_closed",
         "closed": True,
         "tracking_retained": False,
-        "broker_close": broker_close,
+        "broker_close": close_result.get("broker_close") or {},
+        "close_result": _json_safe_close_result(close_result),
         "closed_position_id": closed_position.id,
     }
     log_incident(

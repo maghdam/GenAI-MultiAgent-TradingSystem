@@ -511,7 +511,7 @@ def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monke
     )
     close_calls = []
     monkeypatch.setattr(
-        "backend.services.reconciler.close_demo_position",
+        "backend.services.close_safety.close_demo_position",
         lambda **kwargs: close_calls.append(kwargs) or {
             "status": "closed",
             "position_id": 56980461,

@@ -39,6 +39,42 @@ class DemoProtectionSyncFailure(RuntimeError):
         self.ack = dict(ack or {})
 
 
+class DemoCloseRejected(RuntimeError):
+    """Broker explicitly rejected a submitted demo close request."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        broker_position_id: int,
+        ack: Dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.broker_position_id = int(broker_position_id)
+        self.ack = dict(ack or {})
+        self.submitted = True
+        self.ambiguous = False
+
+
+class DemoCloseOutcomeAmbiguous(RuntimeError):
+    """A demo close was submitted, but broker truth did not resolve its outcome."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_kind: str,
+        broker_position_id: int,
+        ack: Dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_kind = failure_kind
+        self.broker_position_id = int(broker_position_id)
+        self.ack = dict(ack or {})
+        self.submitted = True
+        self.ambiguous = True
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -831,21 +867,31 @@ class CTraderBrokerAdapter:
         if symbol_id is None:
             raise RuntimeError(f"Demo close blocked: broker symbol {sym!r} is unavailable.")
 
+        broker_position_id = int(position_id)
         deferred = ctd.close_position(
             client=ctd.client,
             account_id=ctd.ACCOUNT_ID,
-            position_id=int(position_id),
+            position_id=broker_position_id,
             symbol_id=int(symbol_id),
             volume_lots=float(quantity_lots),
         )
         ack = ctd.wait_for_deferred(deferred, timeout=25)
 
         ack_payload: Dict[str, Any] = {}
+        ambiguous_kind: str | None = None
         if isinstance(ack, dict):
             ack_payload = dict(ack)
-            if ack.get("status") in {"failed", "order_rejected"}:
-                reason = ack.get("error") or ack.get("reject_reason") or ack["status"]
-                raise RuntimeError(f"cTrader demo close failed: {reason}; ack={ack_payload}")
+            status = str(ack.get("status") or "").lower()
+            if status == "order_rejected":
+                reason = ack.get("reject_reason") or ack.get("error") or status
+                raise DemoCloseRejected(
+                    f"cTrader demo close rejected: {reason}; ack={ack_payload}",
+                    broker_position_id=broker_position_id,
+                    ack=ack_payload,
+                )
+            if status == "failed":
+                reason = ack.get("error") or status
+                ambiguous_kind = "ack_timeout" if "timeout" in str(reason).lower() else "ack_failed"
         else:
             try:
                 event = ctd.Protobuf.extract(ack)
@@ -854,31 +900,38 @@ class CTraderBrokerAdapter:
                 description = getattr(event, "description", None)
                 reject_reason = getattr(event, "rejectReason", None)
                 if error_code:
-                    raise RuntimeError(
+                    raise DemoCloseRejected(
                         f"cTrader demo close rejected: errorCode={error_code} "
-                        f"description={description or ''}; ack={ack_payload}"
+                        f"description={description or ''}; ack={ack_payload}",
+                        broker_position_id=broker_position_id,
+                        ack=ack_payload,
                     )
                 if reject_reason:
-                    raise RuntimeError(
-                        f"cTrader demo close rejected: rejectReason={reject_reason}; ack={ack_payload}"
+                    raise DemoCloseRejected(
+                        f"cTrader demo close rejected: rejectReason={reject_reason}; ack={ack_payload}",
+                        broker_position_id=broker_position_id,
+                        ack=ack_payload,
                     )
-            except RuntimeError:
+            except DemoCloseRejected:
                 raise
             except Exception as exc:
                 ack_payload = {"parse_error": str(exc), "raw_type": type(ack).__name__}
+                ambiguous_kind = "ack_unrecognized"
 
+        last_open_rows: List[Dict[str, Any]] = []
         for attempt in range(8):
             if attempt:
                 time.sleep(0.5)
+            last_open_rows = ctd.get_open_positions() or []
             still_open = any(
-                int(row.get("position_id") or 0) == int(position_id)
-                for row in (ctd.get_open_positions() or [])
+                int(row.get("position_id") or 0) == broker_position_id
+                for row in last_open_rows
             )
             if not still_open:
                 close_summary = None
                 for history_attempt in range(5):
                     try:
-                        close_summary = self.get_closed_position_summary(int(position_id))
+                        close_summary = self.get_closed_position_summary(broker_position_id)
                     except Exception:
                         close_summary = None
                     if close_summary is not None:
@@ -888,15 +941,23 @@ class CTraderBrokerAdapter:
                 return {
                     "status": "closed",
                     "symbol": sym,
-                    "position_id": int(position_id),
+                    "position_id": broker_position_id,
                     "quantity_lots": float(quantity_lots),
                     "verified": True,
                     "ack": ack_payload,
+                    "acknowledgement_ambiguous": ambiguous_kind is not None,
+                    "reconciled_from_broker": ambiguous_kind is not None,
                     "close_summary": close_summary,
                 }
 
-        raise RuntimeError(
-            f"cTrader demo close could not verify position {position_id} as closed; ack={ack_payload}"
+        raise DemoCloseOutcomeAmbiguous(
+            (
+                f"cTrader demo close outcome remains ambiguous for position {broker_position_id}; "
+                f"broker position is still visible after verification polling; ack={ack_payload}"
+            ),
+            failure_kind=ambiguous_kind or "verification_failed",
+            broker_position_id=broker_position_id,
+            ack=ack_payload,
         )
 
     def list_positions(self) -> List[Dict[str, Any]]:

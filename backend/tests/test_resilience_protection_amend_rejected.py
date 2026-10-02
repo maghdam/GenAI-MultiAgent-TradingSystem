@@ -14,6 +14,7 @@ from backend.domain.models import (
     StrategyAnalysis,
     WatchlistItem,
 )
+from backend.services import close_safety
 from backend.services import engine as engine_module
 from backend.services import execution_engine
 from backend.services import protection_safety
@@ -199,7 +200,7 @@ def test_rejected_existing_protection_amend_closes_canonical_position_once(monke
     monkeypatch.setattr(execution_engine, "list_positions", lambda: [_broker_row()])
     close_calls = []
     monkeypatch.setattr(
-        protection_safety,
+        close_safety,
         "close_demo_position",
         lambda **kwargs: close_calls.append(kwargs)
         or {"status": "closed", "position_id": 111, "verified": True},
@@ -247,7 +248,7 @@ def test_rejected_amend_and_failed_failsafe_close_retains_tracker_nonretryable(m
     )
     monkeypatch.setattr(execution_engine, "list_positions", lambda: [_broker_row()])
     monkeypatch.setattr(
-        protection_safety,
+        close_safety,
         "close_demo_position",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("broker close rejected")),
     )
@@ -295,7 +296,7 @@ def test_rejected_new_targets_never_replace_local_targets(monkeypatch) -> None:
 
     monkeypatch.setattr(execution_engine, "sync_demo_position_targets", _sync)
     monkeypatch.setattr(
-        protection_safety,
+        close_safety,
         "close_demo_position",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("fail-safe close rejected")),
     )
@@ -345,8 +346,8 @@ def test_same_bar_pending_failure_suppresses_duplicate_amend_and_recovers_from_b
     )
     monkeypatch.setattr(
         engine_module,
-        "close_demo_position",
-        lambda **kwargs: pytest.fail("same-bar pending state must not issue another close"),
+        "attempt_verified_demo_close",
+        lambda *args, **kwargs: pytest.fail("same-bar pending state must not issue another close"),
     )
 
     engine._sync_existing_demo_protection(_config(), _watch(), 100.0)
@@ -398,7 +399,7 @@ def test_startup_reconciliation_applies_same_failsafe_close_policy(monkeypatch) 
     )
     close_calls = []
     monkeypatch.setattr(
-        protection_safety,
+        close_safety,
         "close_demo_position",
         lambda **kwargs: close_calls.append(kwargs)
         or {"status": "closed", "position_id": 111, "verified": True},
@@ -424,8 +425,8 @@ def test_generic_precondition_failure_does_not_trigger_failsafe_close(monkeypatc
     )
     monkeypatch.setattr(
         protection_safety,
-        "close_demo_position",
-        lambda **kwargs: pytest.fail("precondition failure must not trigger protection fail-safe close"),
+        "attempt_verified_demo_close",
+        lambda *args, **kwargs: pytest.fail("precondition failure must not trigger protection fail-safe close"),
     )
 
     result = execute_paper_signal(

@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from backend.adapters.ctrader import (
+    DemoCloseOutcomeAmbiguous,
+    DemoCloseRejected,
     DemoOrderAcknowledgementTimeout,
     DemoProtectionSyncFailure,
     adapter,
