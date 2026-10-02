@@ -326,8 +326,8 @@ def _active_status_incidents(
         else:
             message = (
                 f"Broker rejected the cTrader demo close for {position.symbol}:{position.timeframe} "
-                f"(broker position {position.broker_position_id}). Local tracking remains open; "
-                "inspect the rejection and broker truth before a later close retry."
+                f"(broker position {position.broker_position_id}). Local tracking remains open and "
+                "automatic re-close is blocked; inspect the rejection and reconcile broker truth."
             )
         incidents.append(
             ActiveIncident(
