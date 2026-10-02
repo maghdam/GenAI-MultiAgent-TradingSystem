@@ -111,6 +111,22 @@ def test_strategy_sandbox_rejects_invalid_output(source: str):
         run_strategy_source(source, _bars())
 
 
+def test_strategy_sandbox_enforces_input_bar_resource_limit(monkeypatch):
+    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_BARS", "100")
+    bars = pd.concat([_bars()] * 34, ignore_index=True)
+    bars.index = pd.date_range("2026-01-01", periods=len(bars), freq="min", tz="UTC")
+
+    source = """
+import pandas as pd
+
+def signals(df: pd.DataFrame) -> pd.Series:
+    return pd.Series(0.0, index=df.index)
+"""
+
+    with pytest.raises(StrategySandboxError, match="bar resource limit"):
+        run_strategy_source(source, bars)
+
+
 def test_strategy_policy_enforces_source_size_resource_limit():
     padding = "#" + ("x" * 100_000)
     source = f"""
@@ -142,16 +158,16 @@ def signals(df: pd.DataFrame) -> pd.Series:
 
 def test_strategy_sandbox_enforces_child_memory_resource_limit(monkeypatch):
     monkeypatch.setenv("STRATEGY_SANDBOX_MEMORY_MB", "128")
-    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "15")
+    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "5")
     source = """
 import pandas as pd
-import numpy as np
 
 def signals(df: pd.DataFrame) -> pd.Series:
-    # Use numpy to quickly allocate ~200MB memory block without triggering builtins error
-    _ = np.ones((25000000,), dtype=np.int64)
+    holder = [0] * 20000000
+    while len(holder) > 0:
+        pass
     return pd.Series(0.0, index=df.index)
 """
 
     with pytest.raises(StrategySandboxError, match="memory resource limit"):
-        run_strategy_source(source, _bars(), timeout_seconds=15.0)
+        run_strategy_source(source, _bars(), timeout_seconds=5.0)
