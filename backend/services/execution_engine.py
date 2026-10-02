@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
+    DemoCloseOutcomeAmbiguous,
+    DemoCloseRejected,
     DemoOrderAcknowledgementTimeout,
     DemoProtectionSyncFailure,
     close_demo_position,
@@ -25,7 +27,11 @@ from backend.services.broker_ledger import (
 from backend.services.broker_position_match import match_broker_position
 from backend.services.financial_units import resolve_monetary_basis
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
-from backend.services.close_safety import attempt_verified_demo_close
+from backend.services.close_safety import (
+    attempt_verified_demo_close,
+    record_ambiguous_demo_close,
+    record_rejected_demo_close,
+)
 from backend.services.protection_safety import fail_safe_close_unverified_demo_position
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
@@ -1053,6 +1059,8 @@ def execute_paper_signal(
 
     broker_order = None
     unprotected_close_error: str | None = None
+    unprotected_close_failure: Exception | None = None
+    unprotected_close_phase: str | None = None
     ack_timeout_reconciled = False
     if demo_execution:
         baseline_rows: list[dict[str, object]] = []
@@ -1217,53 +1225,63 @@ def execute_paper_signal(
             )
             broker_order["protection"] = broker_protection
             if broker_protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
-                broker_close = close_demo_position(
-                    symbol=analysis.symbol,
-                    position_id=int(broker_order.get("position_id") or 0),
-                    quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
-                )
-                broker_order["protective_close"] = broker_close
-                broker_order["protection_verified"] = False
-                update_order_intent_status(
-                    intent.id,
-                    "failed" if ack_timeout_reconciled else "executed",
-                    {
-                        "broker_order": broker_order,
-                        "outcome_state": (
-                            "ack_timeout_reconciled_protective_exit"
+                try:
+                    broker_close = close_demo_position(
+                        symbol=analysis.symbol,
+                        position_id=int(broker_order.get("position_id") or 0),
+                        quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
+                    )
+                except Exception as close_exc:
+                    unprotected_close_error = str(close_exc)
+                    unprotected_close_failure = close_exc
+                    unprotected_close_phase = "immediate_protective_exit"
+                    broker_order["protective_close_failed"] = True
+                    broker_order["protective_close_error"] = unprotected_close_error
+                    broker_order["protection_verified"] = False
+                else:
+                    broker_order["protective_close"] = broker_close
+                    broker_order["protection_verified"] = False
+                    update_order_intent_status(
+                        intent.id,
+                        "failed" if ack_timeout_reconciled else "executed",
+                        {
+                            "broker_order": broker_order,
+                            "outcome_state": (
+                                "ack_timeout_reconciled_protective_exit"
+                                if ack_timeout_reconciled
+                                else "executed"
+                            ),
+                            "acknowledgement_timeout": ack_timeout_reconciled,
+                            "ambiguity_resolved": ack_timeout_reconciled,
+                            "retryable": False,
+                            "tracking_retained": False,
+                        },
+                        reason=(
+                            "ctrader_demo_order_ack_timeout_reconciled_protective_exit"
                             if ack_timeout_reconciled
-                            else "executed"
+                            else "ctrader_demo_immediate_protective_exit"
                         ),
-                        "acknowledgement_timeout": ack_timeout_reconciled,
-                        "ambiguity_resolved": ack_timeout_reconciled,
-                        "retryable": False,
-                        "tracking_retained": False,
-                    },
-                    reason=(
-                        "ctrader_demo_order_ack_timeout_reconciled_protective_exit"
-                        if ack_timeout_reconciled
-                        else "ctrader_demo_immediate_protective_exit"
-                    ),
-                )
-                add_trade_audit(
-                    event_type="ctrader_demo_protective_exit",
-                    symbol=analysis.symbol,
-                    timeframe=analysis.timeframe,
-                    strategy=analysis.strategy,
-                    intent_id=intent.id,
-                    summary="Closed newly opened demo position because its protective target was already crossed.",
-                    details={"protection": broker_protection, "broker_close": broker_close},
-                )
-                return ExecutionResult(
-                    action_taken=True,
-                    intent_id=intent.id,
-                    status="failed" if ack_timeout_reconciled else "executed",
-                    summary=broker_protection.get("status") or "protective exit",
-                    mode="demo_enabled",
-                    broker_position_id=int(broker_order.get("position_id") or 0) or None,
-                    retryable=False,
-                )
-            broker_order["protection_verified"] = True
+                    )
+                    add_trade_audit(
+                        event_type="ctrader_demo_protective_exit",
+                        symbol=analysis.symbol,
+                        timeframe=analysis.timeframe,
+                        strategy=analysis.strategy,
+                        intent_id=intent.id,
+                        summary="Closed newly opened demo position because its protective target was already crossed.",
+                        details={"protection": broker_protection, "broker_close": broker_close},
+                    )
+                    return ExecutionResult(
+                        action_taken=True,
+                        intent_id=intent.id,
+                        status="failed" if ack_timeout_reconciled else "executed",
+                        summary=broker_protection.get("status") or "protective exit",
+                        mode="demo_enabled",
+                        broker_position_id=int(broker_order.get("position_id") or 0) or None,
+                        retryable=False,
+                    )
+            else:
+                broker_order["protection_verified"] = True
         except Exception as exc:
             broker_order["protection_verified"] = False
             broker_order["protection_error"] = str(exc)
@@ -1302,6 +1320,8 @@ def execute_paper_signal(
                 )
             except Exception as close_exc:
                 unprotected_close_error = str(close_exc)
+                unprotected_close_failure = close_exc
+                unprotected_close_phase = "unprotected_position_failsafe"
                 broker_order["failsafe_closed"] = False
                 broker_order["failsafe_close_error"] = unprotected_close_error
                 log_incident(
@@ -1402,6 +1422,28 @@ def execute_paper_signal(
         ),
     )
     if broker_order and unprotected_close_error is not None:
+        close_outcome_state = "close_failed"
+        retryable_close = True
+        quantity_lots = float((broker_order or {}).get("quantity_lots") or created.quantity)
+        if isinstance(unprotected_close_failure, DemoCloseOutcomeAmbiguous):
+            record_ambiguous_demo_close(
+                created,
+                error=unprotected_close_failure,
+                phase=unprotected_close_phase or "untracked_close_handoff",
+                quantity_lots=quantity_lots,
+            )
+            close_outcome_state = "ambiguous_post_submit"
+            retryable_close = False
+        elif isinstance(unprotected_close_failure, DemoCloseRejected):
+            record_rejected_demo_close(
+                created,
+                error=unprotected_close_failure,
+                phase=unprotected_close_phase or "untracked_close_handoff",
+                quantity_lots=quantity_lots,
+            )
+            close_outcome_state = "broker_rejected"
+            retryable_close = False
+
         update_order_intent_status(
             intent.id,
             "failed",
@@ -1410,6 +1452,8 @@ def execute_paper_signal(
                 "execution_mode": "ctrader_demo",
                 "broker_order": broker_order,
                 "failsafe_close_error": unprotected_close_error,
+                "close_outcome_state": close_outcome_state,
+                "close_retryable": retryable_close,
                 "tracking_retained": True,
             },
             reason="ctrader_demo_unprotected_failsafe_close_failed",
@@ -1432,12 +1476,16 @@ def execute_paper_signal(
         return ExecutionResult(
             action_taken=True,
             intent_id=intent.id,
-            status="failed",
-            summary="Broker protection failed and the fail-safe close failed; local tracking was retained for retry.",
+            status=(
+                "close_ambiguous_pending"
+                if close_outcome_state == "ambiguous_post_submit"
+                else ("close_rejected" if close_outcome_state == "broker_rejected" else "failed")
+            ),
+            summary="Broker close was not verified; canonical local tracking was retained.",
             position_id=created.id,
             mode="demo_enabled",
             broker_position_id=(broker_order or {}).get("position_id"),
-            retryable=True,
+            retryable=retryable_close,
         )
 
     if ack_timeout_reconciled:
