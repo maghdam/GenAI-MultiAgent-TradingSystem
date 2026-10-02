@@ -34,6 +34,16 @@ def broker_protection_matches(
     )
 
 
+def _json_safe_close_result(close_result: Dict[str, Any]) -> Dict[str, Any]:
+    safe: Dict[str, Any] = {}
+    for key, value in close_result.items():
+        if isinstance(value, PaperPosition):
+            safe[key] = value.model_dump(mode="json")
+        else:
+            safe[key] = value
+    return safe
+
+
 def fail_safe_close_unverified_demo_position(
     position: PaperPosition,
     *,
@@ -114,7 +124,7 @@ def fail_safe_close_unverified_demo_position(
             ),
             "closed": False,
             "tracking_retained": True,
-            "close_result": close_result,
+            "close_result": _json_safe_close_result(close_result),
         }
         log_incident(
             "error",
@@ -140,7 +150,7 @@ def fail_safe_close_unverified_demo_position(
         "closed": True,
         "tracking_retained": False,
         "broker_close": close_result.get("broker_close") or {},
-        "close_result": close_result,
+        "close_result": _json_safe_close_result(close_result),
         "closed_position_id": closed_position.id,
     }
     log_incident(
