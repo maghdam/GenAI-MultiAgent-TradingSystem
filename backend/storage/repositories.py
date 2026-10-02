@@ -22,12 +22,45 @@ from backend.domain.models import (
     StrategyAnalysis,
     TradeAuditRecord,
 )
-from backend.storage.db import get_db
+from backend.storage import db as db_module
+from backend.storage.db import SQLiteBusyError, get_db
 
 
 _CONFIG_KEY = "engine_config"
 _RUNTIME_KEY = "engine_runtime"
 _BAR_STATE_KEY = "bar_state"
+_VOLATILE_INCIDENTS_BY_DB: dict[str, list[dict[str, Any]]] = {}
+_VOLATILE_INCIDENT_SEQ = 0
+
+
+def _incident_db_key() -> str:
+    return str(db_module.SETTINGS.db_path)
+
+
+def _queue_volatile_incident(
+    *,
+    level: str,
+    code: str,
+    message: str,
+    details: Dict[str, Any],
+    created_at: str,
+) -> None:
+    global _VOLATILE_INCIDENT_SEQ
+    _VOLATILE_INCIDENT_SEQ -= 1
+    _VOLATILE_INCIDENTS_BY_DB.setdefault(_incident_db_key(), []).append(
+        {
+            "id": _VOLATILE_INCIDENT_SEQ,
+            "created_at": created_at,
+            "level": level,
+            "code": code,
+            "message": message,
+            "details": dict(details),
+        }
+    )
+
+
+def _volatile_incidents() -> list[dict[str, Any]]:
+    return list(_VOLATILE_INCIDENTS_BY_DB.get(_incident_db_key(), []))
 
 
 def _utcnow() -> datetime:
@@ -216,30 +249,76 @@ def upsert_market_bars(symbol: str, timeframe: str, df: pd.DataFrame) -> None:
 
 def log_incident(level: str, code: str, message: str, details: Dict[str, Any] | None = None) -> None:
     now = _utcnow().isoformat()
-    details_json = json.dumps(details or {}, ensure_ascii=False)
-    with get_db() as db:
-        db.execute(
-            """
-            INSERT INTO incidents(created_at, level, code, message, details_json)
-            VALUES(?, ?, ?, ?, ?)
-            """,
-            (now, level, code, message, details_json),
+    payload = dict(details or {})
+    details_json = json.dumps(payload, ensure_ascii=False)
+    key = _incident_db_key()
+    pending = _volatile_incidents()
+
+    try:
+        with get_db() as db:
+            for item in pending:
+                db.execute(
+                    """
+                    INSERT INTO incidents(created_at, level, code, message, details_json)
+                    VALUES(?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item["created_at"],
+                        item["level"],
+                        item["code"],
+                        item["message"],
+                        json.dumps(item["details"], ensure_ascii=False),
+                    ),
+                )
+            db.execute(
+                """
+                INSERT INTO incidents(created_at, level, code, message, details_json)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (now, level, code, message, details_json),
+            )
+            db.commit()
+    except SQLiteBusyError:
+        _queue_volatile_incident(
+            level=level,
+            code=code,
+            message=message,
+            details=payload,
+            created_at=now,
         )
-        db.commit()
+        return
+
+    if pending:
+        _VOLATILE_INCIDENTS_BY_DB[key] = []
 
 
 def list_incidents(limit: int = 20) -> List[IncidentRecord]:
-    with get_db() as db:
-        rows = db.execute(
-            """
-            SELECT id, created_at, level, code, message, details_json
-            FROM incidents
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+    try:
+        with get_db() as db:
+            rows = db.execute(
+                """
+                SELECT id, created_at, level, code, message, details_json
+                FROM incidents
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+    except SQLiteBusyError:
+        rows = []
+
     out: List[IncidentRecord] = []
+    for item in reversed(_volatile_incidents()):
+        out.append(
+            IncidentRecord(
+                id=int(item["id"]),
+                level=str(item["level"]),
+                code=str(item["code"]),
+                message=str(item["message"]),
+                details=dict(item["details"]),
+                created_at=datetime.fromisoformat(str(item["created_at"])),
+            )
+        )
     for row in rows:
         try:
             details = json.loads(row["details_json"] or "{}")
@@ -255,8 +334,7 @@ def list_incidents(limit: int = 20) -> List[IncidentRecord]:
                 created_at=datetime.fromisoformat(str(row["created_at"])),
             )
         )
-    return out
-
+    return out[: max(0, int(limit))]
 
 def add_analysis(analysis: StrategyAnalysis) -> StrategyAnalysis:
     with get_db() as db:

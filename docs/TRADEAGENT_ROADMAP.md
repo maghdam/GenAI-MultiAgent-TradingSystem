@@ -813,7 +813,18 @@ Simulate deliberately:
     - [x] Full backend suite passed locally on `37b60dd`.
     - [x] GitHub CI #137 on `37b60dd` passed backend tests + frontend restart/build.
     - [ ] Real cTrader demo partial-close field observation remains pending until a safe qualifying TradeAgent-managed open demo position exists.
-- [ ] SQLite busy/locked.
+- [x] SQLite busy/locked.
+  - [x] Lock/busy failures roll back cleanly and are reported distinctly.
+  - [x] Pre-submit persistence failure prevents any demo broker submission.
+  - [x] A durable pre-submit reservation prevents duplicate submission if persistence later becomes unavailable.
+  - [x] Broker-confirmed identity is retained across a local tracker persistence interruption and recovered deterministically.
+  - [x] A post-submit persistence interruption is reconciled against broker truth before another order can be considered.
+  - [x] Real SQLite exclusive-lock coverage verifies rollback and idempotent broker-deal recovery.
+  - Verification:
+    - [x] 5 SQLite resilience tests passed locally on `ac50103`.
+    - [x] Focused persistence/execution/reconciliation regression passed locally on `ac50103`.
+    - [x] Full backend suite passed locally on `ac50103` with a clean working tree.
+    - [x] GitHub CI #141 on `ac50103` passed backend tests + frontend restart/build.
 - [ ] DB restart/recovery.
 - [ ] Google Drive unavailable (repo code still usable).
 - [ ] Clock/time-zone edge cases / DST.
@@ -922,9 +933,10 @@ Add one row after every completed task.
 | 2026-10-02 | Resilience: protection amend rejected | Keep local SL/TP truthful, apply one canonical fail-safe close on rejected/unverified broker protection, retain tracking if close also fails, suppress duplicate same-bar amend loops, and recover from later broker-truth verification | ✅ 7 scenario tests + focused protection/execution/reconciliation regression + full backend suite + corrected CI #130 passed; initial CI #129 exposed one legacy test-double compatibility issue only | PR #49 / `23c6de4` | Proceed to Phase 7 broker-close-rejected scenario |
 | 2026-10-02 | Resilience: broker close rejected | Separate explicit rejection from ambiguous post-submit outcomes, require verified canonical broker truth before local closure, block duplicate close submissions, retain tracking on failure, and reconcile later broker absence deterministically | ✅ 7 scenario tests + 4 compatibility tests + 62 focused regression tests + full backend suite + CI #134 passed on `fde9b62`; CI #133 compatibility regression corrected | PR #50 / `fde9b62` | Proceed to Phase 7 partial-close scenario |
 | 2026-10-02 | Resilience: partial close | Make broker-volume reconciliation cumulative and identity-safe; preserve residual exposure, recover persisted-deal/local-quantity crash gaps, keep deal ingestion idempotent, and fail closed while later broker history is incomplete | 🟨 5 scenario tests + focused regression + full backend suite + CI #137 passed on `37b60dd`; real cTrader demo partial-close field observation pending | PR #51 / `37b60dd` | Leave field check pending; proceed to Phase 7 SQLite busy/locked scenario |
+| 2026-10-02 | Resilience: SQLite busy/locked | Make SQLite lock handling transactional and keep demo-order recovery deterministic across pre-submit and post-submit persistence interruptions | ✅ 5 scenario tests + focused regression + full backend suite + CI #141 passed on `ac50103` | PR #52 / `ac50103` | Proceed to Phase 7 DB restart/recovery scenario |
 
 ---
 
 ## 14. Next item
 
-**Phase 7 — Resilience / failure testing, thirteenth scenario only: acceptance-test SQLite busy/locked behavior. Verify transient database lock/busy failures do not corrupt persisted runtime/trade state, do not cause duplicate demo orders or duplicate broker-backed ledger effects, preserve the distinction between pre-submit failures and any post-submit uncertainty, surface an actionable persistence incident, fail closed when durable state cannot be safely established, and recover deterministically once the database becomes writable again. Preserve cTrader demo-only routing and the existing broker source-of-truth/canonical-position safeguards. Do not proceed to DB restart/recovery until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation remain pending until the required demo field conditions are available.**
+**Phase 7 — Resilience / failure testing, fourteenth scenario only: acceptance-test DB restart/recovery. Verify durable runtime and trade state survive restart, canonical broker position identity is re-established from persisted evidence, reconciliation/protection resumes deterministically, duplicate demo orders and duplicate broker-ledger effects are prevented, unresolved post-submit state remains blocked from automatic resubmission, and recovery faults are surfaced actionably. Preserve cTrader demo-only routing and the existing broker source-of-truth safeguards. Do not proceed to Google Drive unavailable until this item is locally validated and CI passes. The existing pending real cTrader field observations and Phase 5.3 threshold comparison remain pending; keep the global 60% threshold unchanged.**
