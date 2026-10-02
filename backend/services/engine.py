@@ -306,11 +306,12 @@ class V2Engine:
                 "close": float(df["close"].iloc[-1]),
             },
         )
-        if result.position_id is not None:
-            if result.status == "protection_failsafe_pending":
-                self._protection_failsafe_pending_positions.add(int(result.position_id))
+        result_position_id = getattr(result, "position_id", None)
+        if result_position_id is not None:
+            if getattr(result, "status", None) == "protection_failsafe_pending":
+                self._protection_failsafe_pending_positions.add(int(result_position_id))
             else:
-                self._protection_failsafe_pending_positions.discard(int(result.position_id))
+                self._protection_failsafe_pending_positions.discard(int(result_position_id))
         if not result.retryable:
             bar_state[key] = last_ts
         return True, result.action_taken
