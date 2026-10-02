@@ -7,6 +7,7 @@ from uuid import uuid4
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
     DemoOrderAcknowledgementTimeout,
+    DemoProtectionSyncFailure,
     close_demo_position,
     get_broker_account_snapshot,
     get_broker_status,
@@ -25,6 +26,7 @@ from backend.services.broker_ledger import (
 from backend.services.broker_position_match import match_broker_position
 from backend.services.financial_units import resolve_monetary_basis
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
+from backend.services.protection_safety import fail_safe_close_unverified_demo_position
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.repositories import (
     add_trade_audit,
@@ -55,6 +57,25 @@ class ExecutionResult:
 
 class BrokerPositionIdentityError(RuntimeError):
     pass
+
+
+def _canonical_broker_row_for_position(position: PaperPosition) -> dict[str, object]:
+    match = match_broker_position(position, list_positions())
+    if match.status in {"id_mismatch", "legacy_ambiguous"} or not match.matched:
+        raise BrokerPositionIdentityError(
+            f"Could not safely identify canonical broker position for {position.symbol}:{position.timeframe}."
+        )
+    row = dict(match.row or {})
+    row_id = _broker_position_id(row)
+    if row_id is None:
+        raise BrokerPositionIdentityError(
+            f"Canonical broker position for {position.symbol}:{position.timeframe} has no valid id."
+        )
+    if position.broker_position_id is not None and int(position.broker_position_id) != row_id:
+        raise BrokerPositionIdentityError(
+            f"Canonical broker position id changed for {position.symbol}:{position.timeframe}."
+        )
+    return row
 
 
 def _broker_position_id(row: dict[str, object]) -> int | None:
@@ -375,6 +396,61 @@ def execute_paper_signal(
                     summary="Repaired broker SL/TP from the local tracking position.",
                     details=protection,
                 )
+        except DemoProtectionSyncFailure as exc:
+            try:
+                broker_row = _canonical_broker_row_for_position(position)
+                failsafe = fail_safe_close_unverified_demo_position(
+                    position,
+                    broker_row=broker_row,
+                    fallback_price=mark_price,
+                    protection_error=exc,
+                    phase="pre_signal_protection",
+                )
+            except Exception as failsafe_exc:
+                log_incident(
+                    "error",
+                    "ctrader_demo_protection_failsafe_unresolved",
+                    f"Protection failure could not be safely resolved for {position.symbol}:{position.timeframe}.",
+                    {
+                        "position_id": position.id,
+                        "broker_position_id": position.broker_position_id,
+                        "protection_error": str(exc),
+                        "failsafe_error": str(failsafe_exc),
+                        "retryable": False,
+                    },
+                )
+                return ExecutionResult(
+                    action_taken=False,
+                    intent_id=None,
+                    status="protection_failsafe_pending",
+                    summary=str(failsafe_exc),
+                    position_id=position.id,
+                    mode="demo_enabled",
+                    broker_position_id=position.broker_position_id,
+                    retryable=False,
+                )
+
+            if failsafe.get("closed"):
+                return ExecutionResult(
+                    action_taken=True,
+                    intent_id=None,
+                    status="failed",
+                    summary="Demo position was closed by fail-safe because broker protection could not be verified.",
+                    position_id=int(failsafe.get("closed_position_id") or position.id),
+                    mode="demo_enabled",
+                    broker_position_id=position.broker_position_id,
+                    retryable=False,
+                )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=None,
+                status="protection_failsafe_pending",
+                summary="Broker protection failed and the fail-safe close failed; canonical tracking was retained.",
+                position_id=position.id,
+                mode="demo_enabled",
+                broker_position_id=position.broker_position_id,
+                retryable=False,
+            )
         except Exception as exc:
             log_incident(
                 "error",
@@ -822,6 +898,73 @@ def execute_paper_signal(
                         mode="demo_enabled",
                         broker_position_id=int(broker_protection.get("position_id") or 0) or None,
                     )
+            except DemoProtectionSyncFailure as exc:
+                try:
+                    broker_row = _canonical_broker_row_for_position(position)
+                    failsafe = fail_safe_close_unverified_demo_position(
+                        position,
+                        broker_row=broker_row,
+                        fallback_price=mark_price,
+                        protection_error=exc,
+                        phase="signal_target_update",
+                    )
+                except Exception as failsafe_exc:
+                    failsafe = {
+                        "closed": False,
+                        "tracking_retained": True,
+                        "failsafe_error": str(failsafe_exc),
+                    }
+
+                details = {
+                    "broker": "ctrader",
+                    "error": str(exc),
+                    "protection_failure_kind": exc.failure_kind,
+                    "broker_position_id": position.broker_position_id,
+                    "failsafe": failsafe,
+                    "local_targets_updated": False,
+                }
+                update_order_intent_status(
+                    intent.id,
+                    "failed",
+                    details,
+                    reason=(
+                        "ctrader_demo_target_update_failsafe_closed"
+                        if failsafe.get("closed")
+                        else "ctrader_demo_target_update_failsafe_pending"
+                    ),
+                )
+                log_incident(
+                    "error" if not failsafe.get("closed") else "warning",
+                    "ctrader_demo_target_update_rejected",
+                    f"Broker target update failed for {analysis.symbol}:{analysis.timeframe}; fail-safe policy applied.",
+                    {"intent_id": intent.id, "position_id": position.id, **details},
+                )
+                add_trade_audit(
+                    event_type="ctrader_demo_target_update_rejected",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    position_id=position.id,
+                    summary=(
+                        "Broker target update failed; local targets were not changed and fail-safe policy was applied."
+                    ),
+                    details=details,
+                )
+                return ExecutionResult(
+                    action_taken=bool(failsafe.get("closed")),
+                    intent_id=intent.id,
+                    status="failed" if failsafe.get("closed") else "protection_failsafe_pending",
+                    summary=(
+                        "Demo position was closed by fail-safe because broker protection could not be verified."
+                        if failsafe.get("closed")
+                        else "Broker protection failed and the fail-safe close failed; canonical tracking was retained."
+                    ),
+                    position_id=int(failsafe.get("closed_position_id") or position.id),
+                    mode="demo_enabled",
+                    broker_position_id=position.broker_position_id,
+                    retryable=False,
+                )
             except Exception as exc:
                 update_order_intent_status(
                     intent.id,
