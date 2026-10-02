@@ -111,12 +111,21 @@ def test_strategy_sandbox_rejects_invalid_output(source: str):
         run_strategy_source(source, _bars())
 
 
-def test_strategy_sandbox_enforces_input_bar_resource_limit(monkeypatch):
-    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_BARS", "100")
-    bars = pd.concat([_bars()] * 34, ignore_index=True)
-    bars.index = pd.date_range("2026-01-01", periods=len(bars), freq="min", tz="UTC")
-
+def test_strategy_sandbox_enforces_child_memory_resource_limit(monkeypatch):
+    monkeypatch.setenv("STRATEGY_SANDBOX_MEMORY_MB", "128")
+    monkeypatch.setenv("STRATEGY_SANDBOX_MAX_TIMEOUT_SECONDS", "15")
     source = """
+import pandas as pd
+
+def signals(df: pd.DataFrame) -> pd.Series:
+    # Instantly request ~200MB memory block to exceed 128MB limit
+    _ = bytearray(200 * 1024 * 1024)
+    return pd.Series(0.0, index=df.index)
+"""
+
+    with pytest.raises(StrategySandboxError, match="memory resource limit"):
+        run_strategy_source(source, _bars(), timeout_seconds=15.0)
+        
 import pandas as pd
 
 def signals(df: pd.DataFrame) -> pd.Series:
