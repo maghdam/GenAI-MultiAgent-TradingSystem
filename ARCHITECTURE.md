@@ -256,6 +256,13 @@ This is a deliberate product boundary. The repo is built to demonstrate discipli
 
 ## Legacy Notes
 
+Historical planning documents retained for provenance:
+
+- `IMPLEMENTATION_PLAN.md` — March 2026 Strategy Studio/backtesting upgrade plan; references retired `/api/agent/execute_task` validation and old local-drive paths.
+- `STRATEGY_INTEGRATION_PLAN.md` — October 2025 standalone Strategy Studio integration plan; references retired `/strategy-studio` and `/api/agent/execute_task` surfaces.
+
+Both files are explicitly historical and must not be used as current architecture or operational guidance.
+
 The repo still contains some compatibility and historical files:
 
 - `backend/agent_state.py`
