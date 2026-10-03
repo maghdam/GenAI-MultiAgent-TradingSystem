@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
@@ -84,6 +85,26 @@ class V2Engine:
         self._wake.set()
 
     async def run_once(self) -> str:
+        cycle_started = perf_counter()
+        try:
+            return await self._run_once_body()
+        finally:
+            self._record_cycle_latency(cycle_started)
+
+    def _record_cycle_latency(self, cycle_started: float) -> None:
+        """Persist non-fatal observability for the completed cycle attempt."""
+        duration_ms = max(0.0, (perf_counter() - cycle_started) * 1000.0)
+        completed_at = datetime.now(UTC).replace(tzinfo=None)
+        try:
+            runtime = load_runtime()
+            runtime.last_cycle_duration_ms = duration_ms
+            runtime.last_cycle_completed_at = completed_at
+            save_runtime(runtime)
+        except Exception:
+            # Observability must never change trading/control flow.
+            return
+
+    async def _run_once_body(self) -> str:
         config = load_engine_config(EngineConfig())
         runtime = load_runtime()
         runtime.tick_count += 1
