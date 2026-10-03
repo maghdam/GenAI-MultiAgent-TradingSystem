@@ -88,20 +88,15 @@ To inspect the path that the current environment resolves without opening or mod
 C:\Users\mohag\miniconda3\envs\tradeagent-v2\python.exe -c "from backend.config import resolve_db_path; print(resolve_db_path())"
 ```
 
-## Verification Commands
+## Verification Command
 
-Backend tests:
-
-```powershell
-python -m pytest backend\tests -q
-```
-
-Frontend production build:
+From the repository root, run the canonical validator:
 
 ```powershell
-cd frontend
-npm.cmd run build
+python scripts\validate.py
 ```
+
+The script uses the Python interpreter that invokes it. It runs the accepted backend suite first and, only if that passes, the frontend production build. `npm` must be available on `PATH`. A failing backend or frontend step produces a non-zero exit code.
 
 ## What "working" looks like
 
