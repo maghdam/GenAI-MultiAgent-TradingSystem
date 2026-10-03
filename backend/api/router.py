@@ -26,6 +26,7 @@ from backend.domain.models import (
     ManualOrderRequest,
     MarketIntelligenceResponse,
     MarketEventInput,
+    ProtectionHealthResponse,
     ReadinessCheck,
     ReconciliationHealthResponse,
     SymbolLimits,
@@ -58,6 +59,7 @@ from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
 from backend.services.daily_summary import build_daily_summary
 from backend.services.reconciliation_health import build_reconciliation_health
+from backend.services.protection_health import build_protection_health
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -489,6 +491,11 @@ async def v2_daily_summary(
 @router.get("/reports/reconciliation-health", response_model=ReconciliationHealthResponse)
 async def v2_reconciliation_health() -> ReconciliationHealthResponse:
     return await asyncio.to_thread(build_reconciliation_health)
+
+
+@router.get("/reports/protection-health", response_model=ProtectionHealthResponse)
+async def v2_protection_health() -> ProtectionHealthResponse:
+    return await asyncio.to_thread(build_protection_health)
 
 
 @router.post("/config", response_model=EngineConfig)
