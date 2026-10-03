@@ -4,6 +4,8 @@ from datetime import datetime
 from time import perf_counter
 from typing import Any, Callable, Dict, List, TypeVar
 
+import backend.ctrader_client as ctd
+
 from backend.adapters.ctrader import (
     DemoCloseOutcomeAmbiguous,
     DemoCloseRejected,
@@ -22,8 +24,13 @@ _T = TypeVar("_T")
 
 
 def _execution_ready() -> bool:
+    """Classify availability from local connection/auth/demo flags only."""
     try:
-        return bool(adapter.get_status().execution_ready)
+        return bool(
+            ctd.is_connected()
+            and ctd.is_authorized()
+            and ctd.is_demo_account_confirmed()
+        )
     except Exception:
         return False
 
