@@ -381,6 +381,8 @@ def compare_external_statement(
 
     for row in request.rows:
         reasons: list[str] = []
+        if row.broker_position_id is None and row.deal_id is None:
+            reasons.append("missing_statement_identity")
         if row.deal_id is not None and int(row.deal_id) in duplicate_deal_ids:
             reasons.append("duplicate_statement_deal_id")
 
@@ -409,15 +411,24 @@ def compare_external_statement(
             reasons.append("ambiguous_local_identity")
 
         if reasons:
+            local = local_by_id[next(iter(candidates))] if len(candidates) == 1 else None
             unresolved_items.append(
                 StatementComparisonItem(
                     status="identity_unresolved",
+                    local_row_id=local.row_id if local is not None else None,
+                    local_position_id=local.local_position_id if local is not None else None,
                     statement_row_ids=[row.row_id],
-                    broker_position_id=row.broker_position_id,
+                    broker_position_id=(
+                        local.broker_position_id if local is not None else row.broker_position_id
+                    ),
+                    local_deal_ids=local.broker_deal_ids if local is not None else [],
                     statement_deal_ids=[row.deal_id] if row.deal_id is not None else [],
-                    symbol=row.symbol.upper(),
+                    symbol=local.symbol if local is not None else row.symbol.upper(),
+                    local_currency=local.account_currency if local is not None else None,
                     statement_currencies=[row.account_currency.upper()],
+                    local_realized_pnl=local.realized_pnl if local is not None else None,
                     statement_realized_pnl=float(row.realized_pnl),
+                    local_closed_at_utc=local.closed_at_utc if local is not None else None,
                     statement_closed_at_utc=_statement_row_utc(row),
                     mismatch_reasons=reasons,
                 )
