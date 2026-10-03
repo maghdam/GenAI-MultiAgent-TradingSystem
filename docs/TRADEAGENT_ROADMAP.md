@@ -1054,6 +1054,7 @@ TradeAgent is considered **demo-runtime validated** when all of the following ar
 - [x] Frontend production build passes.
   - Verified through the accepted canonical validation path and current GitHub CI: local canonical validation passed the frontend TypeScript/Vite production build during Phase 9 dependency cleanup, post-merge CI #212 passed the frontend restart acceptance test plus production build on `6faf1d5`, and PR CI #213 passed the same frontend job on `c353daa`.
 - [ ] Repeated demo trades use correct quantities.
+  - Verification candidate: the original canonical roadmap baseline (`e41ccc`) records real cTrader demo orders for XAUUSD, US30, and NAS100 and separately records that fresh demo trades used the configured 0.10 lot size; that same baseline reconciled realized P&L for those three symbols against cTrader. Current demo execution still converts requested lots through broker contract metadata before submission, and post-merge CI #215 passed the current backend suite on `6ccc18a`.
 - [ ] Every broker-managed position is either verified protected or fails closed.
 - [ ] Broker position ID is the canonical identity.
 - [ ] Closed-trade price/time/net P&L reconcile to cTrader.
