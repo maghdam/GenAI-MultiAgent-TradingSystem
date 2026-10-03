@@ -98,6 +98,15 @@ python scripts\validate.py
 
 The script uses the Python interpreter that invokes it. It runs the accepted backend suite first and, only if that passes, the frontend production build. `npm` must be available on `PATH`. A failing backend or frontend step produces a non-zero exit code.
 
+### GitHub CI contract
+
+`.github/workflows/ci.yml` applies the repository validation gates automatically to pull requests targeting `main` and pushes to `main` (and also supports manual `workflow_dispatch` runs):
+
+- backend: Python 3.12, install `.[broker,dev]`, then run `python -m pytest backend/tests -q`
+- frontend: Node 22, run `npm ci --prefix frontend`, preserve the frontend restart acceptance test, then run `npm --prefix frontend run build`
+
+The two jobs run independently, and any failed command fails its job/workflow. The CI workflow intentionally remains separate from the local `scripts/validate.py` wrapper so backend and frontend jobs can run in parallel while enforcing the same backend-suite and frontend-build contract.
+
 ## What "working" looks like
 
 Backend health:
