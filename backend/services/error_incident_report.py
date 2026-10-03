@@ -172,7 +172,7 @@ def build_error_incident_report(
         groups.values(),
         key=lambda item: (
             -int(item["occurrences"]),
-            -item["last_seen_at"].timestamp(),
+            -item["last_seen_at"].replace(tzinfo=UTC).timestamp(),
             str(item["group_id"]),
         ),
     )
