@@ -107,6 +107,16 @@ The script uses the Python interpreter that invokes it. It runs the accepted bac
 
 The two jobs run independently, and any failed command fails its job/workflow. The CI workflow intentionally remains separate from the local `scripts/validate.py` wrapper so backend and frontend jobs can run in parallel while enforcing the same backend-suite and frontend-build contract.
 
+### Optional lint / type-check baseline
+
+The repository already has Ruff configured for Python and ESLint configured for the frontend, but they are **not CI gates yet** because the current baseline contains substantial pre-existing cleanup:
+
+- `ruff check backend`: 304 violations in the current baseline; 114 are reported as automatically fixable.
+- `npm --prefix frontend run lint`: 32 problems in the current baseline (28 errors, 4 warnings), mostly explicit-`any` findings plus React hook dependency warnings.
+- TypeScript type checking already passes as part of the canonical frontend production build because `npm --prefix frontend run build` starts with `tsc -b`.
+
+A trial CI gate failed both lint jobs before the accepted backend test suite and frontend restart/build could run (CI #199). Keep Ruff/ESLint available for cleanup work, but do not make them required CI gates until the lint baseline is intentionally reduced in a separate scoped change.
+
 ## What "working" looks like
 
 Backend health:
