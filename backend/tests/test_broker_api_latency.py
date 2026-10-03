@@ -86,25 +86,23 @@ def test_successful_broker_service_call_records_latency_and_preserves_result(mon
         "direction": "buy",
         "position_id": 990001,
     }
-    calls = {"positions": 0, "status": 0}
+    calls = {"positions": 0}
 
     def _positions():
         calls["positions"] += 1
         return [row]
 
-    def _status():
-        calls["status"] += 1
-        return _ready_status()
-
     monkeypatch.setattr(broker_module.adapter, "list_positions", _positions)
-    monkeypatch.setattr(broker_module.adapter, "get_status", _status)
+    monkeypatch.setattr(broker_module.ctd, "is_connected", lambda: True)
+    monkeypatch.setattr(broker_module.ctd, "is_authorized", lambda: True)
+    monkeypatch.setattr(broker_module.ctd, "is_demo_account_confirmed", lambda: True)
     _clock(monkeypatch, broker_module, 100.0, 100.042)
 
     result = broker_module.list_positions()
     report = build_broker_api_latency()
 
     assert result == [row]
-    assert calls == {"positions": 1, "status": 1}
+    assert calls == {"positions": 1}
     assert report.broker.state == "measured"
     assert report.broker.scope == "broker_service_call"
     assert report.broker.operation == "list_positions"
@@ -118,9 +116,9 @@ def test_broker_exception_is_unavailable_and_preserves_original_exception(monkey
 
     monkeypatch.setattr(broker_module.adapter, "list_positions", _boom)
     monkeypatch.setattr(
-        broker_module.adapter,
-        "get_status",
-        lambda: pytest.fail("status classification must not run after broker exception"),
+        broker_module.ctd,
+        "is_connected",
+        lambda: pytest.fail("availability classification must not run after broker exception"),
     )
     monkeypatch.setattr(broker_module, "perf_counter", lambda: 200.0)
 
@@ -136,7 +134,9 @@ def test_broker_exception_is_unavailable_and_preserves_original_exception(monkey
 
 def test_unavailable_broker_result_is_not_recorded_as_successful_latency(monkeypatch) -> None:
     monkeypatch.setattr(broker_module.adapter, "list_positions", lambda: [])
-    monkeypatch.setattr(broker_module.adapter, "get_status", _unavailable_status)
+    monkeypatch.setattr(broker_module.ctd, "is_connected", lambda: False)
+    monkeypatch.setattr(broker_module.ctd, "is_authorized", lambda: True)
+    monkeypatch.setattr(broker_module.ctd, "is_demo_account_confirmed", lambda: True)
     _clock(monkeypatch, broker_module, 300.0, 300.015)
 
     assert broker_module.list_positions() == []
