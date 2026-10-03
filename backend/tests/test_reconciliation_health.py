@@ -9,6 +9,7 @@ from backend.services.reconciliation_health import build_reconciliation_health
 from backend.storage.db import get_db
 from backend.storage.repositories import (
     create_order_intent,
+    list_paper_positions,
     open_paper_position,
     update_order_intent_status,
 )
@@ -273,13 +274,8 @@ def test_reconciliation_health_reports_unresolved_ambiguous_legacy_candidates(mo
     assert item.scope == "broker_position"
     assert item.match_status == "legacy_local_ambiguous"
     assert item.local_position_id is None
-    assert {first.id, second.id} == {
-        row["id"]
-        for row in [
-            dict(get_db().execute("SELECT id FROM paper_positions WHERE id = ?", (first.id,)).fetchone()),
-            dict(get_db().execute("SELECT id FROM paper_positions WHERE id = ?", (second.id,)).fetchone()),
-        ]
-    }
+    persisted_ids = {position.id for position in list_paper_positions("open")}
+    assert {first.id, second.id}.issubset(persisted_ids)
 
 
 def test_reconciliation_health_api_is_read_only(monkeypatch) -> None:
