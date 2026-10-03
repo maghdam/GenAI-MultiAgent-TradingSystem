@@ -7,6 +7,7 @@
         "dev": "vite",
         "build": "tsc -b \u0026\u0026 vite build",
         "test:restart": "node --experimental-strip-types --test tests/frontend-restart.test.ts",
+        "test:journal": "node --experimental-strip-types --test tests/journal-explainability.test.ts",
         "lint": "eslint .",
         "preview": "vite preview"
     },
