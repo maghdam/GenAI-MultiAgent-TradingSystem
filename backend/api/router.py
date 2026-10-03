@@ -13,6 +13,7 @@ from backend.config import SETTINGS
 from backend.domain.models import (
     ActiveIncident,
     AnalyzeRequest,
+    BrokerApiLatencyResponse,
     BrokerStatus,
     ConfluenceReplayResponse,
     DailySummaryResponse,
@@ -60,6 +61,7 @@ from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
 from backend.services.daily_summary import build_daily_summary
 from backend.services.engine_cycle_latency import build_engine_cycle_latency
+from backend.services.latency_observability import build_broker_api_latency
 from backend.services.reconciliation_health import build_reconciliation_health
 from backend.services.protection_health import build_protection_health
 from backend.services.studio_tasks import execute_studio_task
@@ -503,6 +505,11 @@ async def v2_protection_health() -> ProtectionHealthResponse:
 @router.get("/reports/engine-cycle-latency", response_model=EngineCycleLatencyResponse)
 async def v2_engine_cycle_latency() -> EngineCycleLatencyResponse:
     return await asyncio.to_thread(build_engine_cycle_latency)
+
+
+@router.get("/reports/broker-api-latency", response_model=BrokerApiLatencyResponse)
+async def v2_broker_api_latency() -> BrokerApiLatencyResponse:
+    return build_broker_api_latency()
 
 
 @router.post("/config", response_model=EngineConfig)
