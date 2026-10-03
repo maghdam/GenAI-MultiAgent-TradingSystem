@@ -1,3 +1,9 @@
+> [!WARNING]
+> **Historical planning document — not current architecture or routing guidance.**
+> This file dates from October 2025 and describes the earlier standalone `/strategy-studio` route and `/api/agent/execute_task` API. Those surfaces are no longer the active product architecture; Strategy Studio now lives under Build & Test and uses `/api/studio/tasks`.
+>
+> For current behavior, use [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/TRADEAGENT_ROADMAP.md](docs/TRADEAGENT_ROADMAP.md). This file is retained only for project-history provenance.
+
 Strategy Studio Integration Plan
 
 Overview
