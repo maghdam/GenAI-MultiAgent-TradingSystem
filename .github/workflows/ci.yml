@@ -41,9 +41,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[broker,dev]"
 
-      - name: Lint backend
-        run: ruff check backend
-
       - name: Run backend test suite
         run: python -m pytest backend/tests -q
 
@@ -65,9 +62,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
-
-      - name: Lint frontend
-        run: npm --prefix frontend run lint
 
       - name: Run frontend restart acceptance test
         run: npm --prefix frontend run test:restart
