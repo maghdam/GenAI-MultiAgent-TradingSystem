@@ -929,7 +929,21 @@ For every scenario verify:
     - [x] Focused engine/runtime/status/persistence regression passed locally on `b39a515`.
     - [x] Full backend suite passed locally on `b39a515` with a clean working tree.
     - [x] GitHub CI #166 on `b39a515` passed backend tests + frontend build.
-- [ ] Broker/API latency.
+- [x] Broker/API latency.
+  - [x] Read-only `GET /api/reports/broker-api-latency` reports the latest process-local broker-service and API request latency observations with explicit millisecond units and timing scope.
+  - [x] Broker timing reuses existing broker-facing service calls only; no parallel/probe broker request is generated solely for metrics.
+  - [x] Broker scope is explicitly `broker_service_call`, not raw network RTT; local status/symbol/readiness getters are excluded.
+  - [x] Successful broker calls are classified with local connection/authorization/demo-confirmation flags only, avoiding extra reconcile/account-snapshot traffic.
+  - [x] Broker exceptions or unavailable broker state report `unavailable` with no successful duration sample.
+  - [x] API middleware measures existing `/api/*` request handling; completed non-5xx responses, including intentional 4xx responses, are measured while exceptions/5xx report unavailable.
+  - [x] The latency-report endpoint is excluded from API timing so reading the metric cannot overwrite its own sample.
+  - [x] Samples are intentionally process-local, adding no SQLite writes/lock contention to broker or API paths; restart truthfully resets to `no_observation`.
+  - [x] Observability is guarded so telemetry cannot replace broker exceptions, API responses, retry semantics, execution ordering, or demo-only/live-routing safeguards.
+  - Verification:
+    - [x] 10 broker/API latency acceptance tests passed locally on `4ba520b`.
+    - [x] Focused broker/API/status/execution regression passed locally on `4ba520b`.
+    - [x] Full backend suite passed locally on `4ba520b` with a clean working tree.
+    - [x] GitHub CI #169 on `4ba520b` passed backend tests + frontend build.
 - [ ] Error-rate / incident grouping.
 - [ ] Strategy performance by symbol/timeframe.
 - [ ] Export journal / statement comparison.
@@ -1026,9 +1040,10 @@ Add one row after every completed task.
 | 2026-10-03 | Observability: broker-vs-local reconciliation health | Add read-only canonical identity health for TradeAgent-managed demo positions, distinguishing healthy/degraded/unavailable/unresolved/missing-local/missing-broker while ignoring unrelated manual broker positions | ✅ 8 acceptance tests + focused reconciliation/position-truth/status regression + full backend suite + CI #160 passed on `37a4f99` | PR #57 / `37a4f99` | Proceed to Phase 8 protection-health metric |
 | 2026-10-03 | Observability: protection-health metric | Add read-only broker-truth SL/TP health and full-protection coverage for canonical TradeAgent-managed demo positions; keep unavailable/unresolved identity explicit and exclude it from assessable coverage | ✅ 9 acceptance tests + focused protection/broker-truth regression + full backend suite + CI #163 passed on `d1e7acc` | PR #58 / `d1e7acc` | Proceed to Phase 8 engine cycle latency |
 | 2026-10-03 | Observability: engine cycle latency | Measure `run_once()` with a monotonic clock, persist minimal restart-safe duration/completion evidence, and expose a read-only last-cycle latency report with explicit no-cycle-yet state | ✅ 9 acceptance tests + focused engine/runtime/status/persistence regression + full backend suite + CI #166 passed on `b39a515` | PR #59 / `b39a515` | Proceed to Phase 8 broker/API latency |
+| 2026-10-03 | Observability: broker/API latency | Measure existing broker-service and FastAPI request boundaries without extra broker probes, classify failed/unavailable calls separately, and expose process-local read-only latency evidence | ✅ 10 acceptance tests + focused broker/API/status/execution regression + full backend suite + CI #169 passed on `4ba520b` | PR #60 / `4ba520b` | Proceed to Phase 8 error-rate / incident grouping |
 
 ---
 
 ## 14. Next item
 
-**Phase 8 — Observability & reporting, fifth item only: implement deterministic broker/API latency observability. Measure read-only latency evidence at the existing broker/API boundaries without changing request semantics, retry behavior, execution ordering, or broker actions; keep units and timing scope explicit, distinguish unavailable/no-observation-yet from measured latency, and avoid treating failed/unavailable broker calls as successful latency samples. Reuse existing broker/API paths rather than introducing parallel calls solely for metrics, persist only the minimum evidence needed if restart-safe reporting is required, and preserve cTrader demo-only/live-routing protections. Do not proceed to error-rate / incident grouping until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 8 — Observability & reporting, sixth item only: implement deterministic error-rate / incident grouping. Aggregate existing persisted incidents and relevant failure evidence into read-only, bounded groups by stable incident/error identity without changing incident creation, retry behavior, broker actions, or execution control flow; keep the reporting window and denominator explicit, distinguish repeated occurrences from distinct incident groups, and avoid inventing success/failure events solely for metrics. Reuse the current incident/audit repositories as the source of truth, keep grouping actionable for operators, and preserve cTrader demo-only/live-routing protections. Do not proceed to strategy performance by symbol/timeframe until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
