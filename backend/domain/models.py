@@ -345,6 +345,42 @@ class DailySummaryResponse(BaseModel):
     drawdown_basis: str = "realized_pnl_sequence"
 
 
+ReconciliationHealthState = Literal[
+    "healthy",
+    "degraded",
+    "unavailable",
+    "unresolved",
+    "missing_local",
+    "missing_broker",
+]
+
+
+class ReconciliationHealthItem(BaseModel):
+    status: ReconciliationHealthState
+    scope: Literal["local_tracker", "broker_position"]
+    symbol: str
+    direction: Literal["long", "short"]
+    local_position_id: Optional[int] = None
+    broker_position_id: Optional[int] = None
+    intent_id: Optional[int] = None
+    match_status: str
+    message: str
+    action_required: str
+
+
+class ReconciliationHealthResponse(BaseModel):
+    status: ReconciliationHealthState
+    broker_truth_available: bool
+    broker_execution_ready: bool
+    checked_at: datetime
+    local_managed_positions: int
+    canonical_broker_positions: Optional[int] = None
+    ignored_broker_positions: int = 0
+    counts: Dict[str, int] = Field(default_factory=dict)
+    items: List[ReconciliationHealthItem] = Field(default_factory=list)
+    summary: str
+
+
 class ConfluenceShadowRecord(BaseModel):
     id: int
     created_at: datetime
