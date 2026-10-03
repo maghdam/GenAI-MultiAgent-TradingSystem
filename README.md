@@ -18,26 +18,41 @@ The project is intended to show AI product engineering rather than prompt-only e
 ### Trade
 
 <p align="center">
-  <img src="docs/images/dashboard-main.png" alt="TradeAgent main dashboard" width="100%" />
+  <img src="docs/images/Trade_Main.png" alt="Current TradeAgent Trade workspace with market context, chart, signals, positions, intents, and runtime status" width="100%" />
 </p>
 <p align="center">
-  <sub>Daily trading workspace with live charting, selected-market context, explicit strategy analysis, signals, positions, and journal context.</sub>
+  <sub>Current trading workspace with live market context, charting, deterministic signal review, positions, intents/incidents, and broker/engine/model status.</sub>
 </p>
 
 ### Build & Test
 
 <p align="center">
-  <img src="docs/images/strategy-studio-results.png" alt="TradeAgent Strategy Studio backtest results overview" width="100%" />
+  <img src="docs/images/Build_Test.png" alt="Current TradeAgent Build and Test research workspace" width="100%" />
 </p>
 <p align="center">
-  <img src="docs/images/strategy-studio-results-2.png" alt="TradeAgent Strategy Studio continuation showing equity curve and trade list" width="100%" />
+  <sub>Current research workspace for GenAI-assisted strategy drafting, saved/draft backtesting, validation methodology, lifecycle evidence, and controlled promotion.</sub>
+</p>
+
+### System
+
+<p align="center">
+  <img src="docs/images/System.png" alt="Current TradeAgent System workspace with runtime health, readiness, safety controls, recovery, and audit" width="100%" />
 </p>
 <p align="center">
-  <sub>LLM-assisted research workflow with strategy drafting, saved strategies, formatted metrics, equity curve, and trade-level backtest output.</sub>
+  <sub>Current operations workspace for runtime health, readiness, safety configuration, recovery/reconciliation, and audit. cTrader execution remains demo-only and live-account routing remains blocked.</sub>
 </p>
 
 <details>
   <summary>Earlier prototype snapshots</summary>
+  <p align="center">
+    <img src="docs/images/dashboard-main.png" alt="Earlier TradeAgent portfolio dashboard snapshot" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/strategy-studio-results.png" alt="Earlier TradeAgent Strategy Studio results snapshot" width="100%" />
+  </p>
+  <p align="center">
+    <img src="docs/images/strategy-studio-results-2.png" alt="Earlier TradeAgent Strategy Studio results continuation snapshot" width="100%" />
+  </p>
   <p align="center">
     <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" />
   </p>
