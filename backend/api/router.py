@@ -17,6 +17,7 @@ from backend.domain.models import (
     ConfluenceReplayResponse,
     DailySummaryResponse,
     EngineConfig,
+    EngineCycleLatencyResponse,
     EngineRuntime,
     EngineStatus,
     EventRefreshResponse,
@@ -58,6 +59,7 @@ from backend.services.runtime_strategy_validation import run_runtime_strategy_au
 from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
 from backend.services.daily_summary import build_daily_summary
+from backend.services.engine_cycle_latency import build_engine_cycle_latency
 from backend.services.reconciliation_health import build_reconciliation_health
 from backend.services.protection_health import build_protection_health
 from backend.services.studio_tasks import execute_studio_task
@@ -496,6 +498,11 @@ async def v2_reconciliation_health() -> ReconciliationHealthResponse:
 @router.get("/reports/protection-health", response_model=ProtectionHealthResponse)
 async def v2_protection_health() -> ProtectionHealthResponse:
     return await asyncio.to_thread(build_protection_health)
+
+
+@router.get("/reports/engine-cycle-latency", response_model=EngineCycleLatencyResponse)
+async def v2_engine_cycle_latency() -> EngineCycleLatencyResponse:
+    return await asyncio.to_thread(build_engine_cycle_latency)
 
 
 @router.post("/config", response_model=EngineConfig)
