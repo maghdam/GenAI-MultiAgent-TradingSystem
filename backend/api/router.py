@@ -27,6 +27,7 @@ from backend.domain.models import (
     MarketIntelligenceResponse,
     MarketEventInput,
     ReadinessCheck,
+    ReconciliationHealthResponse,
     SymbolLimits,
     StudioTaskRequest,
     StudioTaskResponse,
@@ -56,6 +57,7 @@ from backend.services.runtime_strategy_validation import run_runtime_strategy_au
 from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
 from backend.services.daily_summary import build_daily_summary
+from backend.services.reconciliation_health import build_reconciliation_health
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -482,6 +484,11 @@ async def v2_daily_summary(
             detail="date must be an ISO calendar date in YYYY-MM-DD format.",
         ) from exc
     return await asyncio.to_thread(build_daily_summary, report_day)
+
+
+@router.get("/reports/reconciliation-health", response_model=ReconciliationHealthResponse)
+async def v2_reconciliation_health() -> ReconciliationHealthResponse:
+    return await asyncio.to_thread(build_reconciliation_health)
 
 
 @router.post("/config", response_model=EngineConfig)
