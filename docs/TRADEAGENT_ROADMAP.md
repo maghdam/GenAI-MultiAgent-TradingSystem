@@ -916,7 +916,19 @@ For every scenario verify:
     - [x] Focused protection/position-truth/reconciliation/status regression passed locally on `d1e7acc`.
     - [x] Full backend suite passed locally on `d1e7acc` with a clean working tree.
     - [x] GitHub CI #163 on `d1e7acc` passed backend tests + frontend build.
-- [ ] Engine cycle latency.
+- [x] Engine cycle latency.
+  - [x] Read-only `GET /api/reports/engine-cycle-latency` exposes the most recently completed engine cycle duration in explicit milliseconds with start/completion timestamps.
+  - [x] `run_once()` is measured with a monotonic `perf_counter()` boundary without changing scan order, trading decisions, broker execution, reconciliation, or scan-interval/sleep behavior.
+  - [x] Disabled-engine, kill-switch, empty-watchlist, normal-scan, and exceptioning cycle attempts share the same latency measurement boundary.
+  - [x] Runtime JSON persists only minimal restart-safe evidence: optional `last_cycle_duration_ms` and `last_cycle_completed_at`, preserving backward compatibility without a DB schema migration.
+  - [x] No-cycle-yet state is explicit (`available=false`) rather than inventing a zero latency.
+  - [x] Telemetry persistence is non-fatal: a latency write failure cannot alter the cycle result or replace the original exception.
+  - [x] API consumers are read-only and cTrader demo-only/live-routing safeguards remain unchanged.
+  - Verification:
+    - [x] 9 engine-cycle latency acceptance tests passed locally on `b39a515`.
+    - [x] Focused engine/runtime/status/persistence regression passed locally on `b39a515`.
+    - [x] Full backend suite passed locally on `b39a515` with a clean working tree.
+    - [x] GitHub CI #166 on `b39a515` passed backend tests + frontend build.
 - [ ] Broker/API latency.
 - [ ] Error-rate / incident grouping.
 - [ ] Strategy performance by symbol/timeframe.
@@ -1013,9 +1025,10 @@ Add one row after every completed task.
 | 2026-10-03 | Observability: deterministic daily summary | Add read-only UTC-day reporting for trades, broker-preferred realized P&L, realized drawdown, win/loss/breakeven, win rate, and rejected signals by persisted reason | ✅ 7 acceptance tests + focused reporting/ledger/API regression + full backend suite + CI #157 passed on `00f1eb0` | PR #56 / `00f1eb0` | Proceed to Phase 8 broker-vs-local reconciliation health |
 | 2026-10-03 | Observability: broker-vs-local reconciliation health | Add read-only canonical identity health for TradeAgent-managed demo positions, distinguishing healthy/degraded/unavailable/unresolved/missing-local/missing-broker while ignoring unrelated manual broker positions | ✅ 8 acceptance tests + focused reconciliation/position-truth/status regression + full backend suite + CI #160 passed on `37a4f99` | PR #57 / `37a4f99` | Proceed to Phase 8 protection-health metric |
 | 2026-10-03 | Observability: protection-health metric | Add read-only broker-truth SL/TP health and full-protection coverage for canonical TradeAgent-managed demo positions; keep unavailable/unresolved identity explicit and exclude it from assessable coverage | ✅ 9 acceptance tests + focused protection/broker-truth regression + full backend suite + CI #163 passed on `d1e7acc` | PR #58 / `d1e7acc` | Proceed to Phase 8 engine cycle latency |
+| 2026-10-03 | Observability: engine cycle latency | Measure `run_once()` with a monotonic clock, persist minimal restart-safe duration/completion evidence, and expose a read-only last-cycle latency report with explicit no-cycle-yet state | ✅ 9 acceptance tests + focused engine/runtime/status/persistence regression + full backend suite + CI #166 passed on `b39a515` | PR #59 / `b39a515` | Proceed to Phase 8 broker/API latency |
 
 ---
 
 ## 14. Next item
 
-**Phase 8 — Observability & reporting, fourth item only: implement deterministic engine cycle latency observability. Measure and expose engine scan-cycle duration from the existing runtime loop without changing trading decisions, scheduling semantics, or broker execution behavior; distinguish current/last-cycle latency from unavailable/no-cycle-yet state, keep timestamps/units explicit, and persist only the minimum runtime evidence needed for restart-safe reporting if required. Keep the metric read-only to API consumers and preserve cTrader demo-only/live-routing protections. Do not proceed to broker/API latency until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 8 — Observability & reporting, fifth item only: implement deterministic broker/API latency observability. Measure read-only latency evidence at the existing broker/API boundaries without changing request semantics, retry behavior, execution ordering, or broker actions; keep units and timing scope explicit, distinguish unavailable/no-observation-yet from measured latency, and avoid treating failed/unavailable broker calls as successful latency samples. Reuse existing broker/API paths rather than introducing parallel calls solely for metrics, persist only the minimum evidence needed if restart-safe reporting is required, and preserve cTrader demo-only/live-routing protections. Do not proceed to error-rate / incident grouping until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
