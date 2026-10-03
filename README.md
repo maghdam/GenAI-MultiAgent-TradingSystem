@@ -145,7 +145,7 @@ npm.cmd run dev -- --host 127.0.0.1 --port 5173
 
 ## Verification
 
-Verified locally on April 15, 2026:
+Verified locally on October 3, 2026:
 
 ```powershell
 python -m pytest backend\tests -q
@@ -155,7 +155,7 @@ npm.cmd run build
 
 Result:
 
-- `52` backend tests passed
+- `428` backend tests passed
 - frontend production build passed
 
 ## Documentation
