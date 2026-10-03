@@ -376,7 +376,7 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
             )
 
     overall = _overall_status(items)
-    canonical_count = len(scoped_broker_ids)
+    canonical_count = len(set(broker_by_id).intersection(scoped_broker_ids))
     if not items:
         summary = "No TradeAgent-managed open demo positions currently require reconciliation."
     elif overall == "healthy":
