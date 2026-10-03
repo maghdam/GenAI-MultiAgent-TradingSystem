@@ -67,6 +67,8 @@ def _response(
     items: list[ProtectionHealthItem],
     ignored_broker_positions: int,
     summary: str,
+    status_override: str | None = None,
+    managed_positions_override: int | None = None,
 ) -> ProtectionHealthResponse:
     counts = _counts(items)
     assessable = (
@@ -77,11 +79,15 @@ def _response(
     fully = counts["fully_protected"]
     coverage = (fully / assessable * 100.0) if assessable else None
     return ProtectionHealthResponse(
-        status=_overall_status(items),
+        status=status_override or _overall_status(items),
         broker_truth_available=broker_truth_available,
         broker_execution_ready=bool(broker.execution_ready),
         checked_at=datetime.now(UTC).replace(tzinfo=None),
-        managed_positions=len(items),
+        managed_positions=(
+            len(items)
+            if managed_positions_override is None
+            else managed_positions_override
+        ),
         assessable_positions=assessable,
         fully_protected_positions=fully,
         full_protection_coverage_pct=coverage,
@@ -123,27 +129,14 @@ def _unavailable_response(
         )
         for position in tracked
     ]
-    if not items:
-        items.append(
-            ProtectionHealthItem(
-                status="unavailable",
-                scope="broker_position",
-                symbol="",
-                direction="long",
-                broker_sync_status="broker_truth_unavailable",
-                message="Broker protection truth is currently unavailable.",
-                action_required=(
-                    "Restore the confirmed cTrader demo broker connection/readiness and refresh "
-                    "protection health."
-                ),
-            )
-        )
     return _response(
         broker=broker,
         broker_truth_available=False,
         items=items,
         ignored_broker_positions=0,
         summary=reason,
+        status_override="unavailable",
+        managed_positions_override=len(tracked),
     )
 
 
