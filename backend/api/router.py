@@ -39,6 +39,7 @@ from backend.domain.models import (
     StrategyLifecycleUpdateRequest,
     StrategyAnalysis,
     StrategyInfo,
+    StrategyPerformanceResponse,
     WatchlistItem,
 )
 from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_positions, list_symbols
@@ -66,6 +67,7 @@ from backend.services.error_incident_report import build_error_incident_report
 from backend.services.latency_observability import build_broker_api_latency
 from backend.services.reconciliation_health import build_reconciliation_health
 from backend.services.protection_health import build_protection_health
+from backend.services.strategy_performance import build_strategy_performance_report
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -522,6 +524,24 @@ async def v2_error_incidents(
     return await asyncio.to_thread(
         build_error_incident_report,
         window_hours=hours,
+        group_limit=group_limit,
+    )
+
+
+@router.get("/reports/strategy-performance", response_model=StrategyPerformanceResponse)
+async def v2_strategy_performance(
+    days: int = Query(default=30, ge=1, le=365),
+    symbol: str | None = Query(default=None),
+    timeframe: str | None = Query(default=None),
+    strategy: str | None = Query(default=None),
+    group_limit: int = Query(default=100, ge=1, le=200),
+) -> StrategyPerformanceResponse:
+    return await asyncio.to_thread(
+        build_strategy_performance_report,
+        window_days=days,
+        symbol=symbol,
+        timeframe=timeframe,
+        strategy=strategy,
         group_limit=group_limit,
     )
 
