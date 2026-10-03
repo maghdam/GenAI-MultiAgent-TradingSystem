@@ -37,6 +37,8 @@ research = [
 dev = [
   "pytest>=8,<9",
   "ruff>=0.12,<1",
+  "httpx2>=2.13,<3",
+  "starlette>=1.7,<2",
 ]
 
 [tool.setuptools.packages.find]
@@ -45,6 +47,9 @@ include = ["backend*"]
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 addopts = "-q"
+filterwarnings = [
+  "ignore:datetime\\.datetime\\.utcfromtimestamp\\(\\) is deprecated.*:DeprecationWarning:google\\.protobuf\\.internal\\.well_known_types",
+]
 
 [tool.ruff]
 target-version = "py311"
