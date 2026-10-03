@@ -160,15 +160,15 @@ npm.cmd run dev -- --host 127.0.0.1 --port 5173
 
 ## Verification
 
-Verified locally on October 3, 2026:
+Canonical repository validation:
 
 ```powershell
-python -m pytest backend\tests -q
-cd frontend
-npm.cmd run build
+python scripts\validate.py
 ```
 
-Result:
+The validator uses the Python interpreter that launches it, runs the accepted backend suite (`python -m pytest backend/tests -q`), then runs the frontend production build (`npm --prefix frontend run build`). It exits non-zero on the first failed validation step.
+
+Verified locally on October 3, 2026:
 
 - `428` backend tests passed
 - frontend production build passed
