@@ -66,5 +66,8 @@ jobs:
       - name: Run frontend restart acceptance test
         run: npm --prefix frontend run test:restart
 
+      - name: Run Trade Journal explainability acceptance test
+        run: npm --prefix frontend run test:journal
+
       - name: Build frontend
         run: npm --prefix frontend run build
