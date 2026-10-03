@@ -606,6 +606,103 @@ class StrategyPerformanceResponse(BaseModel):
     message: str
 
 
+JournalPnlBasis = Literal["broker_deals", "paper_estimate"]
+
+
+class JournalExportRow(BaseModel):
+    row_id: str
+    local_position_id: int
+    broker_position_id: Optional[int] = None
+    broker_deal_ids: List[int] = Field(default_factory=list)
+    audit_event_ids: List[int] = Field(default_factory=list)
+    symbol: str
+    timeframe: str
+    strategy: str
+    direction: Literal["long", "short"]
+    opened_at_utc: datetime
+    closed_at_utc: datetime
+    entry_price: float
+    exit_price: Optional[float] = None
+    account_currency: str
+    realized_pnl: float
+    realized_pnl_basis: JournalPnlBasis
+    broker_deal_count: int
+    close_reason: Optional[str] = None
+
+
+class JournalExportResponse(BaseModel):
+    window_days: int
+    window_start_utc: datetime
+    window_end_utc: datetime
+    row_count: int
+    account_currencies: List[str] = Field(default_factory=list)
+    rows: List[JournalExportRow] = Field(default_factory=list)
+    message: str
+
+
+class BrokerStatementRowInput(BaseModel):
+    row_id: str = Field(..., min_length=1, max_length=200)
+    broker_position_id: Optional[int] = Field(default=None, gt=0)
+    deal_id: Optional[int] = Field(default=None, gt=0)
+    symbol: str = Field(..., min_length=1, max_length=64)
+    direction: Optional[Literal["long", "short"]] = None
+    closed_at: datetime
+    account_currency: str = Field(..., min_length=1, max_length=12)
+    realized_pnl: float
+
+
+class StatementComparisonRequest(BaseModel):
+    rows: List[BrokerStatementRowInput] = Field(..., min_length=1, max_length=5000)
+    window_days: int = Field(default=30, ge=1, le=365)
+    pnl_tolerance: float = Field(default=0.01, ge=0.0, le=1000000.0)
+    close_time_tolerance_seconds: int = Field(default=60, ge=0, le=86400)
+
+
+StatementComparisonStatus = Literal[
+    "matched",
+    "mismatch",
+    "local_only",
+    "statement_only",
+    "identity_unresolved",
+]
+
+
+class StatementComparisonItem(BaseModel):
+    status: StatementComparisonStatus
+    local_row_id: Optional[str] = None
+    local_position_id: Optional[int] = None
+    statement_row_ids: List[str] = Field(default_factory=list)
+    broker_position_id: Optional[int] = None
+    local_deal_ids: List[int] = Field(default_factory=list)
+    statement_deal_ids: List[int] = Field(default_factory=list)
+    symbol: Optional[str] = None
+    local_currency: Optional[str] = None
+    statement_currencies: List[str] = Field(default_factory=list)
+    local_realized_pnl: Optional[float] = None
+    statement_realized_pnl: Optional[float] = None
+    pnl_difference: Optional[float] = None
+    local_closed_at_utc: Optional[datetime] = None
+    statement_closed_at_utc: Optional[datetime] = None
+    mismatch_reasons: List[str] = Field(default_factory=list)
+
+
+class StatementComparisonResponse(BaseModel):
+    window_days: int
+    window_start_utc: datetime
+    window_end_utc: datetime
+    local_row_count: int
+    statement_row_count: int
+    matched: int
+    mismatched: int
+    local_only: int
+    statement_only: int
+    identity_unresolved: int
+    pnl_tolerance: float
+    close_time_tolerance_seconds: int
+    items: List[StatementComparisonItem] = Field(default_factory=list)
+    message: str
+
+
 class EngineStatus(BaseModel):
     version: str
     mode: Literal["paper_only", "demo_enabled", "live_enabled"]
