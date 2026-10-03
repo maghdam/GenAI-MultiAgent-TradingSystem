@@ -1,3 +1,9 @@
+> [!WARNING]
+> **Historical planning document — not current architecture or validation guidance.**
+> This file was created on March 17, 2026 and preserves an earlier Strategy Studio/backtesting upgrade plan. It references the retired `/api/agent/execute_task` flow and old local-drive paths. The current implementation uses `/api/studio/tasks` and the consolidated Trade / Build & Test / System product structure.
+>
+> For current behavior, use [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/TRADEAGENT_ROADMAP.md](docs/TRADEAGENT_ROADMAP.md). This file is retained only for project-history provenance.
+
 # Advanced Backtesting & Strategy Studio Upgrade
 
 ## Goal Description
