@@ -876,7 +876,19 @@ For every scenario verify:
 
 ## 10. Phase 8 — Observability & reporting
 
-- [ ] Daily summary: trades, realized P&L, drawdown, win/loss, rejected signals by reason.
+- [x] Daily summary: trades, realized P&L, drawdown, win/loss, rejected signals by reason.
+  - [x] Read-only `GET /api/reports/daily-summary?date=YYYY-MM-DD` reports a deterministic UTC-day summary without broker calls or execution mutations.
+  - [x] `trades` stays aligned with the existing daily safety counter (positions opened on the UTC day), with closed-trade count exposed separately.
+  - [x] Realized P&L prefers immutable cTrader broker deals and falls back to local paper-close P&L only when no broker deal exists for that local position, preventing double counting.
+  - [x] Drawdown is explicitly realized-P&L sequence drawdown; no unsupported mark-to-market/equity drawdown is invented because no intraday equity curve is persisted.
+  - [x] Win/loss/breakeven is computed per closed position using broker-deal totals where available.
+  - [x] Rejected execution decisions are grouped deterministically by persisted rejection reason.
+  - [x] UTC date handling remains correct for offset-bearing timestamps and realized entries are ordered by their actual UTC instant.
+  - Verification:
+    - [x] 7 daily-summary acceptance tests passed locally on `00f1eb0`.
+    - [x] Focused reporting/ledger/decision/API regression passed locally on `00f1eb0`.
+    - [x] Full backend suite passed locally on `00f1eb0` with a clean working tree.
+    - [x] GitHub CI #157 on `00f1eb0` passed backend tests + frontend build.
 - [ ] Broker-vs-local reconciliation health.
 - [ ] Protection-health metric.
 - [ ] Engine cycle latency.
@@ -973,9 +985,10 @@ Add one row after every completed task.
 | 2026-10-02 | Resilience: DB restart/recovery | Verify durable SQLite reopen behavior, canonical tracker/intent recovery, idempotent broker ledger, protection resumption, and persistent duplicate-order blocking across restart | ✅ 5 scenario tests + focused regression + full backend suite + CI #148 passed on cleaned head `f02c926` | PR #53 / `f02c926` | Proceed to Phase 7 Google Drive unavailable scenario |
 | 2026-10-02 | Resilience: Google Drive unavailable | Verify the repo/runtime remains independent of Drive, local API/SQLite continue to work, and demo/live safety controls are unchanged when Drive is unavailable | ✅ 5 scenario tests + focused regression + full backend suite + CI #151 passed on `154f02b` | PR #54 / `154f02b` | Proceed to Phase 7 clock/time-zone/DST edge cases |
 | 2026-10-02 | Resilience: clock/time-zone/DST | Normalize risk/market/daily-accounting time boundaries to UTC; reject future-clock market data; verify Zurich DST, event timing, reconciliation timestamps, and same-instant replay idempotence | ✅ 7 scenario tests + focused regression + full backend suite + CI #154 passed on `99067bd` | PR #55 / `99067bd` | Phase 7 automated resilience scenarios complete; proceed to Phase 8 daily observability summary while pending real cTrader field observations remain open |
+| 2026-10-03 | Observability: deterministic daily summary | Add read-only UTC-day reporting for trades, broker-preferred realized P&L, realized drawdown, win/loss/breakeven, win rate, and rejected signals by persisted reason | ✅ 7 acceptance tests + focused reporting/ledger/API regression + full backend suite + CI #157 passed on `00f1eb0` | PR #56 / `00f1eb0` | Proceed to Phase 8 broker-vs-local reconciliation health |
 
 ---
 
 ## 14. Next item
 
-**Phase 8 — Observability & reporting, first item only: implement a deterministic daily summary covering trades, realized P&L, drawdown, win/loss, and rejected signals grouped by reason. Reuse persisted broker/local truth rather than inventing new execution state, keep reporting read-only with respect to broker actions, and preserve cTrader demo-only/live-routing safeguards. Do not proceed to broker-vs-local reconciliation health until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 8 — Observability & reporting, second item only: implement deterministic broker-vs-local reconciliation health. Report read-only health for TradeAgent-managed demo positions by comparing canonical persisted broker position identity/local tracker state against current broker truth when available; distinguish healthy, degraded/unavailable, unresolved/ambiguous, missing-local, and missing-broker conditions without mutating broker or local execution state. Reuse the existing reconciliation and position-identity safeguards rather than creating a parallel source of truth, keep reporting actionable, and preserve cTrader demo-only/live-routing protections. Do not proceed to protection-health metric until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
