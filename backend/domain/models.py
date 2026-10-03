@@ -381,6 +381,45 @@ class ReconciliationHealthResponse(BaseModel):
     summary: str
 
 
+ProtectionHealthState = Literal[
+    "fully_protected",
+    "partially_protected",
+    "unprotected",
+    "unavailable",
+    "identity_unresolved",
+]
+
+
+class ProtectionHealthItem(BaseModel):
+    status: ProtectionHealthState
+    scope: Literal["local_tracker", "broker_position"]
+    symbol: str
+    direction: Literal["long", "short"]
+    local_position_id: Optional[int] = None
+    broker_position_id: Optional[int] = None
+    intent_id: Optional[int] = None
+    broker_sync_status: str
+    broker_stop_loss: Optional[float] = None
+    broker_take_profit: Optional[float] = None
+    message: str
+    action_required: str
+
+
+class ProtectionHealthResponse(BaseModel):
+    status: ProtectionHealthState
+    broker_truth_available: bool
+    broker_execution_ready: bool
+    checked_at: datetime
+    managed_positions: int
+    assessable_positions: int
+    fully_protected_positions: int
+    full_protection_coverage_pct: Optional[float] = None
+    ignored_broker_positions: int = 0
+    counts: Dict[str, int] = Field(default_factory=dict)
+    items: List[ProtectionHealthItem] = Field(default_factory=list)
+    summary: str
+
+
 class ConfluenceShadowRecord(BaseModel):
     id: int
     created_at: datetime

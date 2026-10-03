@@ -902,7 +902,20 @@ For every scenario verify:
     - [x] Focused reconciliation/position-truth/status regression passed locally on `37a4f99`.
     - [x] Full backend suite passed locally on `37a4f99` with a clean working tree.
     - [x] GitHub CI #160 on `37a4f99` passed backend tests + frontend build.
-- [ ] Protection-health metric.
+- [x] Protection-health metric.
+  - [x] Read-only `GET /api/reports/protection-health` reports broker-truth protection health for canonical TradeAgent-managed demo positions without broker/local mutations.
+  - [x] Broker protection classification reuses the same truth semantics as position enrichment: both SL + TP = fully protected, exactly one = partially protected, neither = unprotected.
+  - [x] Local requested SL/TP values are never treated as proof of broker protection.
+  - [x] Full-protection coverage is computed only across broker-identity-assessable positions; unavailable and identity-unresolved positions remain explicit and outside the coverage denominator.
+  - [x] Persisted positive broker position ID remains authoritative; canonical broker-only positions require the existing TradeAgent recovery-intent identity rule.
+  - [x] Unrelated manual/non-TradeAgent broker positions are ignored rather than silently adopted.
+  - [x] Broker outages/read failures report unavailable, and legacy/duplicate/mismatched identity reports identity-unresolved with actionable guidance.
+  - [x] Health reporting is read-only and performs no amend, close, order, adoption, reconciliation, or live-routing action.
+  - Verification:
+    - [x] 9 protection-health acceptance tests passed locally on `d1e7acc`.
+    - [x] Focused protection/position-truth/reconciliation/status regression passed locally on `d1e7acc`.
+    - [x] Full backend suite passed locally on `d1e7acc` with a clean working tree.
+    - [x] GitHub CI #163 on `d1e7acc` passed backend tests + frontend build.
 - [ ] Engine cycle latency.
 - [ ] Broker/API latency.
 - [ ] Error-rate / incident grouping.
@@ -999,9 +1012,10 @@ Add one row after every completed task.
 | 2026-10-02 | Resilience: clock/time-zone/DST | Normalize risk/market/daily-accounting time boundaries to UTC; reject future-clock market data; verify Zurich DST, event timing, reconciliation timestamps, and same-instant replay idempotence | ✅ 7 scenario tests + focused regression + full backend suite + CI #154 passed on `99067bd` | PR #55 / `99067bd` | Phase 7 automated resilience scenarios complete; proceed to Phase 8 daily observability summary while pending real cTrader field observations remain open |
 | 2026-10-03 | Observability: deterministic daily summary | Add read-only UTC-day reporting for trades, broker-preferred realized P&L, realized drawdown, win/loss/breakeven, win rate, and rejected signals by persisted reason | ✅ 7 acceptance tests + focused reporting/ledger/API regression + full backend suite + CI #157 passed on `00f1eb0` | PR #56 / `00f1eb0` | Proceed to Phase 8 broker-vs-local reconciliation health |
 | 2026-10-03 | Observability: broker-vs-local reconciliation health | Add read-only canonical identity health for TradeAgent-managed demo positions, distinguishing healthy/degraded/unavailable/unresolved/missing-local/missing-broker while ignoring unrelated manual broker positions | ✅ 8 acceptance tests + focused reconciliation/position-truth/status regression + full backend suite + CI #160 passed on `37a4f99` | PR #57 / `37a4f99` | Proceed to Phase 8 protection-health metric |
+| 2026-10-03 | Observability: protection-health metric | Add read-only broker-truth SL/TP health and full-protection coverage for canonical TradeAgent-managed demo positions; keep unavailable/unresolved identity explicit and exclude it from assessable coverage | ✅ 9 acceptance tests + focused protection/broker-truth regression + full backend suite + CI #163 passed on `d1e7acc` | PR #58 / `d1e7acc` | Proceed to Phase 8 engine cycle latency |
 
 ---
 
 ## 14. Next item
 
-**Phase 8 — Observability & reporting, third item only: implement a deterministic protection-health metric for TradeAgent-managed demo positions. Report read-only protection health from current broker truth when available, distinguishing fully protected, partially protected, unprotected, unavailable, and identity-unresolved states; preserve the existing broker position identity and protection-verification semantics rather than inferring safety from local SL/TP values. Keep the metric actionable and non-mutating, with no broker amend/close/order side effects, and preserve cTrader demo-only/live-routing protections. Do not proceed to engine cycle latency until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 8 — Observability & reporting, fourth item only: implement deterministic engine cycle latency observability. Measure and expose engine scan-cycle duration from the existing runtime loop without changing trading decisions, scheduling semantics, or broker execution behavior; distinguish current/last-cycle latency from unavailable/no-cycle-yet state, keep timestamps/units explicit, and persist only the minimum runtime evidence needed for restart-safe reporting if required. Keep the metric read-only to API consumers and preserve cTrader demo-only/live-routing protections. Do not proceed to broker/API latency until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**

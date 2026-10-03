@@ -16,12 +16,19 @@ def _optional_float(value: object) -> float | None:
         return None
 
 
-def _protection_status(stop_loss: float | None, take_profit: float | None) -> str:
+def classify_broker_protection(stop_loss: float | None, take_profit: float | None) -> str:
+    """Classify protection strictly from observed broker SL/TP values."""
     if stop_loss is not None and take_profit is not None:
         return "protected"
     if stop_loss is not None or take_profit is not None:
         return "partial"
     return "unprotected"
+
+
+def extract_broker_protection(row: Dict[str, Any]) -> tuple[float | None, float | None, str]:
+    stop_loss = _optional_float(row.get("stop_loss"))
+    take_profit = _optional_float(row.get("take_profit"))
+    return stop_loss, take_profit, classify_broker_protection(stop_loss, take_profit)
 
 
 def attach_broker_truth(
@@ -71,15 +78,14 @@ def attach_broker_truth(
             continue
 
         row = match.row or {}
-        stop_loss = _optional_float(row.get("stop_loss"))
-        take_profit = _optional_float(row.get("take_profit"))
+        stop_loss, take_profit, protection_status = extract_broker_protection(row)
         enriched.append(
             position.model_copy(
                 update={
                     "broker_entry_price": _optional_float(row.get("entry_price")),
                     "broker_stop_loss": stop_loss,
                     "broker_take_profit": take_profit,
-                    "broker_protection_status": _protection_status(stop_loss, take_profit),
+                    "broker_protection_status": protection_status,
                     "broker_last_synced_at": observed_at,
                     "broker_sync_status": match.status,
                 }
