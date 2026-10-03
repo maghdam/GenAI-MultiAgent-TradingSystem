@@ -85,18 +85,24 @@ class V2Engine:
         self._wake.set()
 
     async def run_once(self) -> str:
+        cycle_started_at = datetime.now(UTC).replace(tzinfo=None)
         cycle_started = perf_counter()
         try:
             return await self._run_once_body()
         finally:
-            self._record_cycle_latency(cycle_started)
+            self._record_cycle_latency(cycle_started, cycle_started_at)
 
-    def _record_cycle_latency(self, cycle_started: float) -> None:
+    def _record_cycle_latency(
+        self,
+        cycle_started: float,
+        cycle_started_at: datetime,
+    ) -> None:
         """Persist non-fatal observability for the completed cycle attempt."""
         duration_ms = max(0.0, (perf_counter() - cycle_started) * 1000.0)
         completed_at = datetime.now(UTC).replace(tzinfo=None)
         try:
             runtime = load_runtime()
+            runtime.last_cycle_at = cycle_started_at
             runtime.last_cycle_duration_ms = duration_ms
             runtime.last_cycle_completed_at = completed_at
             save_runtime(runtime)
