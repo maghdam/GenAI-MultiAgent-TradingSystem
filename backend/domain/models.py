@@ -505,6 +505,29 @@ class EngineCycleLatencyResponse(BaseModel):
     message: str
 
 
+LatencyObservationState = Literal["no_observation", "measured", "unavailable"]
+
+
+class LatencyObservation(BaseModel):
+    state: LatencyObservationState
+    scope: Literal["broker_service_call", "api_request"]
+    unit: Literal["ms"] = "ms"
+    duration_ms: Optional[float] = Field(default=None, ge=0)
+    operation: Optional[str] = None
+    method: Optional[str] = None
+    path: Optional[str] = None
+    status_code: Optional[int] = None
+    observed_at: Optional[datetime] = None
+    detail: str
+
+
+class BrokerApiLatencyResponse(BaseModel):
+    broker: LatencyObservation
+    api: LatencyObservation
+    persistence: Literal["process_memory"] = "process_memory"
+    message: str
+
+
 class EngineStatus(BaseModel):
     version: str
     mode: Literal["paper_only", "demo_enabled", "live_enabled"]
