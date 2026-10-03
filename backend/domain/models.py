@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -318,6 +318,31 @@ class DecisionRecord(BaseModel):
     outcome: str
     summary: str
     evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DailyRejectionReason(BaseModel):
+    reason: str
+    count: int
+
+
+class DailySummaryResponse(BaseModel):
+    date_utc: date
+    account_currency: str
+    trades: int
+    trades_opened: int
+    trades_closed: int
+    realized_pnl: float
+    max_realized_drawdown: float
+    wins: int
+    losses: int
+    breakeven: int
+    win_rate_pct: Optional[float] = None
+    rejected_signals: int
+    rejected_by_reason: List[DailyRejectionReason] = Field(default_factory=list)
+    broker_deal_count: int = 0
+    pure_paper_close_count: int = 0
+    pnl_basis: str = "broker_deals_preferred"
+    drawdown_basis: str = "realized_pnl_sequence"
 
 
 class ConfluenceShadowRecord(BaseModel):

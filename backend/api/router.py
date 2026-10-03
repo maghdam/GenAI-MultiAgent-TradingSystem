@@ -5,7 +5,7 @@ from threading import Lock
 from time import monotonic
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.adapters.ctrader import adapter as broker_adapter
 from backend.calendar import get_next_event
@@ -15,6 +15,7 @@ from backend.domain.models import (
     AnalyzeRequest,
     BrokerStatus,
     ConfluenceReplayResponse,
+    DailySummaryResponse,
     EngineConfig,
     EngineRuntime,
     EngineStatus,
@@ -54,6 +55,7 @@ from backend.services.studio_backtests import load_saved_strategy_source, list_s
 from backend.services.runtime_strategy_validation import run_runtime_strategy_audit
 from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
+from backend.services.daily_summary import build_daily_summary
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -462,6 +464,24 @@ async def v2_status() -> EngineStatus:
 @router.get("/config", response_model=EngineConfig)
 async def v2_get_config() -> EngineConfig:
     return _current_config()
+
+
+@router.get("/reports/daily-summary", response_model=DailySummaryResponse)
+async def v2_daily_summary(
+    date_utc: str | None = Query(default=None, alias="date"),
+) -> DailySummaryResponse:
+    if date_utc is None:
+        return await asyncio.to_thread(build_daily_summary)
+    try:
+        from datetime import date
+
+        report_day = date.fromisoformat(date_utc)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="date must be an ISO calendar date in YYYY-MM-DD format.",
+        ) from exc
+    return await asyncio.to_thread(build_daily_summary, report_day)
 
 
 @router.post("/config", response_model=EngineConfig)
