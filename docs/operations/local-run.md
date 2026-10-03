@@ -69,6 +69,25 @@ This script kills listeners on ports `4000` and `5173` and aggressively cleans u
 - `VITE_API_BASE=http://127.0.0.1:4000`
   points the frontend to the local FastAPI server
 
+## Runtime SQLite Database
+
+TradeAgent keeps runtime SQLite state outside the repository by default. The active database path is resolved in this order:
+
+1. `TRADEAGENT_DB_PATH`, when explicitly set.
+2. Windows: `%LOCALAPPDATA%\TradeAgent\data\tradeagent.db`.
+3. Systems with `XDG_STATE_HOME`: `$XDG_STATE_HOME/tradeagent/tradeagent.db`.
+4. Other Unix-like systems: `~/.local/state/tradeagent/tradeagent.db`.
+
+The Windows launcher `run-backend-local.cmd` sets the same `%LOCALAPPDATA%` path when no override is already present. Container or other controlled environments may set `TRADEAGENT_DB_PATH` explicitly to a different runtime location.
+
+The old repository-local `backend/data/tradeagent.db` path is **legacy migration input, not the active local-runtime path**. On first database open, if the resolved active database does not yet exist and that legacy database does exist, TradeAgent copies it into the active path using SQLite backup. Existing active databases are never overwritten by this migration.
+
+To inspect the path that the current environment resolves without opening or modifying the database:
+
+```powershell
+C:\Users\mohag\miniconda3\envs\tradeagent-v2\python.exe -c "from backend.config import resolve_db_path; print(resolve_db_path())"
+```
+
 ## Verification Commands
 
 Backend tests:
