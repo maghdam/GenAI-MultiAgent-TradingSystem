@@ -1050,6 +1050,7 @@ For every scenario verify:
 TradeAgent is considered **demo-runtime validated** when all of the following are true:
 
 - [ ] Full backend test suite passes.
+  - Verification candidate: accepted canonical validation passed the full backend suite locally on the Phase 9 dependency-cleanup branch, and post-merge CI #209 passed the backend test job on `9343eea`.
 - [ ] Frontend production build passes.
 - [ ] Repeated demo trades use correct quantities.
 - [ ] Every broker-managed position is either verified protected or fails closed.
