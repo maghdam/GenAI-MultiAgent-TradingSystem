@@ -5,7 +5,7 @@ from threading import Lock
 from time import monotonic
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from backend.adapters.ctrader import adapter as broker_adapter
 from backend.calendar import get_next_event
@@ -40,6 +40,9 @@ from backend.domain.models import (
     StrategyAnalysis,
     StrategyInfo,
     StrategyPerformanceResponse,
+    JournalExportResponse,
+    StatementComparisonRequest,
+    StatementComparisonResponse,
     WatchlistItem,
 )
 from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_positions, list_symbols
@@ -68,6 +71,11 @@ from backend.services.latency_observability import build_broker_api_latency
 from backend.services.reconciliation_health import build_reconciliation_health
 from backend.services.protection_health import build_protection_health
 from backend.services.strategy_performance import build_strategy_performance_report
+from backend.services.journal_statement_comparison import (
+    build_journal_export,
+    compare_external_statement,
+    render_journal_export_csv,
+)
 from backend.services.studio_tasks import execute_studio_task
 from backend.services.strategy_lifecycle import (
     StrategyLifecycleError,
@@ -544,6 +552,33 @@ async def v2_strategy_performance(
         strategy=strategy,
         group_limit=group_limit,
     )
+
+
+@router.get("/reports/journal-export", response_model=JournalExportResponse)
+async def v2_journal_export(
+    days: int = Query(default=30, ge=1, le=365),
+) -> JournalExportResponse:
+    return await asyncio.to_thread(build_journal_export, window_days=days)
+
+
+@router.get("/reports/journal-export.csv")
+async def v2_journal_export_csv(
+    days: int = Query(default=30, ge=1, le=365),
+) -> Response:
+    report = await asyncio.to_thread(build_journal_export, window_days=days)
+    content = render_journal_export_csv(report)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="tradeagent-journal.csv"'},
+    )
+
+
+@router.post("/reports/statement-comparison", response_model=StatementComparisonResponse)
+async def v2_statement_comparison(
+    request: StatementComparisonRequest,
+) -> StatementComparisonResponse:
+    return await asyncio.to_thread(compare_external_statement, request)
 
 
 @router.post("/config", response_model=EngineConfig)

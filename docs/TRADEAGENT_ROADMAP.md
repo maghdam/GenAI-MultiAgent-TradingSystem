@@ -974,7 +974,20 @@ For every scenario verify:
     - [x] Focused strategy/reporting/broker-ledger regression passed locally on `146cbfb`.
     - [x] Full backend suite passed locally on `146cbfb` with a clean working tree.
     - [x] GitHub CI #175 on `146cbfb` passed backend tests + frontend build.
-- [ ] Export journal / statement comparison.
+- [x] Export journal / statement comparison.
+  - [x] Read-only JSON and CSV journal export surfaces expose deterministic closed-trade rows without broker calls or execution mutations.
+  - [x] One persisted closed TradeAgent position maps to one export trade row with stable local identity, broker position/deal identity, linked audit IDs, UTC timestamps, currency, strategy/timeframe, prices, close reason, and explicit realized-P&L basis.
+  - [x] Immutable broker deals take precedence over local paper estimates; partial-close/final-close deal rows aggregate once per local trade without double counting.
+  - [x] Broker identity conflicts are explicit rather than repaired or fuzzily matched.
+  - [x] External broker-statement comparison is transient/read-only and resolves trades only by exact broker position ID or persisted deal ID; symbol/time proximity is never used as identity.
+  - [x] Deal-level statement rows aggregate into one trade before comparison, while duplicate/missing/conflicting statement identity fails closed as `identity_unresolved`.
+  - [x] Matched rows compare symbol, optional direction, account currency, realized P&L, close time, and supplied deal-ID sets with explicit tolerances/reasons; unmatched rows remain explicit as `local_only` or `statement_only`.
+  - [x] UTC window normalization is deterministic and reporting preserves cTrader demo-only/live-routing safeguards.
+  - Verification:
+    - [x] 9 journal export / statement comparison acceptance tests passed locally on `6e41d84`.
+    - [x] Focused journal/broker-ledger/reporting regression passed locally on `6e41d84`.
+    - [x] Full backend suite passed locally on `6e41d84` with a clean working tree.
+    - [x] GitHub CI #178 on `6e41d84` passed backend tests + frontend build.
 
 ---
 
@@ -1071,9 +1084,10 @@ Add one row after every completed task.
 | 2026-10-03 | Observability: broker/API latency | Measure existing broker-service and FastAPI request boundaries without extra broker probes, classify failed/unavailable calls separately, and expose process-local read-only latency evidence | ✅ 10 acceptance tests + focused broker/API/status/execution regression + full backend suite + CI #169 passed on `4ba520b` | PR #60 / `4ba520b` | Proceed to Phase 8 error-rate / incident grouping |
 | 2026-10-03 | Observability: error-rate / incident grouping | Group persisted incidents, failed terminal intent outcomes, and event-source failures by stable identity; expose an explicit persisted-outcome denominator and bounded UTC reporting window without inventing synthetic events | ✅ 8 acceptance tests + focused incident/intent/event/status/API regression + full backend suite + CI #172 passed on `32d397c` | PR #61 / `32d397c` | Proceed to Phase 8 strategy performance by symbol/timeframe |
 | 2026-10-03 | Observability: strategy performance | Aggregate persisted closed trades by symbol/timeframe/strategy/currency with broker-deal precedence, one-position/one-trade semantics, explicit UTC windows, and partial-close-safe accounting | ✅ 8 acceptance tests + focused strategy/reporting/broker-ledger regression + full backend suite + CI #175 passed on `146cbfb` | PR #62 / `146cbfb` | Proceed to Phase 8 export journal / statement comparison |
+| 2026-10-03 | Observability: journal export / statement comparison | Add deterministic read-only JSON/CSV journal export and exact-identity external statement comparison with broker-deal precedence, partial-close aggregation, explicit mismatch/unmatched reasons, and no persistence/broker mutation | ✅ 9 acceptance tests + focused journal/ledger/reporting regression + full backend suite + CI #178 passed on `6e41d84` | PR #63 / `6e41d84` | Proceed to Phase 9 README verification metadata |
 
 ---
 
 ## 14. Next item
 
-**Phase 8 — Observability & reporting, eighth item only: implement deterministic export journal / statement comparison. Reuse persisted TradeAgent journal, broker-deal ledger, and existing closed-position truth to produce a read-only comparison/export surface that can reconcile local trade records against an external broker statement without creating or mutating broker state; keep row identity, time/currency basis, realized-P&L basis, and unmatched/mismatch reasons explicit. Preserve broker-deal precedence, avoid double counting partial-close deals or duplicated local audit links, keep UTC normalization deterministic, and preserve cTrader demo-only/live-routing safeguards. Do not proceed to Phase 9 repository/documentation cleanup until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 9 — Repository / documentation cleanup, first item only: update README test-count / verification metadata so it matches the current canonical backend suite and latest verified date after Phase 8. Derive the count from the actual test suite rather than guessing, keep the README consistent with the current architecture and demo-only/live-routing safety language, and do not fold screenshots, legacy-file cleanup, runtime-DB-path documentation, canonical validation commands, lint/type-checking, or dependency/deprecation cleanup into the same change. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
