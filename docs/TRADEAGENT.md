@@ -25,3 +25,13 @@ TradeAgent now runs on one active consolidated stack:
 - `frontend/`
 
 The autonomous runtime supports local paper execution and explicitly enabled cTrader demo-account orders. Broker execution remains blocked unless cTrader confirms the connected account is demo. Strategy Studio remains a separate research workflow for drafting and backtesting strategies.
+
+
+## Historical Planning Documents
+
+The following root-level files are intentionally retained for provenance only and are not current architecture or operational guidance:
+
+- [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) — March 2026 backtesting / Strategy Studio upgrade plan using superseded API and local-path assumptions.
+- [STRATEGY_INTEGRATION_PLAN.md](../STRATEGY_INTEGRATION_PLAN.md) — October 2025 standalone Strategy Studio integration plan using retired routes.
+
+For current architecture, always use [ARCHITECTURE.md](../ARCHITECTURE.md).
