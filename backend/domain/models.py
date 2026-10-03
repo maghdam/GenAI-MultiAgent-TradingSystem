@@ -613,6 +613,8 @@ class JournalExportRow(BaseModel):
     row_id: str
     local_position_id: int
     broker_position_id: Optional[int] = None
+    broker_identity_status: Literal["resolved", "not_applicable", "conflict"]
+    broker_identity_detail: str = ""
     broker_deal_ids: List[int] = Field(default_factory=list)
     audit_event_ids: List[int] = Field(default_factory=list)
     symbol: str
