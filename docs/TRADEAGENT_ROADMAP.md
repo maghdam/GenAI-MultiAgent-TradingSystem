@@ -993,7 +993,11 @@ For every scenario verify:
 
 ## 11. Phase 9 — Repository / documentation cleanup
 
-- [ ] Update README test count and verification date.
+- [x] Update README test count and verification date.
+  - README verification metadata updated to October 3, 2026 and 428 canonical backend tests.
+  - Test count derived from the actual pytest suite in successful CI output rather than estimated.
+  - Local full backend regression passed on `c7621aa` with a clean working tree.
+  - GitHub CI #181 passed backend tests and frontend production build on `c7621aa`.
 - [ ] Update screenshots after UI stabilizes.
 - [ ] Clearly mark/remove stale legacy architecture files where safe.
 - [ ] Ensure operational docs use the current runtime DB path.
@@ -1085,9 +1089,10 @@ Add one row after every completed task.
 | 2026-10-03 | Observability: error-rate / incident grouping | Group persisted incidents, failed terminal intent outcomes, and event-source failures by stable identity; expose an explicit persisted-outcome denominator and bounded UTC reporting window without inventing synthetic events | ✅ 8 acceptance tests + focused incident/intent/event/status/API regression + full backend suite + CI #172 passed on `32d397c` | PR #61 / `32d397c` | Proceed to Phase 8 strategy performance by symbol/timeframe |
 | 2026-10-03 | Observability: strategy performance | Aggregate persisted closed trades by symbol/timeframe/strategy/currency with broker-deal precedence, one-position/one-trade semantics, explicit UTC windows, and partial-close-safe accounting | ✅ 8 acceptance tests + focused strategy/reporting/broker-ledger regression + full backend suite + CI #175 passed on `146cbfb` | PR #62 / `146cbfb` | Proceed to Phase 8 export journal / statement comparison |
 | 2026-10-03 | Observability: journal export / statement comparison | Add deterministic read-only JSON/CSV journal export and exact-identity external statement comparison with broker-deal precedence, partial-close aggregation, explicit mismatch/unmatched reasons, and no persistence/broker mutation | ✅ 9 acceptance tests + focused journal/ledger/reporting regression + full backend suite + CI #178 passed on `6e41d84` | PR #63 / `6e41d84` | Proceed to Phase 9 README verification metadata |
+| 2026-10-03 | Repository/docs: README verification metadata | Refresh stale README verification date and backend-test count from the canonical suite without mixing other cleanup work | ✅ README shows October 3, 2026 + 428 tests; local full backend regression passed with clean tree; CI #181 passed backend + frontend on `c7621aa` | PR #64 / `c7621aa` | Proceed to Phase 9 screenshot update/review |
 
 ---
 
 ## 14. Next item
 
-**Phase 9 — Repository / documentation cleanup, first item only: update README test-count / verification metadata so it matches the current canonical backend suite and latest verified date after Phase 8. Derive the count from the actual test suite rather than guessing, keep the README consistent with the current architecture and demo-only/live-routing safety language, and do not fold screenshots, legacy-file cleanup, runtime-DB-path documentation, canonical validation commands, lint/type-checking, or dependency/deprecation cleanup into the same change. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 9 — Repository / documentation cleanup, second item only: review the README/Product Gallery screenshots against the now-stabilized current UI and update only screenshots/captions that are materially stale. Do not mix legacy architecture cleanup, runtime-DB-path documentation, canonical validation commands, CI changes, lint/type-checking, or dependency/deprecation cleanup into the same change. Preserve current demo-only cTrader execution and live-routing block. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
