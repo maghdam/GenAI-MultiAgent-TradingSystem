@@ -565,6 +565,47 @@ class ErrorIncidentReportResponse(BaseModel):
     message: str
 
 
+class StrategyPerformanceSlice(BaseModel):
+    symbol: str
+    timeframe: str
+    strategy: str
+    account_currency: str
+    trades: int
+    realized_pnl: float
+    average_realized_pnl: float
+    wins: int
+    losses: int
+    breakeven: int
+    win_rate_pct: Optional[float] = None
+    broker_backed_trades: int
+    pure_paper_trades: int
+    broker_deal_count: int
+    first_closed_at: datetime
+    last_closed_at: datetime
+
+
+class StrategyPerformanceResponse(BaseModel):
+    window_days: int
+    window_start_utc: datetime
+    window_end_utc: datetime
+    symbol_filter: Optional[str] = None
+    timeframe_filter: Optional[str] = None
+    strategy_filter: Optional[str] = None
+    sample_count: int
+    slice_count: int
+    group_limit: int
+    groups_truncated: bool
+    account_currencies: List[str] = Field(default_factory=list)
+    pnl_basis: Literal["broker_deals_preferred_per_closed_trade"] = (
+        "broker_deals_preferred_per_closed_trade"
+    )
+    outcome_basis: Literal["one_closed_position_one_trade"] = (
+        "one_closed_position_one_trade"
+    )
+    slices: List[StrategyPerformanceSlice] = Field(default_factory=list)
+    message: str
+
+
 class EngineStatus(BaseModel):
     version: str
     mode: Literal["paper_only", "demo_enabled", "live_enabled"]
