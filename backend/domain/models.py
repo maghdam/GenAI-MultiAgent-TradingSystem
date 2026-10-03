@@ -484,12 +484,25 @@ class EngineRuntime(BaseModel):
     loop_active: bool = False
     ollama_ready: bool = False
     last_cycle_at: Optional[datetime] = None
+    last_cycle_completed_at: Optional[datetime] = None
+    last_cycle_duration_ms: Optional[float] = Field(default=None, ge=0)
     last_cycle_summary: str = ""
     last_reconcile_at: Optional[datetime] = None
     last_reconcile_summary: str = ""
     last_error: Optional[str] = None
     tick_count: int = 0
     active_watchlist: List[str] = Field(default_factory=list)
+
+
+class EngineCycleLatencyResponse(BaseModel):
+    available: bool
+    unit: Literal["ms"] = "ms"
+    duration_ms: Optional[float] = None
+    cycle_started_at: Optional[datetime] = None
+    cycle_completed_at: Optional[datetime] = None
+    tick_count: int = 0
+    last_cycle_summary: str = ""
+    message: str
 
 
 class EngineStatus(BaseModel):
