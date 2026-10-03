@@ -944,7 +944,21 @@ For every scenario verify:
     - [x] Focused broker/API/status/execution regression passed locally on `4ba520b`.
     - [x] Full backend suite passed locally on `4ba520b` with a clean working tree.
     - [x] GitHub CI #169 on `4ba520b` passed backend tests + frontend build.
-- [ ] Error-rate / incident grouping.
+- [x] Error-rate / incident grouping.
+  - [x] Read-only `GET /api/reports/error-incidents` aggregates existing persisted failure evidence over an explicit bounded UTC window (default 24h, allowed 1–168h).
+  - [x] Persisted incidents are grouped by stable incident `code`; repeated occurrences are counted separately from distinct groups.
+  - [x] Failed terminal order-intent outcomes are grouped by persisted terminal transition `reason`.
+  - [x] Failed event-source runs are grouped by persisted `source`.
+  - [x] Failure-evidence denominator is explicit and limited to persisted sources with real success/failure outcomes: latest terminal order-intent outcome per intent plus completed event-source runs.
+  - [x] Persisted incidents are intentionally excluded from the percentage denominator because the incident log has no corresponding success rows.
+  - [x] Multiple terminal history rows for one intent are deduplicated to the latest terminal transition within the reporting window.
+  - [x] Group ordering is deterministic by occurrence count, last-seen UTC timestamp, then stable group id; group output is bounded (1–100).
+  - [x] Reporting is read-only and does not change incident creation, retries, event ingestion, broker actions, reconciliation, execution control flow, or demo-only/live-routing safeguards.
+  - Verification:
+    - [x] 8 error-rate / incident-grouping acceptance tests passed locally on `32d397c`.
+    - [x] Focused incident/intent/event/status/API regression passed locally on `32d397c`.
+    - [x] Full backend suite passed locally on `32d397c` with a clean working tree.
+    - [x] GitHub CI #172 on `32d397c` passed backend tests + frontend build.
 - [ ] Strategy performance by symbol/timeframe.
 - [ ] Export journal / statement comparison.
 
@@ -1041,9 +1055,10 @@ Add one row after every completed task.
 | 2026-10-03 | Observability: protection-health metric | Add read-only broker-truth SL/TP health and full-protection coverage for canonical TradeAgent-managed demo positions; keep unavailable/unresolved identity explicit and exclude it from assessable coverage | ✅ 9 acceptance tests + focused protection/broker-truth regression + full backend suite + CI #163 passed on `d1e7acc` | PR #58 / `d1e7acc` | Proceed to Phase 8 engine cycle latency |
 | 2026-10-03 | Observability: engine cycle latency | Measure `run_once()` with a monotonic clock, persist minimal restart-safe duration/completion evidence, and expose a read-only last-cycle latency report with explicit no-cycle-yet state | ✅ 9 acceptance tests + focused engine/runtime/status/persistence regression + full backend suite + CI #166 passed on `b39a515` | PR #59 / `b39a515` | Proceed to Phase 8 broker/API latency |
 | 2026-10-03 | Observability: broker/API latency | Measure existing broker-service and FastAPI request boundaries without extra broker probes, classify failed/unavailable calls separately, and expose process-local read-only latency evidence | ✅ 10 acceptance tests + focused broker/API/status/execution regression + full backend suite + CI #169 passed on `4ba520b` | PR #60 / `4ba520b` | Proceed to Phase 8 error-rate / incident grouping |
+| 2026-10-03 | Observability: error-rate / incident grouping | Group persisted incidents, failed terminal intent outcomes, and event-source failures by stable identity; expose an explicit persisted-outcome denominator and bounded UTC reporting window without inventing synthetic events | ✅ 8 acceptance tests + focused incident/intent/event/status/API regression + full backend suite + CI #172 passed on `32d397c` | PR #61 / `32d397c` | Proceed to Phase 8 strategy performance by symbol/timeframe |
 
 ---
 
 ## 14. Next item
 
-**Phase 8 — Observability & reporting, sixth item only: implement deterministic error-rate / incident grouping. Aggregate existing persisted incidents and relevant failure evidence into read-only, bounded groups by stable incident/error identity without changing incident creation, retry behavior, broker actions, or execution control flow; keep the reporting window and denominator explicit, distinguish repeated occurrences from distinct incident groups, and avoid inventing success/failure events solely for metrics. Reuse the current incident/audit repositories as the source of truth, keep grouping actionable for operators, and preserve cTrader demo-only/live-routing protections. Do not proceed to strategy performance by symbol/timeframe until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**
+**Phase 8 — Observability & reporting, seventh item only: implement deterministic strategy performance reporting by symbol/timeframe. Reuse persisted closed-trade/broker-ledger truth and existing strategy identity rather than introducing new execution state; report bounded, read-only performance slices with explicit sample counts, realized P&L basis, win/loss/breakeven counts, and any other metric only where the persisted denominator is well-defined. Preserve broker-deal precedence over local paper estimates, avoid double counting partial closes or duplicated audit links, keep UTC window/filter semantics explicit, and preserve cTrader demo-only/live-routing safeguards. Do not proceed to export journal / statement comparison until this item is locally validated and CI passes. The Phase 7 protected-position disconnect, backend-restart-with-open-position, forced Ollama-down, and real partial-close field observations remain pending because their required local conditions were not safely available. Phase 5.3 threshold comparison remains pending; keep the global 60% threshold unchanged. Phase 5.1 real connected historical-feed matrix, Phase 3.1 real backend restart with an open TradeAgent-managed demo broker position, Phase 1.4 real partial-close field verification, and Phase 2.3 real broker-truth field observation also remain pending until safe demo field conditions are available.**

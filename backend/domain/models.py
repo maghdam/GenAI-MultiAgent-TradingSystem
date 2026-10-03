@@ -528,6 +528,43 @@ class BrokerApiLatencyResponse(BaseModel):
     message: str
 
 
+ErrorEvidenceSource = Literal["incident", "order_intent_failure", "event_source_failure"]
+
+
+class ErrorIncidentGroup(BaseModel):
+    group_id: str
+    source: ErrorEvidenceSource
+    code: str
+    level: IncidentLevel
+    occurrences: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    sample_message: str
+
+
+class ErrorIncidentReportResponse(BaseModel):
+    window_hours: int
+    window_start_utc: datetime
+    window_end_utc: datetime
+    denominator_name: Literal[
+        "terminal_order_intent_transitions_plus_event_source_runs"
+    ] = "terminal_order_intent_transitions_plus_event_source_runs"
+    denominator_count: int
+    failure_evidence_count: int
+    failure_evidence_rate_pct: Optional[float] = None
+    terminal_intent_outcomes: int
+    failed_intent_outcomes: int
+    event_source_runs: int
+    failed_event_source_runs: int
+    incident_occurrences: int
+    distinct_incident_groups: int
+    distinct_group_count: int
+    group_limit: int
+    groups_truncated: bool
+    groups: List[ErrorIncidentGroup] = Field(default_factory=list)
+    message: str
+
+
 class EngineStatus(BaseModel):
     version: str
     mode: Literal["paper_only", "demo_enabled", "live_enabled"]

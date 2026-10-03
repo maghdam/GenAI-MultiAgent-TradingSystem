@@ -18,6 +18,7 @@ from backend.domain.models import (
     ConfluenceReplayResponse,
     DailySummaryResponse,
     EngineConfig,
+    ErrorIncidentReportResponse,
     EngineCycleLatencyResponse,
     EngineRuntime,
     EngineStatus,
@@ -61,6 +62,7 @@ from backend.services.confidence_calibration import build_confidence_calibration
 from backend.services.confidence_thresholds import build_threshold_sufficiency_assessment
 from backend.services.daily_summary import build_daily_summary
 from backend.services.engine_cycle_latency import build_engine_cycle_latency
+from backend.services.error_incident_report import build_error_incident_report
 from backend.services.latency_observability import build_broker_api_latency
 from backend.services.reconciliation_health import build_reconciliation_health
 from backend.services.protection_health import build_protection_health
@@ -510,6 +512,18 @@ async def v2_engine_cycle_latency() -> EngineCycleLatencyResponse:
 @router.get("/reports/broker-api-latency", response_model=BrokerApiLatencyResponse)
 async def v2_broker_api_latency() -> BrokerApiLatencyResponse:
     return build_broker_api_latency()
+
+
+@router.get("/reports/error-incidents", response_model=ErrorIncidentReportResponse)
+async def v2_error_incidents(
+    hours: int = Query(default=24, ge=1, le=168),
+    group_limit: int = Query(default=50, ge=1, le=100),
+) -> ErrorIncidentReportResponse:
+    return await asyncio.to_thread(
+        build_error_incident_report,
+        window_hours=hours,
+        group_limit=group_limit,
+    )
 
 
 @router.post("/config", response_model=EngineConfig)
