@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { getV2OrderIntents, getV2TradeAudit, type V2OrderIntent, type V2TradeAudit } from '../services/api';
 import { formatBackendLocalDateTime, parseBackendUtc } from '../utils/datetime';
+import { describeJournalRealizedResult } from '../services/journalExplainability';
 
 type JournalCategory = 'all' | 'execution' | 'rejected' | 'protection';
 type JournalSource = 'all' | 'broker' | 'paper';
@@ -245,6 +246,7 @@ export default function Journal() {
       const mode = auditSource(trade, intent);
       const reasons = collectReasons(trade, intent);
       const broker = brokerDetails(trade, intent);
+      const realizedResult = describeJournalRealizedResult(trade.details);
       const expanded = expandedId === trade.id;
 
       return (
@@ -286,6 +288,21 @@ export default function Journal() {
                         <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
                       ) : (
                         <div className="ta-journal-detail__empty">No linked risk or intent reasons.</div>
+                      )}
+                    </section>
+
+                    <section>
+                      <h4>Realized result</h4>
+                      {realizedResult ? (
+                        <ul>
+                          <li>Amount: {formatPnl(realizedResult.amount)}</li>
+                          <li>Source: {realizedResult.sourceLabel}</li>
+                          {realizedResult.brokerPositionId != null && (
+                            <li>Broker position: #{realizedResult.brokerPositionId}</li>
+                          )}
+                        </ul>
+                      ) : (
+                        <div className="ta-journal-detail__empty">No realized P&amp;L recorded for this event.</div>
                       )}
                     </section>
 
