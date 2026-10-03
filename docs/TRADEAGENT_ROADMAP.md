@@ -1052,6 +1052,7 @@ TradeAgent is considered **demo-runtime validated** when all of the following ar
 - [x] Full backend test suite passes.
   - Verified through the accepted canonical validation path and current GitHub CI: local canonical validation passed the full backend suite during Phase 9 dependency cleanup, post-merge CI #209 passed the backend test job on `9343eea`, and PR CI #210 passed the backend test job on `b03601d`.
 - [ ] Frontend production build passes.
+  - Verification candidate: accepted canonical validation passed the frontend TypeScript/Vite production build locally during Phase 9 dependency cleanup, and post-merge CI #212 passed the frontend restart acceptance test plus production build on `6faf1d5`.
 - [ ] Repeated demo trades use correct quantities.
 - [ ] Every broker-managed position is either verified protected or fails closed.
 - [ ] Broker position ID is the canonical identity.
