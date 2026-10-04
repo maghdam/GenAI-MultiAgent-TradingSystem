@@ -272,7 +272,7 @@ def test_reconciler_waits_for_deal_history_then_converges_without_close_submissi
     pending_incident = next(
         row
         for row in list_incidents(20)
-        if row.code == "ctrader_demo_partial_close_history_pending"
+        if row.code == "ctrader_partial_close_history_pending"
     )
     assert "do not synthesize" in pending_incident.details["action_required"].lower()
 
