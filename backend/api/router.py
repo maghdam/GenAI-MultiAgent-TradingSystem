@@ -310,10 +310,14 @@ def _active_status_incidents(
         open_trackers = []
 
     terminal_close_events = {
+        "ctrader_close_verified",
+        "ctrader_close_reconciled",
         "ctrader_demo_close_verified",
         "ctrader_demo_close_reconciled",
     }
     unresolved_close_events = {
+        "ctrader_close_ambiguous": ("error", "broker_close_ambiguous"),
+        "ctrader_close_rejected": ("error", "broker_close_rejected"),
         "ctrader_demo_close_ambiguous": ("error", "broker_close_ambiguous"),
         "ctrader_demo_close_rejected": ("error", "broker_close_rejected"),
     }
@@ -341,16 +345,16 @@ def _active_status_incidents(
         if latest_state is None or latest_state.event_type in terminal_close_events:
             continue
         level, code = unresolved_close_events[latest_state.event_type]
-        if latest_state.event_type == "ctrader_demo_close_ambiguous":
+        if latest_state.event_type in {"ctrader_close_ambiguous", "ctrader_demo_close_ambiguous"}:
             message = (
-                f"cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"cTrader close for {position.symbol}:{position.timeframe} "
                 f"(broker position {position.broker_position_id}) has an ambiguous post-submission outcome. "
                 "Local tracking remains open and automatic duplicate close submission is blocked "
                 "while broker truth is reconciled."
             )
         else:
             message = (
-                f"Broker rejected the cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"Broker rejected the cTrader close for {position.symbol}:{position.timeframe} "
                 f"(broker position {position.broker_position_id}). Local tracking remains open and "
                 "automatic re-close is blocked; inspect the rejection and reconcile broker truth."
             )
