@@ -1321,12 +1321,28 @@ Phase 10.3 changes account/transport activation only. Demo-specific execution AP
 This item changes the execution contract from Demo-specific to account-neutral while preserving all existing safety gates. Historical persisted audit/event identifiers are not rewritten in place. Final operator-facing documentation, environment examples, screenshots, and risk/disclaimer cleanup remain Phase 10.5.
 
 ### 10.5 Documentation and operator disclaimer
-**Status:** ⬜
+**Status:** 🧪
 
-After implementation and validation, update README, architecture, environment examples, operations documentation, generated-strategy security wording, and screenshots as needed. Recommend Demo accounts for development/testing and clearly disclose trading risk without presenting Demo/Live as separate product architectures.
+**Target behavior**
+- [x] Update README product/runtime wording from Demo-only to the single account-neutral cTrader architecture.
+- [x] Document automatic authorized-account discovery from the cTrader access token and persisted System-dashboard account selection.
+- [x] Clarify that `CTRADER_HOST_TYPE` / `CTRADER_ACCOUNT_ID` are bootstrap/fallback settings, not a manual account directory.
+- [x] Update architecture and architecture-diagram wording for selected Demo/Live execution through the same guarded path.
+- [x] Update operations guidance with account-switching behavior, selected-versus-active truth, and fail-closed readiness.
+- [x] Update generated-strategy security wording so the trust boundary is independent of broker account type.
+- [x] Remove current operator-facing claims that Live execution is permanently blocked.
+- [x] Recommend Demo for development/testing and clearly warn that an authenticated selected Live account can place real-money orders when cTrader/per-symbol auto-trade and safety gates permit execution.
+- [x] Review current screenshot captions/UI wording; no separate Demo/Live product architecture is described.
+- [ ] Local documentation consistency checks pass.
+- [ ] Full backend regression suite passes.
+- [ ] Frontend production build passes.
+- [ ] GitHub CI passes on the final implementation head.
+
+**Scope boundary**
+This phase changes documentation and operator guidance only. It does not alter runtime execution policy, risk parameters, account selection state, broker credentials, or the global 0.60 signal-strength threshold.
 
 ---
 
 ## 15. Next item
 
-**Phase 10.4 is verified. Proceed to Phase 10.5: update current operator-facing documentation, environment examples, architecture/operations guidance, generated-strategy security wording, and screenshots/disclaimers so they accurately describe the account-neutral Demo/Live architecture. Recommend Demo for development/testing, clearly disclose real-money Live risk, and avoid reintroducing Demo/Live as separate product architectures. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.5 documentation implementation is ready for local validation. Validate documentation consistency, the full backend regression suite, and the frontend production build; then require GitHub CI before marking 10.5 verified or merging. Do not move beyond Phase 10.5 yet. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
