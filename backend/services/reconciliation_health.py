@@ -77,7 +77,7 @@ def _unavailable_response(
                 f"({position.symbol}:{position.timeframe})."
             ),
             action_required=(
-                "Restore the confirmed cTrader demo broker connection/readiness and refresh "
+                "Restore the confirmed cTrader broker connection/readiness and refresh "
                 "reconciliation health before treating broker/local state as verified."
             ),
         )
@@ -93,7 +93,7 @@ def _unavailable_response(
                 match_status="broker_truth_unavailable",
                 message="Broker truth is currently unavailable, so reconciliation health cannot be verified.",
                 action_required=(
-                    "Restore the confirmed cTrader demo broker connection/readiness and refresh "
+                    "Restore the confirmed cTrader broker connection/readiness and refresh "
                     "reconciliation health."
                 ),
             )
@@ -282,7 +282,7 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
                     ),
                     action_required=(
                         "Keep canonical persisted identity unchanged and resolve the broker/local "
-                        "identity conflict before automatic recovery or new demo submission."
+                        "identity conflict before automatic recovery or new cTrader submission."
                     ),
                 )
             )
@@ -350,7 +350,7 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
                         "Canonical broker position has ambiguous/conflicting local tracker candidates."
                     ),
                     action_required=(
-                        "Do not auto-adopt the broker position or create another demo order; inspect "
+                        "Do not auto-adopt the broker position or create another cTrader order; inspect "
                         "the local candidates and canonical intent identity first."
                     ),
                 )
@@ -370,7 +370,7 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
                     ),
                     action_required=(
                         "Run normal tracker recovery from the canonical intent/broker identity before "
-                        "allowing any new demo submission for this position."
+                        "allowing any new cTrader submission for this position."
                     ),
                 )
             )
@@ -384,7 +384,7 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
     else:
         summary = (
             f"Broker/local reconciliation health is {overall}; inspect the classified items before "
-            "treating demo position state as fully reconciled."
+            "treating cTrader position state as fully reconciled."
         )
 
     return ReconciliationHealthResponse(
