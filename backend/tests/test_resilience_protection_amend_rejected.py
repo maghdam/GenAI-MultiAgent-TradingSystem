@@ -144,7 +144,7 @@ def _verified_account() -> BrokerAccountSnapshot:
 
 
 def test_adapter_classifies_rejected_protection_amend(monkeypatch) -> None:
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_digits_map", {7: 2})
