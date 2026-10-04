@@ -6,7 +6,7 @@ import pytest
 
 import backend.ctrader_client as ctd
 from backend.adapters.ctrader import (
-    DemoOrderAcknowledgementTimeout,
+    CTraderOrderAcknowledgementTimeout,
     adapter,
 )
 from backend.api import router as router_module
@@ -68,7 +68,7 @@ def _watch() -> WatchlistItem:
 def _mock_demo_ready(monkeypatch) -> None:
     monkeypatch.setattr(
         execution_engine,
-        "get_demo_symbol_execution_readiness",
+        "get_symbol_execution_readiness",
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(
@@ -88,7 +88,7 @@ def _mock_demo_ready(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: {
             "status": "synced",
             "position_id": kwargs.get("position_id"),
@@ -152,8 +152,8 @@ def test_adapter_classifies_post_submit_ack_timeout(monkeypatch) -> None:
         lambda deferred, timeout: {"status": "failed", "error": "deferred timeout"},
     )
 
-    with pytest.raises(DemoOrderAcknowledgementTimeout) as exc_info:
-        adapter.place_demo_market_order(
+    with pytest.raises(CTraderOrderAcknowledgementTimeout) as exc_info:
+        adapter.place_market_order(
             symbol="XAUUSD",
             direction="long",
             quantity_lots=0.25,
@@ -177,12 +177,12 @@ def test_unresolved_ack_timeout_is_nonretryable_and_blocks_later_resubmission(mo
 
     def _place(**kwargs):
         calls["place"] += 1
-        raise DemoOrderAcknowledgementTimeout(
+        raise CTraderOrderAcknowledgementTimeout(
             "ack timeout after submission",
             client_msg_id=kwargs.get("client_msg_id"),
         )
 
-    monkeypatch.setattr(execution_engine, "place_demo_market_order", _place)
+    monkeypatch.setattr(execution_engine, "place_market_order", _place)
 
     first = _run_signal()
 
@@ -255,12 +255,12 @@ def test_unique_new_broker_position_reconciles_without_resubmission(monkeypatch)
 
     def _place(**kwargs):
         calls["place"] += 1
-        raise DemoOrderAcknowledgementTimeout(
+        raise CTraderOrderAcknowledgementTimeout(
             "ack timeout after submission",
             client_msg_id=kwargs.get("client_msg_id"),
         )
 
-    monkeypatch.setattr(execution_engine, "place_demo_market_order", _place)
+    monkeypatch.setattr(execution_engine, "place_market_order", _place)
 
     result = _run_signal()
 
@@ -320,9 +320,9 @@ def test_multiple_new_broker_candidates_remain_ambiguous(monkeypatch) -> None:
     monkeypatch.setattr(execution_engine, "list_positions", lambda: next(snapshots))
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: (_ for _ in ()).throw(
-            DemoOrderAcknowledgementTimeout(
+            CTraderOrderAcknowledgementTimeout(
                 "ack timeout after submission",
                 client_msg_id=kwargs.get("client_msg_id"),
             )
@@ -378,7 +378,7 @@ def test_live_account_remains_blocked_before_order_submission(monkeypatch) -> No
     )
 
     with pytest.raises(RuntimeError, match="demo-only execution is enforced"):
-        adapter.place_demo_market_order(
+        adapter.place_market_order(
             symbol="XAUUSD",
             direction="long",
             quantity_lots=0.25,
