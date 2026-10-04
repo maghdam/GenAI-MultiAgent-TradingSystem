@@ -24,6 +24,7 @@ def _broker_ready() -> BrokerStatus:
         market_data_ready=True,
         broker_mode="demo",
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
         notes=[],
@@ -173,7 +174,7 @@ def test_studio_missing_requested_model_uses_one_installed_fallback(monkeypatch)
 
 
 def test_model_outage_is_actionable_while_engine_remains_scanning() -> None:
-    config = EngineConfig(enabled=True, demo_autotrade=True, kill_switch=False)
+    config = EngineConfig(enabled=True, ctrader_autotrade=True, kill_switch=False)
     runtime = EngineRuntime(
         running=True,
         loop_active=True,

@@ -1028,14 +1028,22 @@ def get_last_auth_attempt() -> datetime | None:
     return LAST_AUTH_ATTEMPT_AT
 
 
-def is_demo_account_confirmed() -> bool:
+def is_account_confirmed() -> bool:
+    """Return whether the configured cTrader account is the authenticated active session."""
+    if ACTIVE_HOST_TYPE not in {"demo", "live"} or ACCOUNT_IS_DEMO is None:
+        return False
+    expected_demo = ACTIVE_HOST_TYPE == "demo"
     return bool(
         CONNECTED
         and AUTHORIZED
-        and ACTIVE_HOST_TYPE == "demo"
         and ACTIVE_ACCOUNT_ID == _account_id_int(ACCOUNT_ID)
-        and ACCOUNT_IS_DEMO is True
+        and ACCOUNT_IS_DEMO is expected_demo
     )
+
+
+def is_demo_account_confirmed() -> bool:
+    """Backward-compatible demo-specific view of the generic account confirmation."""
+    return bool(is_account_confirmed() and ACTIVE_HOST_TYPE == "demo")
 
 
 def get_account_verification_error() -> str | None:
@@ -1292,9 +1300,12 @@ def _decode_money(raw, money_digits: int) -> float:
 
 
 def get_account_snapshot() -> dict[str, object]:
-    """Return authoritative monetary state for the authorized cTrader account."""
-    if not is_demo_account_confirmed():
-        reason = get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+    """Return authoritative monetary state for the authenticated active cTrader account."""
+    if not is_account_confirmed():
+        reason = (
+            get_account_verification_error()
+            or "The selected cTrader account is not the authenticated active account."
+        )
         raise RuntimeError(f"cTrader account snapshot blocked: {reason}")
 
     trader_raw = wait_for_deferred(

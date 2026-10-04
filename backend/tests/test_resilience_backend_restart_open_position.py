@@ -5,7 +5,7 @@ import pytest
 
 from backend.domain.models import BrokerAccountSnapshot, EngineConfig, WatchlistItem
 from backend.services import reconciler as reconciler_module
-from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers
+from backend.services.reconciler import reconcile_open_positions, recover_broker_trackers
 from backend.storage.repositories import (
     create_order_intent,
     list_incidents,
@@ -24,7 +24,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         kill_switch=False,
         watchlist=[
             WatchlistItem(
@@ -141,12 +141,12 @@ def _patch_ready_broker(monkeypatch) -> list[dict]:
     monkeypatch.setattr(reconciler_module, "get_bars", lambda *args, **kwargs: _bars())
     monkeypatch.setattr(
         reconciler_module,
-        "reconcile_open_demo_position_ledger",
+        "reconcile_open_position_ledger",
         lambda position, broker_row: {"status": "unchanged"},
     )
     monkeypatch.setattr(
         reconciler_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: sync_calls.append(kwargs)
         or {
             "status": "already_synced",
@@ -156,7 +156,7 @@ def _patch_ready_broker(monkeypatch) -> list[dict]:
     )
     monkeypatch.setattr(
         reconciler_module,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: pytest.fail("healthy restart recovery must not close the broker position"),
     )
     return sync_calls
@@ -228,7 +228,7 @@ def test_startup_recovery_rejects_broker_id_with_wrong_tradeagent_identity(
         lambda *args, **kwargs: pytest.fail("identity mismatch must not create a local tracker"),
     )
 
-    result = recover_demo_broker_trackers(_config())
+    result = recover_broker_trackers(_config())
 
     assert result["recovered"] == 0
     assert result["attached"] == 0
@@ -236,7 +236,7 @@ def test_startup_recovery_rejects_broker_id_with_wrong_tradeagent_identity(
     assert list_paper_positions("open") == []
 
     incidents = list_incidents(10)
-    assert incidents[0].code == "ctrader_demo_untracked_broker_position"
+    assert incidents[0].code == "ctrader_untracked_broker_position"
     assert incidents[0].details["automatic_adoption"] is False
     assert (
         incidents[0].details["required_identity"]
@@ -273,7 +273,7 @@ def test_startup_recovery_keeps_failed_but_explicitly_retained_tradeagent_positi
         )(),
     )
 
-    result = recover_demo_broker_trackers(_config())
+    result = recover_broker_trackers(_config())
 
     assert result["recovered"] == 1
     positions = list_paper_positions("open")
@@ -300,7 +300,7 @@ def test_startup_recovery_rejects_failed_intent_when_tracking_was_not_retained(m
     monkeypatch.setattr(reconciler_module, "get_broker_account_snapshot", _snapshot)
     monkeypatch.setattr(reconciler_module, "list_positions", lambda: [_broker_row()])
 
-    result = recover_demo_broker_trackers(_config())
+    result = recover_broker_trackers(_config())
 
     assert result["recovered"] == 0
     assert result["untracked"] == 1
@@ -334,12 +334,12 @@ def test_startup_before_broker_readiness_preserves_existing_demo_tracker(monkeyp
     )
     monkeypatch.setattr(
         reconciler_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: pytest.fail("startup must not mutate protection before broker readiness"),
     )
     monkeypatch.setattr(
         reconciler_module,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: pytest.fail("startup must not close broker position before broker readiness"),
     )
     monkeypatch.setattr(

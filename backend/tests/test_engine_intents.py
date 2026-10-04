@@ -191,12 +191,12 @@ def test_apply_paper_logic_rejects_signal_and_records_reason() -> None:
     intents = list_order_intents(5)
     assert len(intents) == 1
     assert intents[0].status == "rejected"
-    assert "Paper autotrade is disabled." in intents[0].rationale
+    assert "Paper and cTrader autotrade are disabled." in intents[0].rationale
 
     audits = list_trade_audits(10)
     assert len(audits) == 1
     assert audits[0].event_type == "paper_signal_rejected"
-    assert audits[0].summary == "Rejected - Paper autotrade is disabled."
+    assert audits[0].summary == "Rejected - Paper and cTrader autotrade are disabled."
 
     incidents = list_incidents(5)
     assert len(incidents) == 1
@@ -378,7 +378,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
         EngineConfig(
             enabled=True,
             paper_autotrade=False,
-            demo_autotrade=True,
+            ctrader_autotrade=True,
             kill_switch=False,
             default_symbol="XAUUSD",
             default_timeframe="M5",
@@ -404,7 +404,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
 
     calls = []
     monkeypatch.setattr(engine_module, "get_bars", lambda *args, **kwargs: bars)
-    monkeypatch.setattr(engine_module, "recover_demo_broker_trackers", lambda config: {"ready": True})
+    monkeypatch.setattr(engine_module, "recover_broker_trackers", lambda config: {"ready": True})
     monkeypatch.setattr(
         engine_module,
         "get_broker_status",
@@ -415,6 +415,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
                 "execution_ready": True,
                 "socket_connected": True,
                 "account_authorized": True,
+                "account_verified": True,
                 "demo_account_confirmed": True,
             },
         )(),
@@ -436,7 +437,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
     )
     monkeypatch.setattr(
         engine_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
     )
 
@@ -447,7 +448,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
     assert calls[0]["stop_loss"] == 99.0
     assert calls[0]["take_profit"] == 102.0
     audits = list_trade_audits(10)
-    assert any(record.event_type == "ctrader_demo_protection_repaired" for record in audits)
+    assert any(record.event_type == "ctrader_protection_repaired" for record in audits)
 
 
 def test_run_once_does_not_advance_bar_state_when_execution_raises(monkeypatch) -> None:
@@ -509,11 +510,11 @@ def test_execute_paper_signal_accepts_timezone_aware_fresh_bar() -> None:
 
 def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (False, "Broker lotSize metadata is not loaded yet for XAUUSD."),
     )
     result = execute_paper_signal(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch_item=_watch_item().model_copy(update={"trading_enabled": True}),
         analysis=_analysis(signal="long"),
         mark_price=100.0,
@@ -529,7 +530,7 @@ def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> No
     assert list_order_intents(5) == []
 
     incidents = list_incidents(5)
-    assert incidents[0].code == "ctrader_demo_symbol_not_ready"
+    assert incidents[0].code == "ctrader_symbol_not_ready"
 
 
 def test_demo_existing_position_sync_uses_persisted_broker_position_id(monkeypatch) -> None:
@@ -557,12 +558,12 @@ def test_demo_existing_position_sync_uses_persisted_broker_position_id(monkeypat
         ],
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: calls.append(kwargs) or {"status": "already_synced", "verified": True, "position_id": 111},
     )
 
     result = execute_paper_signal(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
         analysis=StrategyAnalysis(
             symbol="XAUUSD",
@@ -611,12 +612,12 @@ def test_demo_existing_position_does_not_hijack_different_same_side_broker_posit
         lambda position, **kwargs: closed.append(position.id),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: pytest.fail("different broker position id must not be used for protection"),
     )
 
     result = execute_paper_signal(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
         analysis=StrategyAnalysis(
             symbol="XAUUSD",
@@ -659,12 +660,12 @@ def test_demo_legacy_position_refuses_ambiguous_symbol_direction_identity(monkey
         ],
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: pytest.fail("ambiguous legacy identity must block broker protection"),
     )
 
     result = execute_paper_signal(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
         analysis=StrategyAnalysis(
             symbol="XAUUSD",
@@ -684,7 +685,7 @@ def test_demo_legacy_position_refuses_ambiguous_symbol_direction_identity(monkey
     assert result.status == "failed"
     assert result.retryable is True
     incidents = list_incidents(5)
-    assert incidents[0].code == "ctrader_demo_position_identity_ambiguous"
+    assert incidents[0].code == "ctrader_position_identity_ambiguous"
 
 
 def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monkeypatch) -> None:
@@ -700,12 +701,12 @@ def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monke
     )
     calls = []
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
     )
 
     result = execute_paper_signal(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
         analysis=StrategyAnalysis(
             symbol="XAUUSD",
@@ -727,7 +728,7 @@ def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monke
     assert calls[0]["take_profit"] == 102.0
 
     audits = list_trade_audits(10)
-    assert any(record.event_type == "ctrader_demo_protection_repaired" for record in audits)
+    assert any(record.event_type == "ctrader_protection_repaired" for record in audits)
 
 
 def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypatch) -> None:
@@ -749,14 +750,14 @@ def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypat
             return {"status": "already_synced", "verified": True, "position_id": 456}
         raise RuntimeError("broker amend rejected")
 
-    monkeypatch.setattr("backend.services.execution_engine.sync_demo_position_targets", _sync)
+    monkeypatch.setattr("backend.services.execution_engine.sync_position_targets", _sync)
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (True, "Broker symbol contract metadata is ready."),
     )
 
     result = execute_paper_signal(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
         analysis=_analysis(signal="long"),
         mark_price=100.0,
@@ -773,7 +774,7 @@ def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypat
     intents = list_order_intents(5)
     assert intents[0].status == "failed"
     incidents = list_incidents(5)
-    assert any(item.code == "ctrader_demo_target_update_failed" for item in incidents)
+    assert any(item.code == "ctrader_target_update_failed" for item in incidents)
 
 
 def test_execute_paper_signal_rejects_stale_market_bar() -> None:

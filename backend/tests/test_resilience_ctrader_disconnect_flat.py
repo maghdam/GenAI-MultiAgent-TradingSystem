@@ -29,7 +29,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         kill_switch=False,
         require_stops=True,
         min_confidence=0.60,
@@ -84,7 +84,7 @@ def test_demo_preflight_requires_live_transport_and_authorization_even_with_cach
     monkeypatch.setattr(ctd, "is_connected", lambda: connected["value"])
     monkeypatch.setattr(ctd, "is_authorized", lambda: authorized["value"])
     monkeypatch.setattr(ctd, "get_auth_error", lambda: "authorization expired")
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "is_symbol_metadata_ready", lambda: True)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
@@ -122,7 +122,7 @@ def test_demo_order_guard_never_submits_when_transport_is_disconnected(monkeypat
     )
 
     with pytest.raises(RuntimeError, match="transport is not connected"):
-        CTraderBrokerAdapter().place_demo_market_order(
+        CTraderBrokerAdapter().place_market_order(
             symbol="XAUUSD",
             direction="long",
             quantity_lots=0.10,
@@ -134,11 +134,11 @@ def test_demo_order_guard_never_submits_when_transport_is_disconnected(monkeypat
 
 def test_flat_demo_execution_defers_before_order_submission_when_disconnected(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (False, "cTrader transport is not connected."),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: pytest.fail("preflight disconnect must block broker order submission"),
     )
 
@@ -159,7 +159,7 @@ def test_flat_demo_execution_defers_before_order_submission_when_disconnected(mo
     assert list_order_intents(10) == []
 
     incidents = list_incidents(10)
-    assert incidents[0].code == "ctrader_demo_symbol_not_ready"
+    assert incidents[0].code == "ctrader_symbol_not_ready"
     assert incidents[0].details["reason"] == "cTrader transport is not connected."
     assert incidents[0].details["retryable"] is True
 

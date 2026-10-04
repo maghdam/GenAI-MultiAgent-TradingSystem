@@ -36,7 +36,7 @@ def test_engine_restart_reuses_normal_stop_start_sequence() -> None:
 
 def test_system_engine_lifecycle_endpoints_match_operator_controls(monkeypatch) -> None:
     _disable_boot_services(monkeypatch)
-    save_engine_config(EngineConfig(enabled=False, demo_autotrade=False))
+    save_engine_config(EngineConfig(enabled=False, ctrader_autotrade=False))
 
     wake_calls: list[str] = []
     restart_calls: list[str] = []

@@ -54,6 +54,7 @@ export interface V2BrokerStatus {
   account_switch_in_progress: boolean;
   account_switch_target_id?: number | null;
   account_switch_error?: string | null;
+  account_verified: boolean;
   demo_account_confirmed: boolean;
   execution_ready: boolean;
   notes: string[];
@@ -74,8 +75,7 @@ export interface V2Config {
   selected_ctrader_account_id?: number | null;
   selected_ctrader_account_type?: 'demo' | 'live' | null;
   paper_autotrade: boolean;
-  demo_autotrade: boolean;
-  allow_live: boolean;
+  ctrader_autotrade: boolean;
   kill_switch: boolean;
   default_symbol: string;
   default_timeframe: string;

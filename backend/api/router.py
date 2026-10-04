@@ -58,7 +58,7 @@ from backend.services.event_calibration import build_event_calibration, calibrat
 from backend.services.market_data import MarketDataError, get_bars, get_market_data_status
 from backend.services.market_intelligence import build_market_intelligence
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
-from backend.services.broker_ledger import reconcile_closed_demo_history
+from backend.services.broker_ledger import reconcile_closed_history
 from backend.services.position_truth import attach_broker_truth
 from backend.services.risk import build_readiness
 from backend.services import model_service
@@ -166,21 +166,21 @@ def _status_truth_checks(
             detail="cTrader socket is connected." if broker.socket_connected else "cTrader socket is not connected.",
         ),
         ReadinessCheck(
-            name="demo_confirmed",
-            ok=broker.demo_account_confirmed,
+            name="account_verified",
+            ok=broker.account_verified,
             detail=(
-                "Connected cTrader account is confirmed as demo."
-                if broker.demo_account_confirmed
-                else "Connected account has not been confirmed as demo."
+                f"Selected cTrader {broker.account_type} account is the authenticated active account."
+                if broker.account_verified
+                else "Selected cTrader account is not the authenticated active account."
             ),
         ),
         ReadinessCheck(
             name="execution_ready",
             ok=broker.execution_ready,
             detail=(
-                "cTrader demo execution prerequisites are verified."
+                "cTrader execution prerequisites are verified."
                 if broker.execution_ready
-                else "cTrader demo execution prerequisites are not fully verified."
+                else "cTrader execution prerequisites are not fully verified."
             ),
         ),
         ReadinessCheck(
@@ -189,7 +189,7 @@ def _status_truth_checks(
             detail=(
                 f"{broker.symbols_loaded} broker symbols are loaded."
                 if broker.symbols_loaded > 0
-                else "Current-session broker symbol contract metadata is not loaded; demo execution remains blocked."
+                else "Current-session broker symbol contract metadata is not loaded; cTrader execution remains blocked."
             ),
         ),
         ReadinessCheck(
@@ -242,7 +242,7 @@ def _active_status_incidents(
             ActiveIncident(
                 level="warning",
                 code="symbol_metadata_unavailable",
-                message="Current-session broker symbol contract metadata is unavailable; demo execution is blocked until the broker contract load completes.",
+                message="Current-session broker symbol contract metadata is unavailable; cTrader execution is blocked until the broker contract load completes.",
             )
         )
 
@@ -296,7 +296,7 @@ def _active_status_incidents(
                 level="error",
                 code="order_acknowledgement_ambiguous",
                 message=(
-                    f"cTrader demo order intent {unresolved_ack.id} has an ambiguous post-submission "
+                    f"cTrader order intent {unresolved_ack.id} has an ambiguous post-submission "
                     "acknowledgement timeout. Automatic resubmission is blocked until broker truth is reconciled."
                 ),
             )
@@ -310,10 +310,14 @@ def _active_status_incidents(
         open_trackers = []
 
     terminal_close_events = {
+        "ctrader_close_verified",
+        "ctrader_close_reconciled",
         "ctrader_demo_close_verified",
         "ctrader_demo_close_reconciled",
     }
     unresolved_close_events = {
+        "ctrader_close_ambiguous": ("error", "broker_close_ambiguous"),
+        "ctrader_close_rejected": ("error", "broker_close_rejected"),
         "ctrader_demo_close_ambiguous": ("error", "broker_close_ambiguous"),
         "ctrader_demo_close_rejected": ("error", "broker_close_rejected"),
     }
@@ -341,16 +345,16 @@ def _active_status_incidents(
         if latest_state is None or latest_state.event_type in terminal_close_events:
             continue
         level, code = unresolved_close_events[latest_state.event_type]
-        if latest_state.event_type == "ctrader_demo_close_ambiguous":
+        if latest_state.event_type in {"ctrader_close_ambiguous", "ctrader_demo_close_ambiguous"}:
             message = (
-                f"cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"cTrader close for {position.symbol}:{position.timeframe} "
                 f"(broker position {position.broker_position_id}) has an ambiguous post-submission outcome. "
                 "Local tracking remains open and automatic duplicate close submission is blocked "
                 "while broker truth is reconciled."
             )
         else:
             message = (
-                f"Broker rejected the cTrader demo close for {position.symbol}:{position.timeframe} "
+                f"Broker rejected the cTrader close for {position.symbol}:{position.timeframe} "
                 f"(broker position {position.broker_position_id}). Local tracking remains open and "
                 "automatic re-close is blocked; inspect the rejection and reconcile broker truth."
             )
@@ -362,21 +366,21 @@ def _active_status_incidents(
             )
         )
 
-    if config.demo_autotrade and broker.socket_connected:
-        if not broker.demo_account_confirmed:
+    if config.ctrader_autotrade and broker.socket_connected:
+        if not broker.account_verified:
             incidents.append(
                 ActiveIncident(
                     level="error",
-                    code="demo_account_not_confirmed",
-                    message="Automatic execution is enabled but the connected account is not confirmed as demo.",
+                    code="ctrader_account_not_verified",
+                    message="Automatic cTrader execution is enabled but the selected account is not the authenticated active account.",
                 )
             )
         elif not broker.execution_ready:
             incidents.append(
                 ActiveIncident(
                     level="error",
-                    code="demo_execution_not_ready",
-                    message="The demo account is confirmed, but execution prerequisites are not currently ready.",
+                    code="ctrader_execution_not_ready",
+                    message="The selected cTrader account is authenticated, but execution prerequisites are not currently ready.",
                 )
             )
 
@@ -439,7 +443,15 @@ async def _status_payload() -> EngineStatus:
     
     return EngineStatus(
         version=SETTINGS.version,
-        mode="demo_enabled" if config.demo_autotrade and broker.execution_ready else "paper_only",
+        mode=(
+            "live_enabled"
+            if config.ctrader_autotrade and broker.execution_ready and broker.account_type == "live"
+            else (
+                "demo_enabled"
+                if config.ctrader_autotrade and broker.execution_ready
+                else "paper_only"
+            )
+        ),
         broker=broker,
         config=config,
         runtime=runtime,
@@ -465,7 +477,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "version": SETTINGS.version,
-        "paper_ready": all(item.ok for item in status.readiness if item.name != "live_permission"),
+        "paper_ready": all(item.ok for item in status.readiness),
         "mode": status.mode,
         "broker_ready": ready,
         "connected": status.broker.socket_connected,
@@ -675,11 +687,6 @@ async def v2_statement_comparison(
 
 @router.post("/config", response_model=EngineConfig)
 async def v2_set_config(config: EngineConfig) -> EngineConfig:
-    if config.allow_live:
-        raise HTTPException(
-            status_code=400,
-            detail="Live-account execution is not supported. Connect and verify a cTrader demo account instead.",
-        )
     saved = save_engine_config(config)
     engine.wake()
     return saved
@@ -1086,7 +1093,7 @@ async def v2_engine_scan() -> dict:
 @router.post("/engine/reconcile")
 async def v2_engine_reconcile() -> dict:
     summary = reconcile_open_positions(reason="manual")
-    history = reconcile_closed_demo_history(limit=20) if _current_config().demo_autotrade else {
+    history = reconcile_closed_history(limit=20) if _current_config().ctrader_autotrade else {
         "checked": 0,
         "reconciled": 0,
         "missing_broker_id": 0,

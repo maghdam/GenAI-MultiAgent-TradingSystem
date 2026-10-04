@@ -29,7 +29,8 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [demoConfirmed, setDemoConfirmed] = useState(false);
+  const [accountVerified, setAccountVerified] = useState(false);
+  const [accountType, setAccountType] = useState<'demo' | 'live' | 'unknown'>('unknown');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -44,7 +45,8 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
             lot_size: item.lot_size ?? status.config.paper_trade_size,
           })),
         });
-        setDemoConfirmed(status.broker.demo_account_confirmed);
+        setAccountVerified(status.broker.account_verified);
+        setAccountType(status.broker.account_type);
         setStrategies(strategyList);
         setSymbols((symbolPayload.symbols || []).slice(0, 500));
       })
@@ -140,28 +142,39 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
 
                 <label
                   className="ta-watch-control"
-                  style={{ gap: 10, fontSize: 14, padding: '8px 10px', borderRadius: 6, background: config.demo_autotrade ? 'rgba(34,197,94,0.10)' : 'transparent', border: config.demo_autotrade ? '1px solid rgba(34,197,94,0.30)' : '1px solid transparent' }}
+                  style={{ gap: 10, fontSize: 14, padding: '8px 10px', borderRadius: 6, background: config.ctrader_autotrade ? 'rgba(34,197,94,0.10)' : 'transparent', border: config.ctrader_autotrade ? '1px solid rgba(34,197,94,0.30)' : '1px solid transparent' }}
                 >
                   <input
                     type="checkbox"
-                    checked={config.demo_autotrade}
-                    onChange={(e) => setConfig({ ...config, demo_autotrade: e.target.checked })}
+                    checked={config.ctrader_autotrade}
+                    onChange={(e) => setConfig({ ...config, ctrader_autotrade: e.target.checked })}
                   />
                   <span>
                     <strong>System auto-trade</strong>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--ta-text-muted)' }}>
-                      Allow the engine to place automatic orders on the connected cTrader account.
-                      This version executes only on verified demo accounts and also requires per-symbol "Auto-trade" below.
+                      Allow the engine to place automatic orders on the active cTrader account.
+                      Demo and Live use the same safeguards; Live orders can use real funds and also require per-symbol "Auto-trade" below.
                     </span>
                   </span>
                 </label>
               </div>
 
               <div className="ta-settings-section">Watchlist</div>
-              <div className={demoConfirmed ? 'v2-banner v2-banner-good' : 'v2-banner v2-banner-bad'} style={{ marginBottom: 12 }}>
-                {demoConfirmed
-                  ? 'Connected account: Demo. Automatic execution still requires System auto-trade and per-symbol Auto-trade.'
-                  : 'Automatic execution is blocked because this version only permits verified cTrader demo accounts.'}
+              <div
+                className={
+                  accountVerified && accountType === 'demo'
+                    ? 'v2-banner v2-banner-good'
+                    : 'v2-banner v2-banner-bad'
+                }
+                style={{ marginBottom: 12 }}
+              >
+                {accountVerified
+                  ? (
+                    accountType === 'live'
+                      ? 'Connected account: LIVE. cTrader auto-trade can place real-money orders when the kill switch is off and per-symbol Auto-trade is enabled.'
+                      : 'Connected account: Demo. Automatic execution still requires System auto-trade and per-symbol Auto-trade.'
+                  )
+                  : 'Automatic cTrader execution is blocked until the selected account is authenticated and execution-ready.'}
               </div>
               {config.watchlist.map((item, index) => (
                 <div className="ta-watch-item" key={`${index}-${item.symbol}-${item.timeframe}`}>

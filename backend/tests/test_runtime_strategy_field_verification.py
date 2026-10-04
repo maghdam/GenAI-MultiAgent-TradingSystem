@@ -33,6 +33,7 @@ def _demo_status() -> dict[str, Any]:
     return {
         "broker": {
             "account_type": "demo",
+            "account_verified": True,
             "demo_account_confirmed": True,
             "socket_connected": True,
             "account_authorized": True,
@@ -81,12 +82,13 @@ def test_enabled_targets_uses_only_enabled_unique_watchlist_rows() -> None:
     assert verifier._enabled_targets(config) == [("XAUUSD", "M5"), ("US30", "M15")]
 
 
-def test_collect_matrix_requires_confirmed_demo_account() -> None:
+def test_collect_matrix_requires_authenticated_active_account() -> None:
     status = _demo_status()
+    status["broker"]["account_verified"] = False
     status["broker"]["demo_account_confirmed"] = False
     session = _Session([_Response(200, status)])
 
-    with pytest.raises(RuntimeError, match="positively confirmed as demo"):
+    with pytest.raises(RuntimeError, match="authenticated active account"):
         verifier.collect_matrix(session=session, base_url="http://127.0.0.1:4000")
 
     assert len(session.calls) == 1

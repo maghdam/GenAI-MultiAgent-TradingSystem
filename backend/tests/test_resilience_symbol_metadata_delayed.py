@@ -142,7 +142,7 @@ def test_fallback_symbols_are_never_treated_as_verified_broker_contracts(monkeyp
         lambda **kwargs: pytest.fail("broker submission must not run while metadata is delayed"),
     )
     with pytest.raises(RuntimeError, match="symbol contract metadata"):
-        adapter.place_demo_market_order(
+        adapter.place_market_order(
             symbol="XAUUSD",
             direction="long",
             quantity_lots=0.1,
@@ -169,7 +169,7 @@ def test_status_reports_delayed_metadata_as_not_ready_and_actionable(monkeypatch
     assert any("current cTrader session" in note for note in status.notes)
 
     incidents = router_module._active_status_incidents(
-        EngineConfig(enabled=True, demo_autotrade=True, kill_switch=False),
+        EngineConfig(enabled=True, ctrader_autotrade=True, kill_switch=False),
         status,
         EngineRuntime(
             running=True,
@@ -179,21 +179,21 @@ def test_status_reports_delayed_metadata_as_not_ready_and_actionable(monkeypatch
         ),
     )
     metadata_incident = next(item for item in incidents if item.code == "symbol_metadata_unavailable")
-    assert "demo execution is blocked" in metadata_incident.message
+    assert "cTrader execution is blocked" in metadata_incident.message
     assert "contract load completes" in metadata_incident.message
 
 
 def test_demo_execution_defers_without_intent_or_order_while_metadata_is_delayed(monkeypatch) -> None:
     ctd._install_fallback_symbols("symbol details delayed")
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: pytest.fail("order submission must not run while metadata is delayed"),
     )
 
     result = execute_paper_signal(
         config=EngineConfig(
             enabled=True,
-            demo_autotrade=True,
+            ctrader_autotrade=True,
             paper_autotrade=False,
             kill_switch=False,
             default_symbol="XAUUSD",
@@ -232,7 +232,7 @@ def test_demo_execution_defers_without_intent_or_order_while_metadata_is_delayed
     assert list_order_intents(20) == []
 
     incidents = list_incidents(10)
-    assert incidents[0].code == "ctrader_demo_symbol_not_ready"
+    assert incidents[0].code == "ctrader_symbol_not_ready"
     assert incidents[0].details["retryable"] is True
 
 

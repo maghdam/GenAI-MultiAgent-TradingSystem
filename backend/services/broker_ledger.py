@@ -112,7 +112,7 @@ def _tracked_initial_quantity(position: PaperPosition) -> float | None:
     return None
 
 
-def reconcile_open_demo_position_ledger(
+def reconcile_open_position_ledger(
     position: PaperPosition,
     broker_position: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -314,7 +314,7 @@ def close_local_position_after_broker_close(
     broker_close = broker_close if isinstance(broker_close, dict) else {}
     if broker_close.get("status") != "closed" or broker_close.get("verified") is not True:
         raise RuntimeError(
-            "Local demo tracker close blocked because broker close is not verified."
+            "Local cTrader tracker close blocked because broker close is not verified."
         )
 
     canonical_broker_id = int(
@@ -325,7 +325,7 @@ def close_local_position_after_broker_close(
     broker_position_id = int(broker_close.get("position_id") or 0)
     if canonical_broker_id <= 0 or broker_position_id != canonical_broker_id:
         raise RuntimeError(
-            "Local demo tracker close blocked because broker position identity does not match: "
+            "Local cTrader tracker close blocked because broker position identity does not match: "
             f"local={canonical_broker_id or None} broker={broker_position_id or None}."
         )
 
@@ -361,7 +361,7 @@ def close_local_position_after_broker_close(
     )
 
 
-def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
+def reconcile_closed_history(limit: int = 100) -> Dict[str, Any]:
     status = get_broker_status()
     if not status.execution_ready:
         return {
@@ -371,7 +371,7 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
             "unavailable": 0,
             "duplicate_broker_id": 0,
             "ready": False,
-            "reason": "cTrader demo account is not execution-ready yet.",
+            "reason": "cTrader account is not execution-ready yet.",
             "errors": [],
         }
 
@@ -449,3 +449,15 @@ def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
         "reason": "",
         "errors": errors[:10],
     }
+
+
+# Backward-compatible wrappers for pre-Phase-10.4 callers/tests.
+def reconcile_open_demo_position_ledger(
+    position: PaperPosition,
+    broker_position: Dict[str, Any],
+) -> Dict[str, Any]:
+    return reconcile_open_position_ledger(position, broker_position)
+
+
+def reconcile_closed_demo_history(limit: int = 100) -> Dict[str, Any]:
+    return reconcile_closed_history(limit)

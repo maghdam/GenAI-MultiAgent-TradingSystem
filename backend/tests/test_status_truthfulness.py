@@ -27,6 +27,7 @@ def _broker(**overrides) -> BrokerStatus:
         market_data_ready=True,
         broker_mode="demo",
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
         notes=[],
@@ -56,7 +57,7 @@ def test_status_truth_uses_live_sources_for_all_phase_3_4_flags() -> None:
 
     assert values == {
         "connected": True,
-        "demo_confirmed": True,
+        "account_verified": True,
         "execution_ready": True,
         "symbol_metadata_ready": True,
         "engine_scanning": True,
@@ -84,7 +85,7 @@ def test_active_incidents_are_derived_from_current_faults() -> None:
     incidents = router_module._active_status_incidents(
         EngineConfig(
             enabled=True,
-            demo_autotrade=True,
+            ctrader_autotrade=True,
             kill_switch=False,
             watchlist=[WatchlistItem(symbol="XAUUSD", timeframe="M5", enabled=True)],
         ),
@@ -93,6 +94,7 @@ def test_active_incidents_are_derived_from_current_faults() -> None:
             auth_error="authorization expired",
             symbols_loaded=0,
             ready=False,
+            account_verified=False,
             demo_account_confirmed=False,
             execution_ready=False,
         ),
@@ -103,7 +105,7 @@ def test_active_incidents_are_derived_from_current_faults() -> None:
     assert codes == {
         "broker_not_authorized",
         "symbol_metadata_unavailable",
-        "demo_account_not_confirmed",
+        "ctrader_account_not_verified",
         "engine_not_scanning",
         "model_not_ready",
         "engine_runtime_error",
@@ -121,6 +123,7 @@ def test_intentionally_disabled_broker_startup_is_not_current_incident() -> None
             ready=False,
             market_data_ready=False,
             account_type="unknown",
+            account_verified=False,
             demo_account_confirmed=False,
             execution_ready=False,
             notes=["cTrader: startup disabled by APP_START_CTRADER_ON_BOOT"],

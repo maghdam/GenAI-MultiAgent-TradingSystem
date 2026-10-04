@@ -204,7 +204,7 @@ export default function SystemPage() {
           <div className="v2-panel-head">
             <div>
               <h2>Safety configuration</h2>
-              <span>Paper execution and cTrader execution are separate controls. Broker actions currently follow the active authenticated cTrader account.</span>
+              <span>Paper execution and cTrader execution are separate controls. cTrader orders follow the explicitly selected active account; Live accounts can place real-money orders when auto-trade is enabled and the kill switch is off.</span>
             </div>
             <button className="btn primary" type="button" onClick={save} disabled={!draft || busy !== ''}>{busy === 'save' ? 'Saving…' : 'Save safety settings'}</button>
           </div>
@@ -214,7 +214,7 @@ export default function SystemPage() {
               <div className="v2-form-grid v2-form-grid-wide">
                 <label className="v2-toggle"><input type="checkbox" checked={draft.kill_switch} onChange={(event) => setDraft({ ...draft, kill_switch: event.target.checked })} />Kill switch</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.paper_autotrade} onChange={(event) => setDraft({ ...draft, paper_autotrade: event.target.checked })} />Paper autotrade</label>
-                <label className="v2-toggle"><input type="checkbox" checked={draft.demo_autotrade} onChange={(event) => setDraft({ ...draft, demo_autotrade: event.target.checked })} />cTrader auto-trade</label>
+                <label className="v2-toggle"><input type="checkbox" checked={draft.ctrader_autotrade} onChange={(event) => setDraft({ ...draft, ctrader_autotrade: event.target.checked })} />cTrader auto-trade</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.require_stops} onChange={(event) => setDraft({ ...draft, require_stops: event.target.checked })} />Require protective stops</label>
                 <label className="v2-toggle"><input type="checkbox" checked={draft.session_filter_enabled} onChange={(event) => setDraft({ ...draft, session_filter_enabled: event.target.checked })} />Restrict trading session</label>
                 <label>

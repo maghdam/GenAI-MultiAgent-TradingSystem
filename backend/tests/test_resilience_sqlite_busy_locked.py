@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from backend.adapters.ctrader import DemoCloseRejected
+from backend.adapters.ctrader import CTraderCloseRejected
 from backend.domain.models import (
     BrokerAccountSnapshot,
     EngineConfig,
@@ -15,7 +15,7 @@ from backend.domain.models import (
 from backend.services import execution_engine
 from backend.services import reconciler as reconciler_module
 from backend.services.execution_engine import execute_paper_signal
-from backend.services.reconciler import recover_demo_broker_trackers
+from backend.services.reconciler import recover_broker_trackers
 from backend.storage import db as db_module
 from backend.storage.db import SQLiteBusyError
 from backend.storage.repositories import (
@@ -51,9 +51,8 @@ def _config(*, with_watchlist: bool = False) -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
-        allow_live=False,
-        kill_switch=False,
+        ctrader_autotrade=True,
+                kill_switch=False,
         require_stops=True,
         cooldown_minutes=0,
         risk_per_trade_pct=0,
@@ -114,13 +113,13 @@ def _broker_order(position_id: int = BROKER_POSITION_ID) -> dict:
 def _mock_demo_ready(monkeypatch) -> None:
     monkeypatch.setattr(
         execution_engine,
-        "get_demo_symbol_execution_readiness",
+        "get_symbol_execution_readiness",
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(execution_engine, "get_broker_account_snapshot", _snapshot)
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: {
             "status": "synced",
             "position_id": kwargs.get("position_id"),
@@ -271,7 +270,7 @@ def test_pre_submit_sqlite_busy_blocks_broker_order_and_surfaces_actionable_inci
     )
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: pytest.fail("broker order must not run before durable persistence"),
     )
 
@@ -300,13 +299,13 @@ def test_post_submit_sqlite_busy_verified_failsafe_close_blocks_duplicate_until_
     calls = {"place": 0, "close": 0}
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: calls.__setitem__("place", calls["place"] + 1)
         or _broker_order(),
     )
     monkeypatch.setattr(
         execution_engine,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: calls.__setitem__("close", calls["close"] + 1)
         or {
             "status": "closed",
@@ -372,20 +371,20 @@ def test_post_submit_sqlite_busy_close_rejection_reconciles_broker_identity_with
     calls = {"place": 0, "close": 0}
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: calls.__setitem__("place", calls["place"] + 1)
         or _broker_order(),
     )
 
     def _reject_close(**kwargs):
         calls["close"] += 1
-        raise DemoCloseRejected(
+        raise CTraderCloseRejected(
             "broker rejected persistence fail-safe close",
             broker_position_id=kwargs["position_id"],
             ack={"status": "order_rejected"},
         )
 
-    monkeypatch.setattr(execution_engine, "close_demo_position", _reject_close)
+    monkeypatch.setattr(execution_engine, "close_position", _reject_close)
 
     real_update = execution_engine.update_order_intent_status
     fail_handoff = {"value": True}
@@ -420,7 +419,7 @@ def test_post_submit_sqlite_busy_close_rejection_reconciles_broker_identity_with
     assert intent.details["broker_order"]["position_id"] == BROKER_POSITION_ID
 
     _patch_recovery_broker(monkeypatch, [_broker_row()])
-    recovery = recover_demo_broker_trackers(_config(with_watchlist=True))
+    recovery = recover_broker_trackers(_config(with_watchlist=True))
 
     assert recovery["recovered"] == 1
     positions = list_paper_positions("open")
@@ -438,7 +437,7 @@ def test_broker_confirmed_handoff_recovers_when_local_tracker_write_is_busy(
     calls = {"place": 0}
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: calls.__setitem__("place", calls["place"] + 1)
         or _broker_order(),
     )
@@ -471,7 +470,7 @@ def test_broker_confirmed_handoff_recovers_when_local_tracker_write_is_busy(
         open_paper_position,
     )
     _patch_recovery_broker(monkeypatch, [_broker_row()])
-    recovery = recover_demo_broker_trackers(_config(with_watchlist=True))
+    recovery = recover_broker_trackers(_config(with_watchlist=True))
 
     assert recovery["recovered"] == 1
     positions = list_paper_positions("open")

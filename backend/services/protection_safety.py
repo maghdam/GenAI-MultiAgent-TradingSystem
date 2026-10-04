@@ -4,7 +4,7 @@ from math import isclose
 from typing import Any, Dict
 
 from backend.domain.models import PaperPosition
-from backend.services.close_safety import attempt_verified_demo_close
+from backend.services.close_safety import attempt_verified_close
 from backend.storage.repositories import add_trade_audit, log_incident
 
 
@@ -44,7 +44,7 @@ def _json_safe_close_result(close_result: Dict[str, Any]) -> Dict[str, Any]:
     return safe
 
 
-def fail_safe_close_unverified_demo_position(
+def fail_safe_close_unverified_position(
     position: PaperPosition,
     *,
     broker_row: Dict[str, Any],
@@ -52,7 +52,7 @@ def fail_safe_close_unverified_demo_position(
     protection_error: Exception,
     phase: str,
 ) -> Dict[str, Any]:
-    """Close one canonical demo position when broker protection cannot be verified.
+    """Close one canonical cTrader position when broker protection cannot be verified.
 
     A failed close retains the local tracker. The caller decides when a later
     protection retry is allowed; this helper never submits another open order or
@@ -93,12 +93,12 @@ def fail_safe_close_unverified_demo_position(
 
     log_incident(
         "error",
-        "ctrader_demo_protection_unverified",
+        "ctrader_protection_unverified",
         f"Broker protection is unverified for {position.symbol}:{position.timeframe}; fail-safe close will be attempted.",
         details,
     )
     add_trade_audit(
-        event_type="ctrader_demo_protection_unverified",
+        event_type="ctrader_protection_unverified",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
@@ -107,7 +107,7 @@ def fail_safe_close_unverified_demo_position(
         details=details,
     )
 
-    close_result = attempt_verified_demo_close(
+    close_result = attempt_verified_close(
         position,
         fallback_price=fallback_price,
         reason="broker_protection_unverified_failsafe",
@@ -128,12 +128,12 @@ def fail_safe_close_unverified_demo_position(
         }
         log_incident(
             "error",
-            "ctrader_demo_protection_failsafe_close_failed",
-            f"Fail-safe close did not reach verified broker closure for unverified cTrader demo protection on {position.symbol}:{position.timeframe}.",
+            "ctrader_protection_failsafe_close_failed",
+            f"Fail-safe close did not reach verified broker closure for unverified cTrader protection on {position.symbol}:{position.timeframe}.",
             failed,
         )
         add_trade_audit(
-            event_type="ctrader_demo_protection_failsafe_close_failed",
+            event_type="ctrader_protection_failsafe_close_failed",
             symbol=position.symbol,
             timeframe=position.timeframe,
             strategy=position.strategy,
@@ -155,17 +155,21 @@ def fail_safe_close_unverified_demo_position(
     }
     log_incident(
         "warning",
-        "ctrader_demo_protection_failsafe_closed",
-        f"Closed cTrader demo position because broker protection could not be verified for {position.symbol}:{position.timeframe}.",
+        "ctrader_protection_failsafe_closed",
+        f"Closed cTrader position because broker protection could not be verified for {position.symbol}:{position.timeframe}.",
         succeeded,
     )
     add_trade_audit(
-        event_type="ctrader_demo_protection_failsafe_closed",
+        event_type="ctrader_protection_failsafe_closed",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
         position_id=position.id,
-        summary="Closed cTrader demo position because broker SL/TP could not be verified.",
+        summary="Closed cTrader position because broker SL/TP could not be verified.",
         details=succeeded,
     )
     return succeeded
+
+
+# Backward-compatible alias for pre-Phase-10.4 callers/tests.
+fail_safe_close_unverified_demo_position = fail_safe_close_unverified_position

@@ -104,8 +104,8 @@ def collect_matrix(
         raise RuntimeError("cTrader socket is not connected in the running backend.")
     if not bool(broker.get("account_authorized")):
         raise RuntimeError("cTrader account is not authorized in the running backend.")
-    if not bool(broker.get("demo_account_confirmed")) or str(broker.get("account_type") or "").lower() != "demo":
-        raise RuntimeError("Connected cTrader account is not positively confirmed as demo.")
+    if not bool(broker.get("account_verified")):
+        raise RuntimeError("Selected cTrader account is not the authenticated active account.")
 
     config = _get_json(
         session,
@@ -169,10 +169,10 @@ def collect_matrix(
     available = sum(1 for row in results if row.get("status") == "ok")
     return {
         "phase": "5.1",
-        "purpose": "Read-only connected cTrader demo historical-feed evidence for trusted runtime strategies.",
+        "purpose": "Read-only connected cTrader historical-feed evidence for trusted runtime strategies.",
         "broker": {
             "account_type": broker.get("account_type"),
-            "demo_account_confirmed": broker.get("demo_account_confirmed"),
+            "account_verified": broker.get("account_verified"),
             "socket_connected": broker.get("socket_connected"),
             "account_authorized": broker.get("account_authorized"),
             "market_data_ready": broker.get("market_data_ready"),
@@ -197,7 +197,7 @@ def print_summary(matrix: dict[str, Any]) -> None:
     print(
         "BROKER "
         f"account_type={broker.get('account_type')} "
-        f"demo_confirmed={broker.get('demo_account_confirmed')} "
+        f"account_verified={broker.get('account_verified')} "
         f"socket_connected={broker.get('socket_connected')} "
         f"authorized={broker.get('account_authorized')} "
         f"market_data_ready={broker.get('market_data_ready')}"
@@ -247,7 +247,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Collect Phase 5.1 read-only runtime-strategy evidence through the already-running "
-            "TradeAgent backend so the audit uses that process's connected cTrader demo session."
+            "TradeAgent backend so the audit uses that process's connected cTrader session."
         )
     )
     parser.add_argument(

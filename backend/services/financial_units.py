@@ -26,10 +26,15 @@ class MonetaryBasis:
 def resolve_monetary_basis(
     config: EngineConfig,
     *,
-    demo_execution: bool = False,
+    ctrader_execution: bool = False,
     account_snapshot: BrokerAccountSnapshot | None = None,
+    demo_execution: bool | None = None,
 ) -> MonetaryBasis:
-    if not demo_execution:
+    # demo_execution is retained only as a compatibility keyword for older callers/tests.
+    if demo_execution is not None and not ctrader_execution:
+        ctrader_execution = bool(demo_execution)
+
+    if not ctrader_execution:
         return MonetaryBasis(
             currency=config.account_currency.upper(),
             equity_amount=float(config.paper_starting_equity_amount),

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 SignalValue = Literal["long", "short", "no_trade"]
@@ -79,6 +79,7 @@ class BrokerStatus(BaseModel):
     account_switch_in_progress: bool = False
     account_switch_target_id: Optional[int] = None
     account_switch_error: Optional[str] = None
+    account_verified: bool = False
     demo_account_confirmed: bool = False
     execution_ready: bool = False
     account_snapshot: Optional["BrokerAccountSnapshot"] = None
@@ -120,8 +121,7 @@ class EngineConfig(BaseModel):
     selected_ctrader_account_id: Optional[int] = Field(default=None, gt=0)
     selected_ctrader_account_type: Optional[Literal["demo", "live"]] = None
     paper_autotrade: bool = False
-    demo_autotrade: bool = False
-    allow_live: bool = False
+    ctrader_autotrade: bool = False
     kill_switch: bool = True
     default_symbol: str = "XAUUSD"
     default_timeframe: str = "M5"
@@ -143,6 +143,23 @@ class EngineConfig(BaseModel):
     require_stops: bool = True
     operator_note: str = ""
     watchlist: List["WatchlistItem"] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_execution_flags(cls, value):
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        if "ctrader_autotrade" not in payload and "demo_autotrade" in payload:
+            payload["ctrader_autotrade"] = bool(payload.get("demo_autotrade"))
+        payload.pop("demo_autotrade", None)
+        payload.pop("allow_live", None)
+        return payload
+
+    @property
+    def demo_autotrade(self) -> bool:
+        """Backward-compatible read alias for pre-Phase-10.4 callers/tests."""
+        return self.ctrader_autotrade
 
 
 class WatchlistItem(BaseModel):

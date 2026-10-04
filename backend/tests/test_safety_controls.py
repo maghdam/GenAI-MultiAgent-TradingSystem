@@ -14,7 +14,7 @@ def _config(**overrides) -> EngineConfig:
     payload = EngineConfig(
         enabled=True,
         paper_autotrade=True,
-        demo_autotrade=False,
+        ctrader_autotrade=False,
         kill_switch=False,
         min_confidence=0.60,
         daily_loss_limit_pct=2.0,
@@ -242,19 +242,19 @@ def test_session_filter_blocks_signal_outside_window() -> None:
     assert decision.details["session"]["enabled"] is True
 
 
-def test_per_symbol_trading_permission_blocks_demo_auto_execution() -> None:
+def test_per_symbol_trading_permission_blocks_ctrader_auto_execution() -> None:
     decision = _evaluate(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch=_watch(trading_enabled=False),
     )
 
     assert decision.accepted is False
-    assert decision.reasons == ["Automatic execution is disabled for this symbol."]
+    assert decision.reasons == ["Automatic cTrader execution is disabled for this symbol."]
 
 
-def test_per_symbol_trading_permission_allows_demo_path_when_enabled() -> None:
+def test_per_symbol_trading_permission_allows_ctrader_path_when_enabled() -> None:
     decision = _evaluate(
-        config=_config(paper_autotrade=False, demo_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
         watch=_watch(trading_enabled=True),
     )
 

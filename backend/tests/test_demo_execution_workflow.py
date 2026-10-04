@@ -47,7 +47,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         kill_switch=False,
         require_stops=True,
         cooldown_minutes=0,
@@ -68,7 +68,7 @@ def _watch() -> WatchlistItem:
 
 def _mock_demo_ready(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(
@@ -86,7 +86,7 @@ def _mock_demo_ready(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: {
             "status": "synced",
             "position_id": kwargs.get("position_id"),
@@ -103,7 +103,7 @@ def test_per_symbol_lot_routes_verified_demo_order_and_tracks_position(monkeypat
         captured.update(kwargs)
         return {"status": "executed", "position_id": 321, "account_type": "demo"}
 
-    monkeypatch.setattr("backend.services.execution_engine.place_demo_market_order", _place)
+    monkeypatch.setattr("backend.services.execution_engine.place_market_order", _place)
 
     result = execute_paper_signal(
         config=_config(),
@@ -128,7 +128,7 @@ def test_per_symbol_lot_routes_verified_demo_order_and_tracks_position(monkeypat
 
 def test_demo_execution_defers_when_broker_monetary_snapshot_is_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(
@@ -141,7 +141,7 @@ def test_demo_execution_defers_when_broker_monetary_snapshot_is_unavailable(monk
         ),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("order must not route without monetary truth")),
     )
 
@@ -201,7 +201,7 @@ def test_demo_risk_sizing_uses_broker_equity_and_currency(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: captured.update(kwargs) or {
             "status": "executed",
             "position_id": 321,
@@ -236,7 +236,7 @@ def test_unprotected_demo_order_is_closed_by_failsafe(monkeypatch) -> None:
     captured_close = {}
 
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: {
             "status": "executed",
             "position_id": 321,
@@ -245,7 +245,7 @@ def test_unprotected_demo_order_is_closed_by_failsafe(monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("protection verification failed")),
     )
 
@@ -258,7 +258,7 @@ def test_unprotected_demo_order_is_closed_by_failsafe(monkeypatch) -> None:
             "quantity_lots": kwargs["quantity_lots"],
         }
 
-    monkeypatch.setattr("backend.services.execution_engine.close_demo_position", _close)
+    monkeypatch.setattr("backend.services.execution_engine.close_position", _close)
 
     result = execute_paper_signal(
         config=_config(),
@@ -287,7 +287,7 @@ def test_unprotected_demo_order_close_failure_retains_tracker_for_retry(monkeypa
     _mock_demo_ready(monkeypatch)
 
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: {
             "status": "executed",
             "position_id": 654,
@@ -296,11 +296,11 @@ def test_unprotected_demo_order_close_failure_retains_tracker_for_retry(monkeypa
         },
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("protection verification failed")),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.close_demo_position",
+        "backend.services.execution_engine.close_position",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("broker close verification failed")),
     )
 
@@ -332,7 +332,7 @@ def test_unprotected_demo_order_close_failure_retains_tracker_for_retry(monkeypa
 def test_demo_order_failure_does_not_create_local_position(monkeypatch) -> None:
     _mock_demo_ready(monkeypatch)
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("demo account not confirmed")),
     )
 
@@ -392,11 +392,11 @@ def test_engine_uses_enabled_row_strategy_and_preserves_per_symbol_lot(monkeypat
 
 def test_demo_symbol_not_ready_defers_without_creating_intent(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (False, "Connected cTrader account is not confirmed as demo."),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("order must not be routed before demo readiness")),
     )
 

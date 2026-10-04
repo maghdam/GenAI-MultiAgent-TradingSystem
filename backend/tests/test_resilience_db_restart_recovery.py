@@ -17,7 +17,7 @@ from backend.services import reconciler as reconciler_module
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.reconciler import (
     reconcile_open_positions,
-    recover_demo_broker_trackers,
+    recover_broker_trackers,
 )
 from backend.storage import db as db_module
 from backend.storage.repositories import (
@@ -45,9 +45,8 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
-        allow_live=False,
-        kill_switch=False,
+        ctrader_autotrade=True,
+                kill_switch=False,
         require_stops=True,
         cooldown_minutes=0,
         risk_per_trade_pct=0,
@@ -192,7 +191,7 @@ def _patch_ready_recovery_broker(monkeypatch, *, rows: list[dict] | None = None)
     monkeypatch.setattr(reconciler_module, "get_bars", lambda *args, **kwargs: _bars())
     monkeypatch.setattr(
         reconciler_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: sync_calls.append(kwargs)
         or {
             "status": "already_synced",
@@ -202,7 +201,7 @@ def _patch_ready_recovery_broker(monkeypatch, *, rows: list[dict] | None = None)
     )
     monkeypatch.setattr(
         reconciler_module,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: pytest.fail("healthy DB restart recovery must not close the broker position"),
     )
     return sync_calls
@@ -399,7 +398,7 @@ def test_broker_confirmed_handoff_survives_db_restart_and_recovers_exactly_once(
     _restart_storage_connection()
     _patch_ready_recovery_broker(monkeypatch)
 
-    first = recover_demo_broker_trackers(_config())
+    first = recover_broker_trackers(_config())
     assert first["recovered"] == 1
     assert first["untracked"] == 0
 
@@ -408,7 +407,7 @@ def test_broker_confirmed_handoff_survives_db_restart_and_recovers_exactly_once(
     assert positions[0].broker_position_id == BROKER_POSITION_ID
 
     _restart_storage_connection()
-    second = recover_demo_broker_trackers(_config())
+    second = recover_broker_trackers(_config())
 
     assert second["recovered"] == 0
     positions = list_paper_positions("open")
@@ -417,7 +416,7 @@ def test_broker_confirmed_handoff_survives_db_restart_and_recovers_exactly_once(
     recovered_audits = [
         row
         for row in list_trade_audits(50)
-        if row.event_type == "ctrader_demo_tracker_recovered"
+        if row.event_type == "ctrader_tracker_recovered"
     ]
     assert len(recovered_audits) == 1
     assert recovered_audits[0].intent_id == intent.id
@@ -459,7 +458,7 @@ def test_unresolved_submission_reservation_survives_restart_and_blocks_duplicate
 
     monkeypatch.setattr(
         execution_engine,
-        "get_demo_symbol_execution_readiness",
+        "get_symbol_execution_readiness",
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(execution_engine, "get_broker_account_snapshot", _snapshot)
@@ -471,12 +470,12 @@ def test_unresolved_submission_reservation_survives_restart_and_blocks_duplicate
     monkeypatch.setattr(execution_engine, "list_positions", lambda: candidates)
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: pytest.fail("unresolved durable reservation must block duplicate demo submission"),
     )
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: pytest.fail("ambiguous restart recovery must not mutate broker protection"),
     )
 
@@ -548,12 +547,12 @@ def test_restart_tracker_recovery_failure_is_actionable_and_persists_after_reope
     )
     monkeypatch.setattr(
         reconciler_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: pytest.fail("failed tracker recovery must not mutate broker protection"),
     )
     monkeypatch.setattr(
         reconciler_module,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: pytest.fail("failed tracker recovery must not close the broker position"),
     )
 
@@ -564,7 +563,7 @@ def test_restart_tracker_recovery_failure_is_actionable_and_persists_after_reope
     incidents = list_incidents(20)
     incident = next(
         row for row in incidents
-        if row.code == "ctrader_demo_tracker_recovery_failed"
+        if row.code == "ctrader_tracker_recovery_failed"
     )
     assert incident.details["automatic_adoption"] is False
     assert incident.details["broker_mutation_suppressed"] is True
@@ -574,6 +573,6 @@ def test_restart_tracker_recovery_failure_is_actionable_and_persists_after_reope
     persisted = list_incidents(20)
     recovered_incident = next(
         row for row in persisted
-        if row.code == "ctrader_demo_tracker_recovery_failed"
+        if row.code == "ctrader_tracker_recovery_failed"
     )
     assert recovered_incident.details["action_required"] == incident.details["action_required"]

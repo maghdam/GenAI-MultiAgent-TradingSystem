@@ -5,11 +5,9 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 
 from backend import ctrader_client as ctd
 from backend.adapters.ctrader import CTraderBrokerAdapter
-from backend.api.router import v2_set_config
 from backend.domain.models import EngineConfig
 
 
@@ -76,7 +74,7 @@ def test_account_list_blocks_live_account_on_demo_host(monkeypatch) -> None:
     assert sent == []
 
 
-def test_account_list_allows_live_account_auth_on_live_host_but_demo_execution_stays_blocked(monkeypatch) -> None:
+def test_account_list_allows_live_account_auth_on_live_host(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
     monkeypatch.setattr(ctd, "HOST_TYPE", "live")
@@ -110,6 +108,7 @@ def test_account_list_allows_live_account_auth_on_live_host_but_demo_execution_s
     assert ctd.AUTHORIZED is True
     assert ctd.ACTIVE_ACCOUNT_ID == 123
     assert ctd.ACTIVE_HOST_TYPE == "live"
+    assert ctd.is_account_confirmed() is True
     assert ctd.is_demo_account_confirmed() is False
 
 
@@ -118,7 +117,7 @@ def test_account_snapshot_decodes_balance_currency_and_unrealized_pnl(monkeypatc
     ctd._clear_asset_cache()
 
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd.client, "send", lambda request, **kwargs: sent.append(request) or request)
     monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: deferred)
 
@@ -171,7 +170,7 @@ def test_account_snapshot_reuses_asset_currency_cache(monkeypatch) -> None:
     ctd._clear_asset_cache()
 
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd.client, "send", lambda request, **kwargs: sent.append(request) or request)
     monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: deferred)
 
@@ -210,34 +209,35 @@ def test_account_snapshot_reuses_asset_currency_cache(monkeypatch) -> None:
     assert second["currency"] == "CHF"
 
 
-def test_demo_order_is_blocked_without_verified_demo_account(monkeypatch) -> None:
+def test_ctrader_order_is_blocked_without_verified_active_account(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "is_connected", lambda: True)
     monkeypatch.setattr(ctd, "is_authorized", lambda: True)
     monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: False)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: False)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: "account type unknown")
     monkeypatch.setattr(ctd, "place_order", lambda **kwargs: pytest.fail("order must stay blocked"))
 
     with pytest.raises(RuntimeError, match="account type unknown"):
-        CTraderBrokerAdapter().place_demo_market_order(
+        CTraderBrokerAdapter().place_market_order(
             symbol="XAUUSD",
             direction="long",
             quantity_lots=0.1,
         )
 
 
-def test_verified_demo_order_uses_broker_symbol_and_lot_volume(monkeypatch) -> None:
+def test_verified_ctrader_order_uses_broker_symbol_and_lot_volume(monkeypatch) -> None:
     captured = {}
     monkeypatch.setattr(ctd, "is_connected", lambda: True)
     monkeypatch.setattr(ctd, "is_authorized", lambda: True)
     monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_lot_size_map", {7: 100.0})
     monkeypatch.setattr(ctd, "symbol_min_volume_map", {7: 100})
     monkeypatch.setattr(ctd, "symbol_step_volume_map", {7: 100})
     monkeypatch.setattr(ctd, "symbol_max_volume_map", {7: 500_000})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "get_active_host_type", lambda: "demo")
     monkeypatch.setattr(ctd, "volume_lots_to_units", lambda symbol_id, lots: 250)
     monkeypatch.setattr(ctd, "place_order", lambda **kwargs: captured.update(kwargs) or object())
     monkeypatch.setattr(
@@ -246,7 +246,7 @@ def test_verified_demo_order_uses_broker_symbol_and_lot_volume(monkeypatch) -> N
         lambda deferred, timeout: {"status": "executed", "position_id": 456, "ack": {"ok": True}},
     )
 
-    result = CTraderBrokerAdapter().place_demo_market_order(
+    result = CTraderBrokerAdapter().place_market_order(
         symbol="xauusd",
         direction="short",
         quantity_lots=0.025,
@@ -280,14 +280,30 @@ def test_demo_confirmation_requires_connection_authorization_active_host_and_acc
     assert ctd.is_demo_account_confirmed() is False
 
 
-def test_config_api_rejects_live_execution_request() -> None:
-    with pytest.raises(HTTPException, match="Live-account execution is not supported") as exc:
-        asyncio.run(v2_set_config(EngineConfig(allow_live=True)))
+def test_config_api_accepts_account_neutral_ctrader_execution(monkeypatch) -> None:
+    import backend.api.router as router_module
 
-    assert exc.value.status_code == 400
+    saved = {}
+    monkeypatch.setattr(
+        router_module,
+        "save_engine_config",
+        lambda config: saved.setdefault("config", config) or config,
+    )
+    monkeypatch.setattr(router_module.engine, "wake", lambda: None)
+
+    config = EngineConfig(
+        ctrader_autotrade=True,
+        selected_ctrader_account_id=123,
+        selected_ctrader_account_type="live",
+    )
+    result = asyncio.run(router_module.v2_set_config(config))
+
+    assert result.ctrader_autotrade is True
+    assert result.selected_ctrader_account_type == "live"
+    assert saved["config"].model_dump() == result.model_dump()
 
 
-def test_sync_demo_position_targets_updates_and_verifies_broker(monkeypatch) -> None:
+def test_sync_position_targets_updates_and_verifies_broker(monkeypatch) -> None:
     state = {
         "symbol_name": "XAUUSD",
         "symbol_id": 7,
@@ -299,7 +315,7 @@ def test_sync_demo_position_targets_updates_and_verifies_broker(monkeypatch) -> 
     }
     captured = {}
 
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_digits_map", {7: 2})
@@ -315,7 +331,7 @@ def test_sync_demo_position_targets_updates_and_verifies_broker(monkeypatch) -> 
     monkeypatch.setattr(ctd, "modify_position_sltp", _modify)
     monkeypatch.setattr(ctd, "wait_for_deferred", lambda deferred, timeout: {"status": "ok"})
 
-    result = CTraderBrokerAdapter().sync_demo_position_targets(
+    result = CTraderBrokerAdapter().sync_position_targets(
         symbol="XAUUSD",
         direction="long",
         stop_loss=99.0,
@@ -330,8 +346,8 @@ def test_sync_demo_position_targets_updates_and_verifies_broker(monkeypatch) -> 
     assert captured["take_profit"] == 102.0
 
 
-def test_sync_demo_position_targets_skips_amend_when_already_synced(monkeypatch) -> None:
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+def test_sync_position_targets_skips_amend_when_already_synced(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_digits_map", {7: 2})
@@ -356,7 +372,7 @@ def test_sync_demo_position_targets_skips_amend_when_already_synced(monkeypatch)
         lambda **kwargs: pytest.fail("already-synced targets must not be amended"),
     )
 
-    result = CTraderBrokerAdapter().sync_demo_position_targets(
+    result = CTraderBrokerAdapter().sync_position_targets(
         symbol="XAUUSD",
         direction="long",
         stop_loss=99.0,
@@ -368,7 +384,7 @@ def test_sync_demo_position_targets_skips_amend_when_already_synced(monkeypatch)
     assert result["position_id"] == 456
 
 
-def test_sync_demo_position_targets_surfaces_ctrader_reject_reason(monkeypatch) -> None:
+def test_sync_position_targets_surfaces_ctrader_reject_reason(monkeypatch) -> None:
     state = {
         "symbol_name": "NAS100",
         "symbol_id": 116,
@@ -385,7 +401,7 @@ def test_sync_demo_position_targets_surfaces_ctrader_reject_reason(monkeypatch) 
         executionType=None,
     )
 
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"NAS100": 116})
     monkeypatch.setattr(ctd, "symbol_digits_map", {116: 2})
@@ -404,7 +420,7 @@ def test_sync_demo_position_targets_surfaces_ctrader_reject_reason(monkeypatch) 
     )
 
     with pytest.raises(RuntimeError, match="TRADING_BAD_STOPS"):
-        CTraderBrokerAdapter().sync_demo_position_targets(
+        CTraderBrokerAdapter().sync_position_targets(
             symbol="NAS100",
             direction="long",
             stop_loss=29476.48,
@@ -413,7 +429,7 @@ def test_sync_demo_position_targets_surfaces_ctrader_reject_reason(monkeypatch) 
         )
 
 
-def test_sync_demo_position_targets_verification_error_includes_observed_values(monkeypatch) -> None:
+def test_sync_position_targets_verification_error_includes_observed_values(monkeypatch) -> None:
     state = {
         "symbol_name": "US30",
         "symbol_id": 117,
@@ -425,7 +441,7 @@ def test_sync_demo_position_targets_verification_error_includes_observed_values(
     }
     event = SimpleNamespace(errorCode=None, description=None, rejectReason=0, executionType=4)
 
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"US30": 117})
     monkeypatch.setattr(ctd, "symbol_digits_map", {117: 2})
@@ -442,7 +458,7 @@ def test_sync_demo_position_targets_verification_error_includes_observed_values(
     monkeypatch.setattr("backend.adapters.ctrader.time.sleep", lambda seconds: None)
 
     with pytest.raises(RuntimeError, match="observed_sl=None observed_tp=None"):
-        CTraderBrokerAdapter().sync_demo_position_targets(
+        CTraderBrokerAdapter().sync_position_targets(
             symbol="US30",
             direction="long",
             stop_loss=51692.65,
@@ -459,8 +475,8 @@ def test_trading_price_precision_uses_symbol_digits_not_money_digits(monkeypatch
     assert ctd._px_sym(116, 29511.75) == 29511.8
 
 
-def test_sync_demo_position_targets_marks_crossed_take_profit_for_exit(monkeypatch) -> None:
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+def test_sync_position_targets_marks_crossed_take_profit_for_exit(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"NAS100": 116})
     monkeypatch.setattr(ctd, "symbol_digits_map", {116: 1})
@@ -486,7 +502,7 @@ def test_sync_demo_position_targets_marks_crossed_take_profit_for_exit(monkeypat
         lambda **kwargs: pytest.fail("crossed target must close instead of moving the TP"),
     )
 
-    result = CTraderBrokerAdapter().sync_demo_position_targets(
+    result = CTraderBrokerAdapter().sync_position_targets(
         symbol="NAS100",
         direction="long",
         stop_loss=29476.48,
@@ -500,7 +516,7 @@ def test_sync_demo_position_targets_marks_crossed_take_profit_for_exit(monkeypat
     assert result["quantity_lots"] == 0.1
 
 
-def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatch) -> None:
+def test_close_position_uses_symbol_contract_volume_and_verifies(monkeypatch) -> None:
     rows = [
         {
             "symbol_name": "NAS100",
@@ -512,7 +528,7 @@ def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatc
     ]
     captured = {}
 
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"NAS100": 116})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
@@ -531,7 +547,7 @@ def test_close_demo_position_uses_symbol_contract_volume_and_verifies(monkeypatc
         lambda self, position_id: None,
     )
 
-    result = CTraderBrokerAdapter().close_demo_position(
+    result = CTraderBrokerAdapter().close_position(
         symbol="NAS100",
         position_id=56980461,
         quantity_lots=0.1,

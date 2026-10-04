@@ -25,7 +25,7 @@ def test_settings_and_watchlist_survive_storage_restart() -> None:
         selected_ctrader_account_id=2123962,
         selected_ctrader_account_type="live",
         paper_autotrade=True,
-        demo_autotrade=False,
+        ctrader_autotrade=False,
         kill_switch=False,
         min_confidence=0.73,
         daily_loss_limit_pct=1.7,

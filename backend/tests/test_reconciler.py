@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from backend.domain.models import BrokerAccountSnapshot, EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.market_data import MarketDataError
-from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
+from backend.services.reconciler import reconcile_open_positions, recover_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
     create_order_intent,
     list_incidents,
@@ -120,7 +120,7 @@ def test_reconcile_open_positions_logs_skip_incident_when_market_data_fails(monk
 def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="NAS100",
@@ -199,11 +199,11 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
     )
     sync_calls = []
     monkeypatch.setattr(
-        "backend.services.reconciler.sync_demo_position_targets",
+        "backend.services.reconciler.sync_position_targets",
         lambda **kwargs: sync_calls.append(kwargs) or {"status": "synced", "verified": True},
     )
 
-    result = recover_demo_broker_trackers(config)
+    result = recover_broker_trackers(config)
 
     assert result["recovered"] == 1
     positions = list_paper_positions("open")
@@ -222,7 +222,7 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
 def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="NAS100",
@@ -291,7 +291,7 @@ def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeyp
         ],
     )
 
-    result = recover_demo_broker_trackers(config)
+    result = recover_broker_trackers(config)
 
     assert result["recovered"] == 0
     assert result["attached"] == 1
@@ -304,7 +304,7 @@ def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeyp
 def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_position(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="XAUUSD",
@@ -365,7 +365,7 @@ def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_pos
         lambda position, **kwargs: closed.append(position.id),
     )
     monkeypatch.setattr(
-        "backend.services.reconciler.sync_demo_position_targets",
+        "backend.services.reconciler.sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(
             AssertionError("same-side broker position with a different id must not be adopted")
         ),
@@ -380,7 +380,7 @@ def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_pos
 def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="XAUUSD",
@@ -436,7 +436,7 @@ def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(mon
         ],
     )
     monkeypatch.setattr(
-        "backend.services.reconciler.sync_demo_position_targets",
+        "backend.services.reconciler.sync_position_targets",
         lambda **kwargs: {"status": "already_synced", "verified": True},
     )
 
@@ -449,7 +449,7 @@ def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(mon
 def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="NAS100",
@@ -501,7 +501,7 @@ def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monke
     )
     monkeypatch.setattr("backend.services.reconciler.list_positions", lambda: [broker_row])
     monkeypatch.setattr(
-        "backend.services.reconciler.sync_demo_position_targets",
+        "backend.services.reconciler.sync_position_targets",
         lambda **kwargs: {
             "status": "exit_due_take_profit",
             "position_id": 56980461,
@@ -511,7 +511,7 @@ def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monke
     )
     close_calls = []
     monkeypatch.setattr(
-        "backend.services.close_safety.close_demo_position",
+        "backend.services.close_safety.close_position",
         lambda **kwargs: close_calls.append(kwargs) or {
             "status": "closed",
             "position_id": 56980461,

@@ -62,9 +62,8 @@ def test_local_api_and_sqlite_remain_usable_when_google_drive_is_unreachable(mon
     save_engine_config(
         EngineConfig(
             enabled=False,
-            demo_autotrade=False,
-            allow_live=False,
-            kill_switch=True,
+            ctrader_autotrade=False,
+                        kill_switch=True,
             operator_note="before simulated Drive outage",
         )
     )
@@ -74,7 +73,6 @@ def test_local_api_and_sqlite_remain_usable_when_google_drive_is_unreachable(mon
     with TestClient(app) as client:
         response = client.get("/api/config")
         assert response.status_code == 200
-        assert response.json()["allow_live"] is False
 
         updated = response.json()
         updated["operator_note"] = "local state updated while Drive unavailable"
@@ -88,18 +86,16 @@ def test_local_api_and_sqlite_remain_usable_when_google_drive_is_unreachable(mon
 
     persisted = load_engine_config(EngineConfig())
     assert persisted.operator_note == "local state updated while Drive unavailable"
-    assert persisted.allow_live is False
     assert attempts == []
 
 
-def test_drive_outage_cannot_bypass_live_execution_guard(monkeypatch) -> None:
+def test_drive_outage_does_not_interfere_with_live_capable_local_config(monkeypatch) -> None:
     _disable_external_boot_services(monkeypatch)
     attempts = _block_google_drive_network(monkeypatch)
     save_engine_config(
         EngineConfig(
             enabled=False,
-            demo_autotrade=False,
-            allow_live=False,
+            ctrader_autotrade=False,
             kill_switch=True,
         )
     )
@@ -108,13 +104,15 @@ def test_drive_outage_cannot_bypass_live_execution_guard(monkeypatch) -> None:
 
     with TestClient(app) as client:
         payload = client.get("/api/config").json()
-        payload["allow_live"] = True
+        payload["ctrader_autotrade"] = True
+        payload["selected_ctrader_account_id"] = 47139918
+        payload["selected_ctrader_account_type"] = "live"
         response = client.post("/api/config", json=payload)
 
-    assert response.status_code == 400
-    assert "Live-account execution is not supported" in response.json()["detail"]
+    assert response.status_code == 200
     persisted = load_engine_config(EngineConfig())
-    assert persisted.allow_live is False
+    assert persisted.ctrader_autotrade is True
+    assert persisted.selected_ctrader_account_type == "live"
     assert attempts == []
 
 
@@ -123,9 +121,8 @@ def test_engine_kill_switch_cycle_persists_without_google_drive_access(monkeypat
     save_engine_config(
         EngineConfig(
             enabled=True,
-            demo_autotrade=False,
-            allow_live=False,
-            kill_switch=True,
+            ctrader_autotrade=False,
+                        kill_switch=True,
         )
     )
 
@@ -137,7 +134,6 @@ def test_engine_kill_switch_cycle_persists_without_google_drive_access(monkeypat
     assert runtime.running is True
     assert runtime.loop_active is False
     assert runtime.last_cycle_summary == "kill switch active"
-    assert load_engine_config(EngineConfig()).allow_live is False
     assert attempts == []
 
 
