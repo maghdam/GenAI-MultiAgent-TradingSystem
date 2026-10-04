@@ -27,6 +27,7 @@ from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
 )
 from google.protobuf.json_format import MessageToDict
 
+from twisted.application.internet import ClientService
 from twisted.internet import reactor
 import asyncio
 import os
@@ -46,9 +47,21 @@ CLIENT_SECRET = os.getenv("CTRADER_CLIENT_SECRET")
 ACCESS_TOKEN  = os.getenv("CTRADER_ACCESS_TOKEN")
 ACCOUNT_ID    = int(os.getenv("CTRADER_ACCOUNT_ID"))
 HOST_TYPE     = (os.getenv("CTRADER_HOST_TYPE") or "demo").lower()
+if HOST_TYPE not in {"demo", "live"}:
+    HOST_TYPE = "demo"
 
-host = EndPoints.PROTOBUF_LIVE_HOST if HOST_TYPE == "live" else EndPoints.PROTOBUF_DEMO_HOST
-client = Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
+
+def _new_client(host_type: str):
+    host = (
+        EndPoints.PROTOBUF_LIVE_HOST
+        if str(host_type).lower() == "live"
+        else EndPoints.PROTOBUF_DEMO_HOST
+    )
+    return Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
+
+
+client = _new_client(HOST_TYPE)
+CLIENT_HOST_TYPE = HOST_TYPE
 
 # ── symbol maps ────────────────────────────────────────────────────────────
 symbol_map            : dict[int, str] = {}   # {id: name}
@@ -75,6 +88,12 @@ LAST_AUTH_ATTEMPT_AT = None
 ACCOUNT_IS_DEMO: bool | None = None
 ACCOUNT_VERIFICATION_ERROR: str | None = None
 AVAILABLE_ACCOUNTS: list[dict[str, object]] = []
+ACTIVE_ACCOUNT_ID: int | None = None
+ACTIVE_HOST_TYPE: str | None = None
+ACCOUNT_SWITCH_IN_PROGRESS: bool = False
+ACCOUNT_SWITCH_TARGET_ID: int | None = None
+ACCOUNT_SWITCH_ERROR: str | None = None
+_transport_lock = threading.Lock()
 
 _asset_name_cache: dict[int, str] = {}
 _asset_cache_account_id: int | None = None
@@ -86,6 +105,38 @@ _PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurem
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
 _LAST_ORDER_CTX: dict[str, int] = {"symbol_id": -1}
+
+def _normalize_host_type(value: str) -> str:
+    host_type = str(value or "").strip().lower()
+    if host_type not in {"demo", "live"}:
+        raise ValueError("cTrader account type must be 'demo' or 'live'.")
+    return host_type
+
+
+def _account_id_int(value) -> int | None:
+    try:
+        account_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    return account_id if account_id > 0 else None
+
+
+def _refresh_account_flags() -> None:
+    desired = _account_id_int(ACCOUNT_ID)
+    active = _account_id_int(ACTIVE_ACCOUNT_ID)
+    for row in AVAILABLE_ACCOUNTS:
+        row_id = _account_id_int(row.get("account_id"))
+        row["selected"] = bool(desired is not None and row_id == desired)
+        row["active"] = bool(active is not None and row_id == active)
+
+
+def _is_current_session(source_client=None, expected_account_id: int | None = None) -> bool:
+    if source_client is not None and source_client is not client:
+        return False
+    if expected_account_id is not None and _account_id_int(ACCOUNT_ID) != int(expected_account_id):
+        return False
+    return True
+
 
 def _clear_symbol_metadata() -> None:
     global SYMBOL_METADATA_READY
@@ -320,9 +371,12 @@ def pips_to_relative(pips: int, digits: int) -> int:
     return pips * 10 ** (6 - digits)
 
 def on_error(failure):
-    global AUTH_ERROR
+    global AUTH_ERROR, ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_ERROR
     err_msg = str(failure)
     AUTH_ERROR = err_msg
+    if ACCOUNT_SWITCH_IN_PROGRESS:
+        ACCOUNT_SWITCH_IN_PROGRESS = False
+        ACCOUNT_SWITCH_ERROR = err_msg
     print("[ERROR]", err_msg)
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
