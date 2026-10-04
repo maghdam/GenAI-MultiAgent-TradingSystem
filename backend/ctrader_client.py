@@ -1300,9 +1300,12 @@ def _decode_money(raw, money_digits: int) -> float:
 
 
 def get_account_snapshot() -> dict[str, object]:
-    """Return authoritative monetary state for the authorized cTrader account."""
-    if not is_demo_account_confirmed():
-        reason = get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+    """Return authoritative monetary state for the authenticated active cTrader account."""
+    if not is_account_confirmed():
+        reason = (
+            get_account_verification_error()
+            or "The selected cTrader account is not the authenticated active account."
+        )
         raise RuntimeError(f"cTrader account snapshot blocked: {reason}")
 
     trader_raw = wait_for_deferred(
