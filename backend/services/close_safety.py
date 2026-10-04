@@ -19,8 +19,12 @@ from backend.storage.repositories import (
 )
 
 
-_AMBIGUOUS_EVENT = "ctrader_demo_close_ambiguous"
-_RESOLVED_EVENT = "ctrader_demo_close_reconciled"
+_AMBIGUOUS_EVENT = "ctrader_close_ambiguous"
+_RESOLVED_EVENT = "ctrader_close_reconciled"
+_LEGACY_AMBIGUOUS_EVENT = "ctrader_demo_close_ambiguous"
+_LEGACY_RESOLVED_EVENT = "ctrader_demo_close_reconciled"
+_LEGACY_REJECTED_EVENT = "ctrader_demo_close_rejected"
+_LEGACY_VERIFIED_EVENT = "ctrader_demo_close_verified"
 
 
 def _event_matches_position(event: PaperEvent, position: PaperPosition) -> bool:
@@ -45,9 +49,19 @@ def unresolved_close_event(position: PaperPosition) -> PaperEvent | None:
     for event in list_paper_events(500):
         if not _event_matches_position(event, position):
             continue
-        if event.event_type in {_RESOLVED_EVENT, "ctrader_demo_close_verified"}:
+        if event.event_type in {
+            _RESOLVED_EVENT,
+            _LEGACY_RESOLVED_EVENT,
+            "ctrader_close_verified",
+            _LEGACY_VERIFIED_EVENT,
+        }:
             return None
-        if event.event_type in {_AMBIGUOUS_EVENT, "ctrader_demo_close_rejected"}:
+        if event.event_type in {
+            _AMBIGUOUS_EVENT,
+            _LEGACY_AMBIGUOUS_EVENT,
+            "ctrader_close_rejected",
+            _LEGACY_REJECTED_EVENT,
+        }:
             return event
     return None
 
@@ -128,12 +142,12 @@ def record_ambiguous_close(
     )
     log_incident(
         "error",
-        "ctrader_demo_close_ambiguous",
+        "ctrader_close_ambiguous",
         f"cTrader close outcome is ambiguous for {position.symbol}:{position.timeframe}; automatic re-close is blocked.",
         details,
     )
     add_trade_audit(
-        event_type="ctrader_demo_close_ambiguous",
+        event_type="ctrader_close_ambiguous",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
@@ -169,18 +183,18 @@ def record_rejected_close(
         ),
     }
     add_paper_event(
-        "ctrader_demo_close_rejected",
+        "ctrader_close_rejected",
         "Broker explicitly rejected a cTrader close request.",
         details,
     )
     log_incident(
         "error",
-        "ctrader_demo_close_rejected",
+        "ctrader_close_rejected",
         f"Broker rejected the cTrader close for {position.symbol}:{position.timeframe}; local tracking remains open.",
         details,
     )
     add_trade_audit(
-        event_type="ctrader_demo_close_rejected",
+        event_type="ctrader_close_rejected",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
@@ -209,7 +223,10 @@ def attempt_verified_close(
 
     unresolved = unresolved_close_event(position)
     if unresolved is not None:
-        prior_ambiguous = unresolved.event_type == _AMBIGUOUS_EVENT
+        prior_ambiguous = unresolved.event_type in {
+            _AMBIGUOUS_EVENT,
+            _LEGACY_AMBIGUOUS_EVENT,
+        }
         pending_status = "ambiguous_pending" if prior_ambiguous else "rejected_pending"
         try:
             broker_row = _canonical_broker_row(position)
@@ -226,7 +243,7 @@ def attempt_verified_close(
             }
             log_incident(
                 "error",
-                "ctrader_demo_close_reconciliation_deferred",
+                "ctrader_close_reconciliation_deferred",
                 f"Could not reconcile prior cTrader close failure for {position.symbol}:{position.timeframe}.",
                 details,
             )
@@ -251,9 +268,9 @@ def attempt_verified_close(
             log_incident(
                 "warning",
                 (
-                    "ctrader_demo_close_ambiguity_pending"
+                    "ctrader_close_ambiguity_pending"
                     if prior_ambiguous
-                    else "ctrader_demo_close_rejection_pending"
+                    else "ctrader_close_rejection_pending"
                 ),
                 (
                     f"Canonical broker position is still open after an ambiguous close for {position.symbol}:{position.timeframe}; no second close was sent."
@@ -293,12 +310,12 @@ def attempt_verified_close(
         )
         log_incident(
             "warning",
-            "ctrader_demo_close_reconciled",
+            "ctrader_close_reconciled",
             f"Resolved ambiguous close from broker truth for {position.symbol}:{position.timeframe}; local tracker is now closed.",
             details,
         )
         add_trade_audit(
-            event_type="ctrader_demo_close_reconciled",
+            event_type="ctrader_close_reconciled",
             symbol=position.symbol,
             timeframe=position.timeframe,
             strategy=position.strategy,
@@ -364,12 +381,12 @@ def attempt_verified_close(
         }
         log_incident(
             "error",
-            "ctrader_demo_close_failed",
+            "ctrader_close_failed",
             f"cTrader close failed before a verified broker close for {position.symbol}:{position.timeframe}.",
             details,
         )
         add_trade_audit(
-            event_type="ctrader_demo_close_failed",
+            event_type="ctrader_close_failed",
             symbol=position.symbol,
             timeframe=position.timeframe,
             strategy=position.strategy,
@@ -400,7 +417,7 @@ def attempt_verified_close(
         "broker_close": broker_close,
     }
     add_paper_event(
-        "ctrader_demo_close_verified",
+        "ctrader_close_verified",
         "Broker-confirmed cTrader close completed.",
         details,
     )
