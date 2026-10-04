@@ -84,9 +84,18 @@ async def app_lifespan(_: FastAPI):
     if _env_flag("APP_START_CTRADER_ON_BOOT", _boot_default()):
         selected_id = persisted_config.selected_ctrader_account_id
         selected_type = persisted_config.selected_ctrader_account_type
+        bootstrap_type = selected_type
+        if selected_id is not None and bootstrap_type is None:
+            # Phase 10.2 persisted the desired ID before account type was
+            # stored. Use the env host only as a discovery endpoint, while
+            # configuring the saved ID immediately so the env account can
+            # never become execution-ready by mistake.
+            bootstrap_type = (os.getenv("CTRADER_HOST_TYPE") or "demo").strip().lower()
+            if bootstrap_type not in {"demo", "live"}:
+                bootstrap_type = "demo"
         did_start = broker_adapter.start_transport(
-            account_id=selected_id if selected_id is not None and selected_type is not None else None,
-            account_type=selected_type,
+            account_id=selected_id,
+            account_type=bootstrap_type,
         )
         external_dependency_state.ctrader_started = True
         external_dependency_state.ctrader_reason = "booted on startup" if did_start else "transport already running"
