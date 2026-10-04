@@ -16,6 +16,8 @@ from backend.domain.models import (
     BrokerApiLatencyResponse,
     BrokerStatus,
     CTraderAccount,
+    CTraderAccountSelectionRequest,
+    CTraderAccountSelectionResponse,
     ConfluenceReplayResponse,
     DailySummaryResponse,
     EngineConfig,
@@ -482,9 +484,53 @@ async def v2_status() -> EngineStatus:
     return await _status_payload()
 
 
+def _apply_account_selection(
+    accounts: List[CTraderAccount],
+    config: EngineConfig,
+) -> List[CTraderAccount]:
+    selected_id = config.selected_ctrader_account_id
+    if selected_id is None:
+        active = next((account for account in accounts if account.active), None)
+        selected_id = active.account_id if active is not None else None
+
+    return [
+        account.model_copy(update={"selected": account.account_id == selected_id})
+        for account in accounts
+    ]
+
+
 @router.get("/broker/accounts", response_model=List[CTraderAccount])
 async def v2_broker_accounts() -> List[CTraderAccount]:
-    return await asyncio.to_thread(list_accounts)
+    accounts = await asyncio.to_thread(list_accounts)
+    return _apply_account_selection(accounts, _current_config())
+
+
+@router.post("/broker/accounts/select", response_model=CTraderAccountSelectionResponse)
+async def v2_select_broker_account(
+    request: CTraderAccountSelectionRequest,
+) -> CTraderAccountSelectionResponse:
+    accounts = await asyncio.to_thread(list_accounts)
+    target = next(
+        (account for account in accounts if account.account_id == request.account_id),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Selected cTrader account is not available for the current access token.",
+        )
+
+    config = _current_config()
+    save_engine_config(
+        config.model_copy(update={"selected_ctrader_account_id": request.account_id})
+    )
+    active = next((account for account in accounts if account.active), None)
+    selected = target.model_copy(update={"selected": True})
+    return CTraderAccountSelectionResponse(
+        selected_account=selected,
+        active_account_id=active.account_id if active is not None else None,
+        transport_switch_required=not target.active,
+    )
 
 
 @router.get("/config", response_model=EngineConfig)

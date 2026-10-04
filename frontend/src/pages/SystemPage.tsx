@@ -2,15 +2,18 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 
 import AppNav from '../components/AppNav';
 import {
+  getV2CTraderAccounts,
   getV2Status,
   reconcileV2Engine,
   recoverV2Engine,
   restartV2Engine,
   scanV2Engine,
+  selectV2CTraderAccount,
   setV2Config,
   startV2Engine,
   stopV2Engine,
   type V2Config,
+  type V2CTraderAccount,
   type V2Status,
 } from '../services/api';
 import { formatBackendLocalDateTime } from '../utils/datetime';
@@ -19,13 +22,18 @@ const formatTime = (value?: string | null) => formatBackendLocalDateTime(value);
 
 export default function SystemPage() {
   const [status, setStatus] = useState<V2Status | null>(null);
+  const [accounts, setAccounts] = useState<V2CTraderAccount[]>([]);
   const [draft, setDraft] = useState<V2Config | null>(null);
-  const [busy, setBusy] = useState<'save' | 'engine' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
+  const [busy, setBusy] = useState<'save' | 'account' | 'engine' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
   const [error, setError] = useState('');
 
   const load = async (syncDraft = false) => {
-    const payload = await getV2Status();
+    const [payload, accountRows] = await Promise.all([
+      getV2Status(),
+      getV2CTraderAccounts(),
+    ]);
     setStatus(payload);
+    setAccounts(accountRows);
     if (syncDraft || !draft) setDraft(payload.config);
   };
 
@@ -55,7 +63,7 @@ export default function SystemPage() {
     setError('');
     try {
       await action();
-      await load(kind === 'save');
+      await load(kind === 'save' || kind === 'account');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'System operation failed.');
     } finally {
@@ -65,6 +73,18 @@ export default function SystemPage() {
 
   const toggleEngine = () => run('engine', () => status?.config.enabled ? stopV2Engine() : startV2Engine());
   const save = () => draft ? run('save', () => setV2Config(draft)) : Promise.resolve();
+  const selectedAccount = accounts.find((account) => account.selected);
+  const activeAccount = accounts.find((account) => account.active);
+  const accountLabel = (account: V2CTraderAccount) => {
+    const broker = account.broker_title || 'cTrader';
+    const login = account.trader_login ?? account.account_id;
+    return `${broker} · ${account.account_type === 'live' ? 'Live' : 'Demo'} · ${login}`;
+  };
+  const selectAccount = (event: ChangeEvent<HTMLSelectElement>) => {
+    const accountId = Number(event.target.value);
+    if (!Number.isInteger(accountId) || accountId <= 0) return;
+    void run('account', () => selectV2CTraderAccount(accountId));
+  };
 
   return (
     <div className="ta-app">
@@ -87,13 +107,47 @@ export default function SystemPage() {
           <div className="v2-hero-card">
             <div className="v2-hero-stat"><span>Readiness</span><strong>{readiness.passed}/{readiness.total}</strong></div>
             <div className="v2-hero-stat"><span>Mode</span><strong>{status?.mode || 'paper_only'}</strong></div>
-            <div className="v2-hero-stat"><span>Account</span><strong>{status?.broker.demo_account_confirmed ? 'Demo verified' : 'Not verified'}</strong></div>
+            <div className="v2-hero-stat"><span>Account</span><strong>{status?.broker.account_id ? `${status.broker.account_type.toUpperCase()} · ${status.broker.account_id}` : 'Not connected'}</strong></div>
             <div className="v2-hero-stat"><span>Market data</span><strong>{status?.broker.market_data_ready ? 'Ready' : 'Waiting'}</strong></div>
             <div className="v2-hero-stat"><span>Kill switch</span><strong>{status?.config.kill_switch ? 'Active' : 'Inactive'}</strong></div>
           </div>
         </section>
 
         {error && <div className="v2-banner v2-banner-bad">{error}</div>}
+
+        <section className="v2-panel">
+          <div className="v2-panel-head">
+            <div>
+              <h2>cTrader account</h2>
+              <span>Choose from the accounts authorized by the current cTrader access token.</span>
+            </div>
+          </div>
+          <div className="v2-form-grid">
+            <label>
+              Selected account
+              <select
+                value={selectedAccount?.account_id ?? ''}
+                onChange={selectAccount}
+                disabled={busy !== '' || accounts.length === 0}
+              >
+                {!selectedAccount && <option value="">Select an account</option>}
+                {accounts.map((account) => (
+                  <option value={account.account_id} key={account.account_id}>
+                    {accountLabel(account)}{account.active ? ' · Active' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="v2-notes">
+            <div>Selected: {selectedAccount ? accountLabel(selectedAccount) : 'none'}</div>
+            <div>Active transport: {activeAccount ? accountLabel(activeAccount) : 'not authenticated'}</div>
+            {selectedAccount && !selectedAccount.active && (
+              <div>Selection saved. The current broker transport has not switched yet, so trading still uses the active authenticated account.</div>
+            )}
+            {!accounts.length && <div>No authorized cTrader accounts are currently available from the connected session.</div>}
+          </div>
+        </section>
 
         <section className="v2-panel">
           <div className="v2-panel-head">
@@ -139,7 +193,7 @@ export default function SystemPage() {
           <div className="v2-panel-head">
             <div>
               <h2>Safety configuration</h2>
-              <span>Paper execution and cTrader demo execution are separate. Live-account execution is always blocked.</span>
+              <span>Paper execution and cTrader execution are separate controls. Broker actions currently follow the active authenticated cTrader account.</span>
             </div>
             <button className="btn primary" type="button" onClick={save} disabled={!draft || busy !== ''}>{busy === 'save' ? 'Saving…' : 'Save safety settings'}</button>
           </div>

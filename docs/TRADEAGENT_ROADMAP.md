@@ -1206,6 +1206,7 @@ Add one row after every completed task.
 | 2026-10-04 | Phase 7 Ollama/model unavailable field verification | Force a real Windows Ollama outage by stopping both the server and app supervisor; verify truthful degraded state, deterministic-trading independence, zero exposure side effects, and full recovery | ✅ Real outage/recovery passed; 16 focused tests passed; timing-sensitive monitor test passed 3/3 on retry; full backend suite passed locally on `e14068c`; PR CI #258 passed backend + frontend | PR #88 / `e14068c` | Deployment-ready baseline reached; remaining broker-position/sample-dependent checks move to post-deployment evidence and must not block normal demo use |
 | 2026-10-04 | Final deployment documentation consistency | Re-confirm the documentation-consistency acceptance evidence against the merged deployment-ready baseline after PRs #86–#88 | ✅ Local docs-only validation passed on `15b5706`: exactly one changed file (`docs/TRADEAGENT_ROADMAP.md`), `git diff --check` clean, all final acceptance wording present, and working tree clean; PR CI #261 passed backend tests + frontend restart/Journal acceptance + production build | PR #89 / `15b5706` | Baseline documentation closure verified; merge and return local `main` to a clean synchronized state |
 | 2026-10-04 | Phase 10.1 cTrader account discovery foundation | Retain and expose every authorized cTrader account with broker-reported Demo/Live type and selected-account identity, without yet changing account switching or order routing | ✅ Local focused suite 20/20 + full backend regression + frontend build passed on `419ab23`; final local head `46fdf75` clean under `git status --short` and `git diff --check`; PR CI #264/#265 passed | PR #90 / `46fdf75` | Proceed to Phase 10.2 dashboard account selector and persisted active account |
+| 2026-10-04 | Phase 10.2 cTrader dashboard account selector | Persist the operator-selected authorized cTrader account and expose a cTrader-style broker/Demo-Live/login selector while keeping active transport truth separate | ✅ Local focused suite 28/28 + full backend regression + frontend build passed on `c3b79ff`; local tree/diff clean; PR CI #274 passed | PR #91 / `c3b79ff` | Proceed to Phase 10.3 account-aware transport switching |
 
 ---
 
@@ -1236,9 +1237,29 @@ Add one row after every completed task.
 This item does not yet change the active account, reconnect transports, or route orders differently. It establishes broker-truth account discovery so account selection can be implemented without environment-variable assumptions.
 
 ### 10.2 Dashboard account selector and persisted active account
-**Status:** ⬜
+**Status:** ✅
 
-Target a cTrader-like selector that lists authorized accounts with broker-reported Demo/Live labels, persists the operator-selected account ID, and changes broker context only through an explicit account-switch operation.
+**Target behavior**
+- [x] Persist the explicitly selected cTrader account ID in the existing SQLite-backed engine configuration.
+- [x] Keep broker truth explicit by distinguishing the saved `selected` account from the currently authenticated `active` transport account.
+- [x] Validate account selection against the authorized account directory before saving it.
+- [x] Expose an explicit `POST /api/broker/accounts/select` operation without reconnecting or mutating broker execution state.
+- [x] Add a cTrader-style account selector to the System dashboard with broker title, automatic Demo/Live label, and the trader login/account number shown in cTrader.
+- [x] Show the active authenticated account separately and disclose when a saved selection is pending a transport switch.
+- [x] Persist the selected account through the existing config serializer without a database schema migration.
+- [x] Local focused backend tests: 28 passed.
+- [x] Local full backend regression suite passed.
+- [x] Local frontend production build passed (701 modules).
+- [x] GitHub CI #274 passed on the final functional head.
+
+**Verification**
+- Local final-head validation on `c3b79ff`: focused account-selection/persistence/account-safety suite 28/28, full backend suite, and frontend production build all passed.
+- `git status --short` and `git diff --check origin/main...HEAD` were clean before and after the test/build run.
+- The selector presents broker title + Demo/Live + trader login/account number while keeping internal cTrader account IDs for API routing and persistence.
+- PR #91 CI #274 passed the final functional head.
+
+**Scope boundary**
+This item stores operator intent and presents it truthfully in the dashboard. It does not reconnect the cTrader client, change the active host/account, or alter order routing; those remain Phase 10.3 and 10.4.
 
 ### 10.3 Account-aware transport switching
 **Status:** ⬜
@@ -1259,4 +1280,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.1 is verified. Proceed to Phase 10.2: add a cTrader-style dashboard account selector backed by the authorized account directory and persist the explicitly selected account ID. Do not mix transport switching or execution-path changes into 10.2; those remain separate Phase 10.3/10.4 items. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.2 is verified. Proceed to Phase 10.3: make the persisted cTrader account selection drive a safe host-aware reconnect/re-authentication so selecting a Demo or Live account changes the active broker transport truthfully. Keep execution semantics unchanged in 10.3; account-neutral order routing remains Phase 10.4. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**

@@ -44,7 +44,20 @@ class CTraderAccount(BaseModel):
     account_id: int
     account_type: Literal["demo", "live"]
     is_live: bool
+    trader_login: Optional[int] = None
+    broker_title: Optional[str] = None
     selected: bool = False
+    active: bool = False
+
+
+class CTraderAccountSelectionRequest(BaseModel):
+    account_id: int = Field(..., gt=0)
+
+
+class CTraderAccountSelectionResponse(BaseModel):
+    selected_account: CTraderAccount
+    active_account_id: Optional[int] = None
+    transport_switch_required: bool = False
 
 
 class BrokerStatus(BaseModel):
@@ -99,6 +112,7 @@ class InstrumentSpec(BaseModel):
 
 class EngineConfig(BaseModel):
     enabled: bool = False
+    selected_ctrader_account_id: Optional[int] = Field(default=None, gt=0)
     paper_autotrade: bool = False
     demo_autotrade: bool = False
     allow_live: bool = False
