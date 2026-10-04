@@ -593,7 +593,7 @@ def account_list_response_cb(res, source_client=None):
         None,
     )
     if selected is None:
-        global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_ERROR
+        global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
         ACCOUNT_IS_DEMO = None
         ACCOUNT_VERIFICATION_ERROR = "Configured cTrader account was not returned for the access token."
         AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
