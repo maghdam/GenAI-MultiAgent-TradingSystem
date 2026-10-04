@@ -249,3 +249,89 @@ def test_app_bootstrap_uses_persisted_account_before_transport_start(monkeypatch
     asyncio.run(_run())
 
     assert calls["engine_stop"] is True
+
+
+def test_app_bootstrap_legacy_id_only_selection_fails_closed_then_switches(monkeypatch) -> None:
+    from backend import app_bootstrap
+    from backend.domain.models import CTraderAccount
+
+    calls = {"saved": [], "switches": []}
+    config = EngineConfig(
+        selected_ctrader_account_id=777,
+        selected_ctrader_account_type=None,
+    )
+
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "1")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_EVENT_INTELLIGENCE_ON_BOOT", "0")
+    monkeypatch.setenv("CTRADER_HOST_TYPE", "demo")
+    monkeypatch.setattr(app_bootstrap, "load_engine_config", lambda defaults: config)
+    monkeypatch.setattr(app_bootstrap, "configured_feed_urls", lambda: [])
+    monkeypatch.setattr(
+        app_bootstrap.broker_adapter,
+        "start_transport",
+        lambda **kwargs: calls.setdefault("transport", kwargs) is not None,
+    )
+    monkeypatch.setattr(
+        app_bootstrap.broker_adapter,
+        "list_accounts",
+        lambda: [
+            CTraderAccount(
+                account_id=777,
+                account_type="live",
+                is_live=True,
+                trader_login=2123962,
+                broker_title="FP Trading",
+                selected=True,
+                active=False,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        app_bootstrap.broker_adapter,
+        "switch_account",
+        lambda account_id, account_type: calls["switches"].append(
+            (account_id, account_type)
+        )
+        or {"switch_started": True},
+    )
+    monkeypatch.setattr(
+        app_bootstrap,
+        "save_engine_config",
+        lambda updated: calls["saved"].append(updated) or updated,
+    )
+
+    async def _engine_start():
+        calls["engine_start"] = True
+
+    async def _engine_stop():
+        calls["engine_stop"] = True
+
+    async def _sleep(_seconds):
+        return None
+
+    async def _market_loop(*_args):
+        import asyncio
+
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(app_bootstrap.tradeagent_engine, "start", _engine_start)
+    monkeypatch.setattr(app_bootstrap.tradeagent_engine, "stop", _engine_stop)
+    monkeypatch.setattr(app_bootstrap.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(app_bootstrap, "market_data_probe_loop", _market_loop)
+
+    async def _run():
+        async with app_bootstrap.app_lifespan(object()):
+            assert calls["transport"] == {
+                "account_id": 777,
+                "account_type": "demo",
+            }
+            assert calls["switches"] == [(777, "live")]
+            assert calls["saved"][-1].selected_ctrader_account_type == "live"
+            assert calls["engine_start"] is True
+
+    import asyncio
+
+    asyncio.run(_run())
+
+    assert calls["engine_stop"] is True
