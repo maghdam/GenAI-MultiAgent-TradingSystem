@@ -93,12 +93,12 @@ def fail_safe_close_unverified_position(
 
     log_incident(
         "error",
-        "ctrader_demo_protection_unverified",
+        "ctrader_protection_unverified",
         f"Broker protection is unverified for {position.symbol}:{position.timeframe}; fail-safe close will be attempted.",
         details,
     )
     add_trade_audit(
-        event_type="ctrader_demo_protection_unverified",
+        event_type="ctrader_protection_unverified",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
@@ -128,12 +128,12 @@ def fail_safe_close_unverified_position(
         }
         log_incident(
             "error",
-            "ctrader_demo_protection_failsafe_close_failed",
+            "ctrader_protection_failsafe_close_failed",
             f"Fail-safe close did not reach verified broker closure for unverified cTrader protection on {position.symbol}:{position.timeframe}.",
             failed,
         )
         add_trade_audit(
-            event_type="ctrader_demo_protection_failsafe_close_failed",
+            event_type="ctrader_protection_failsafe_close_failed",
             symbol=position.symbol,
             timeframe=position.timeframe,
             strategy=position.strategy,
@@ -155,12 +155,12 @@ def fail_safe_close_unverified_position(
     }
     log_incident(
         "warning",
-        "ctrader_demo_protection_failsafe_closed",
+        "ctrader_protection_failsafe_closed",
         f"Closed cTrader position because broker protection could not be verified for {position.symbol}:{position.timeframe}.",
         succeeded,
     )
     add_trade_audit(
-        event_type="ctrader_demo_protection_failsafe_closed",
+        event_type="ctrader_protection_failsafe_closed",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
