@@ -54,9 +54,9 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
-    ctd.AVAILABLE_ACCOUNTS.clear()
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
 
-    ctd.account_list_response_cb(object())
+    deferred = ctd.account_list_response_cb(object())
 
     assert ctd.get_available_accounts() == [
         {
@@ -90,7 +90,6 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     assert len(sent) == 1
     assert sent[0].ctidTraderAccountId == 47140414
 
-    deferred = ctd.account_list_response_cb(object())
     success, _ = deferred.callbacks
     success(object())
 
