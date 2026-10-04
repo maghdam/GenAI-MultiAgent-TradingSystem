@@ -27,4 +27,4 @@ The subprocess and AST policy are a strong local robustness boundary, but they a
 
 ## Runtime promotion
 
-Generated files cannot directly enter autonomous paper or live execution. Promotion must be an explicit workflow that produces a reviewed deterministic runtime strategy, tests, a version, and validation evidence.
+Generated files cannot directly enter autonomous paper or cTrader demo execution, and live-account execution is blocked globally. Lifecycle promotion records evidence and approval state for the exact saved source version, but promotion does not import or register raw generated source into the trusted runtime. Autonomous execution of generated logic still requires explicit reviewed integration into the deterministic runtime strategy registry, tests, and the applicable lifecycle gate.
