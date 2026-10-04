@@ -1207,6 +1207,7 @@ Add one row after every completed task.
 | 2026-10-04 | Final deployment documentation consistency | Re-confirm the documentation-consistency acceptance evidence against the merged deployment-ready baseline after PRs #86–#88 | ✅ Local docs-only validation passed on `15b5706`: exactly one changed file (`docs/TRADEAGENT_ROADMAP.md`), `git diff --check` clean, all final acceptance wording present, and working tree clean; PR CI #261 passed backend tests + frontend restart/Journal acceptance + production build | PR #89 / `15b5706` | Baseline documentation closure verified; merge and return local `main` to a clean synchronized state |
 | 2026-10-04 | Phase 10.1 cTrader account discovery foundation | Retain and expose every authorized cTrader account with broker-reported Demo/Live type and selected-account identity, without yet changing account switching or order routing | ✅ Local focused suite 20/20 + full backend regression + frontend build passed on `419ab23`; final local head `46fdf75` clean under `git status --short` and `git diff --check`; PR CI #264/#265 passed | PR #90 / `46fdf75` | Proceed to Phase 10.2 dashboard account selector and persisted active account |
 | 2026-10-04 | Phase 10.2 cTrader dashboard account selector | Persist the operator-selected authorized cTrader account and expose a cTrader-style broker/Demo-Live/login selector while keeping active transport truth separate | ✅ Local focused suite 28/28 + full backend regression + frontend build passed on `c3b79ff`; local tree/diff clean; PR CI #274 passed | PR #91 / `c3b79ff` | Proceed to Phase 10.3 account-aware transport switching |
+| 2026-10-04 | Phase 10.3 cTrader account-aware transport switching | Make the persisted account selection drive safe same-host re-authentication or Demo↔Live client replacement without restarting the Twisted reactor | ✅ Local focused suite 59/59 + full backend regression + frontend build passed on `451c5d3`; local tree/diff clean; PR CI #287 passed | PR #92 / `451c5d3` | Proceed to Phase 10.4 account-neutral execution path |
 
 ---
 
@@ -1262,7 +1263,7 @@ This item does not yet change the active account, reconnect transports, or route
 This item stores operator intent and presents it truthfully in the dashboard. It does not reconnect the cTrader client, change the active host/account, or alter order routing; those remain Phase 10.3 and 10.4.
 
 ### 10.3 Account-aware transport switching
-**Status:** 🧪
+**Status:** ✅
 
 **Target behavior**
 - [x] Persist the selected account's broker-reported Demo/Live type alongside its internal cTrader account ID.
@@ -1277,10 +1278,16 @@ This item stores operator intent and presents it truthfully in the dashboard. It
 - [x] Permit a Live account to authenticate for broker truth/market data while keeping the existing demo-only order-submission guard unchanged until Phase 10.4.
 - [x] Reject account switching while the engine is active without the kill switch or while TradeAgent tracks an open broker-backed position.
 - [x] Poll account-directory truth during the transition so the System page automatically converges from selected→active.
-- [ ] Local focused account-switching/safety tests.
-- [ ] Local full backend regression suite.
-- [ ] Local frontend production build.
-- [ ] GitHub CI.
+- [x] Local focused account-switching/safety tests: 59 passed.
+- [x] Local full backend regression suite passed.
+- [x] Local frontend production build passed (701 modules).
+- [x] GitHub CI #287 passed on the final functional head.
+
+**Verification**
+- Local final-head validation on `451c5d3`: focused account-switching/directory/account-safety/broker-adapter/persistence/symbol-metadata suite 59/59, full backend suite, and frontend production build all passed.
+- `git status --short` and `git diff --check origin/main...HEAD` were clean before and after validation.
+- Same-host re-authentication, Demo↔Live client replacement, persisted startup targeting, stale-callback suppression, switch-state truthfulness, and safety-gate rejection are covered by focused regression tests.
+- PR #92 CI #287 passed the final functional head.
 
 **Scope boundary**
 Phase 10.3 changes account/transport activation only. Demo-specific execution APIs, `demo_autotrade`, `allow_live` rejection, and the final live-order guard remain unchanged until Phase 10.4.
@@ -1299,4 +1306,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.3 is ready for local validation. Validate same-host re-authentication, Demo↔Live client replacement without reactor restart, persisted startup targeting, switch-state truthfulness, safety-gate rejection, the full backend regression suite, and the frontend production build. Do not begin account-neutral order routing until local validation and GitHub CI pass and Phase 10.3 is marked verified. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.3 is verified. Proceed to Phase 10.4: make cTrader execution account-neutral so the same guarded trading, risk, protection, reconciliation, recovery, and audit path can operate on the explicitly selected Demo or Live account. Remove demo-only naming and live hard-rejection only as part of that coherent execution-policy change, while preserving all existing operational safeguards and fail-closed behavior. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
