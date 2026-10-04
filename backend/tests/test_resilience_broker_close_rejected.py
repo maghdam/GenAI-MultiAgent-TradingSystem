@@ -7,8 +7,8 @@ import pytest
 import backend.ctrader_client as ctd
 from backend.adapters.ctrader import (
     CTraderBrokerAdapter,
-    DemoCloseOutcomeAmbiguous,
-    DemoCloseRejected,
+    CTraderCloseOutcomeAmbiguous,
+    CTraderCloseRejected,
 )
 from backend.api import router as router_module
 from backend.domain.models import (
@@ -115,7 +115,7 @@ def _analysis() -> StrategyAnalysis:
 def _mock_demo_ready(monkeypatch) -> None:
     monkeypatch.setattr(
         execution_engine,
-        "get_demo_symbol_execution_readiness",
+        "get_symbol_execution_readiness",
         lambda symbol: (True, "ready"),
     )
     monkeypatch.setattr(
@@ -151,8 +151,8 @@ def test_adapter_classifies_explicit_close_rejection(monkeypatch) -> None:
         },
     )
 
-    with pytest.raises(DemoCloseRejected) as exc_info:
-        CTraderBrokerAdapter().close_demo_position(
+    with pytest.raises(CTraderCloseRejected) as exc_info:
+        CTraderBrokerAdapter().close_position(
             symbol="XAUUSD",
             position_id=111,
             quantity_lots=0.25,
@@ -179,7 +179,7 @@ def test_adapter_timeout_reconciles_to_verified_close_when_position_disappears(m
     monkeypatch.setattr(ctd, "get_open_positions", lambda: [])
     monkeypatch.setattr(broker, "get_closed_position_summary", lambda position_id: None)
 
-    result = broker.close_demo_position(
+    result = broker.close_position(
         symbol="XAUUSD",
         position_id=111,
         quantity_lots=0.25,
@@ -211,8 +211,8 @@ def test_adapter_timeout_still_open_is_ambiguous_post_submit(monkeypatch) -> Non
     )
     monkeypatch.setattr("backend.adapters.ctrader.time.sleep", lambda _: None)
 
-    with pytest.raises(DemoCloseOutcomeAmbiguous) as exc_info:
-        broker.close_demo_position(
+    with pytest.raises(CTraderCloseOutcomeAmbiguous) as exc_info:
+        broker.close_position(
             symbol="XAUUSD",
             position_id=111,
             quantity_lots=0.25,
@@ -252,15 +252,15 @@ def test_explicit_rejection_retains_tracker_and_surfaces_active_incident(monkeyp
 
     def _reject(**kwargs):
         calls["close"] += 1
-        raise DemoCloseRejected(
+        raise CTraderCloseRejected(
             "broker rejected close",
             broker_position_id=111,
             ack={"status": "order_rejected", "reject_reason": "TRADING_BAD_VOLUME"},
         )
 
-    monkeypatch.setattr(close_safety, "close_demo_position", _reject)
+    monkeypatch.setattr(close_safety, "close_position", _reject)
 
-    result = close_safety.attempt_verified_demo_close(
+    result = close_safety.attempt_verified_close(
         position,
         fallback_price=100.0,
         reason="broker_take_profit",
@@ -274,7 +274,7 @@ def test_explicit_rejection_retains_tracker_and_surfaces_active_incident(monkeyp
     assert list_paper_positions("open")[0].broker_position_id == 111
 
     monkeypatch.setattr(close_safety, "list_positions", lambda: [_broker_row()])
-    second = close_safety.attempt_verified_demo_close(
+    second = close_safety.attempt_verified_close(
         position,
         fallback_price=100.0,
         reason="broker_take_profit",
@@ -312,18 +312,18 @@ def test_ambiguous_close_never_resubmits_and_later_broker_absence_closes_tracker
 
     def _ambiguous(**kwargs):
         calls["close"] += 1
-        raise DemoCloseOutcomeAmbiguous(
+        raise CTraderCloseOutcomeAmbiguous(
             "close acknowledgement timed out",
             failure_kind="ack_timeout",
             broker_position_id=111,
             ack={"status": "failed", "error": "deferred timeout"},
         )
 
-    monkeypatch.setattr(close_safety, "close_demo_position", _ambiguous)
+    monkeypatch.setattr(close_safety, "close_position", _ambiguous)
     monkeypatch.setattr(close_safety, "list_positions", lambda: list(broker_rows["rows"]))
     monkeypatch.setattr(close_safety, "get_closed_position_summary", lambda *args, **kwargs: None)
 
-    first = close_safety.attempt_verified_demo_close(
+    first = close_safety.attempt_verified_close(
         position,
         fallback_price=100.0,
         reason="broker_take_profit",
@@ -335,7 +335,7 @@ def test_ambiguous_close_never_resubmits_and_later_broker_absence_closes_tracker
     assert calls["close"] == 1
     assert list_paper_positions("open")[0].id == position.id
 
-    second = close_safety.attempt_verified_demo_close(
+    second = close_safety.attempt_verified_close(
         position,
         fallback_price=100.0,
         reason="broker_take_profit",
@@ -359,7 +359,7 @@ def test_ambiguous_close_never_resubmits_and_later_broker_absence_closes_tracker
     assert any(item.code == "broker_close_ambiguous" for item in active)
 
     broker_rows["rows"] = []
-    third = close_safety.attempt_verified_demo_close(
+    third = close_safety.attempt_verified_close(
         position,
         fallback_price=100.0,
         reason="broker_take_profit",
@@ -396,7 +396,7 @@ def test_new_order_protective_close_rejection_sends_only_one_close_and_retains_t
     monkeypatch.setattr(execution_engine, "list_positions", lambda: [])
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: {
             "status": "executed",
             "account_type": "demo",
@@ -410,7 +410,7 @@ def test_new_order_protective_close_rejection_sends_only_one_close_and_retains_t
     )
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: {
             "status": "exit_due_stop_loss",
             "position_id": 111,
@@ -422,13 +422,13 @@ def test_new_order_protective_close_rejection_sends_only_one_close_and_retains_t
 
     def _reject_close(**kwargs):
         calls["close"] += 1
-        raise DemoCloseRejected(
+        raise CTraderCloseRejected(
             "broker rejected close",
             broker_position_id=111,
             ack={"status": "order_rejected", "reject_reason": "TRADING_BAD_VOLUME"},
         )
 
-    monkeypatch.setattr(execution_engine, "close_demo_position", _reject_close)
+    monkeypatch.setattr(execution_engine, "close_position", _reject_close)
 
     result = execute_paper_signal(
         config=_config(),
