@@ -23,6 +23,7 @@ def test_settings_and_watchlist_survive_storage_restart() -> None:
     original = EngineConfig(
         enabled=True,
         selected_ctrader_account_id=2123962,
+        selected_ctrader_account_type="live",
         paper_autotrade=True,
         demo_autotrade=False,
         kill_switch=False,
