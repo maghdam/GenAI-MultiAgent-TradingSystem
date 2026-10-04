@@ -404,7 +404,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
 
     calls = []
     monkeypatch.setattr(engine_module, "get_bars", lambda *args, **kwargs: bars)
-    monkeypatch.setattr(engine_module, "recover_demo_broker_trackers", lambda config: {"ready": True})
+    monkeypatch.setattr(engine_module, "recover_broker_trackers", lambda config: {"ready": True})
     monkeypatch.setattr(
         engine_module,
         "get_broker_status",
@@ -436,7 +436,7 @@ def test_run_once_repairs_demo_protection_on_already_processed_bar(monkeypatch) 
     )
     monkeypatch.setattr(
         engine_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
     )
 
@@ -509,7 +509,7 @@ def test_execute_paper_signal_accepts_timezone_aware_fresh_bar() -> None:
 
 def test_demo_execution_defers_until_symbol_metadata_is_ready(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (False, "Broker lotSize metadata is not loaded yet for XAUUSD."),
     )
     result = execute_paper_signal(
@@ -557,7 +557,7 @@ def test_demo_existing_position_sync_uses_persisted_broker_position_id(monkeypat
         ],
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: calls.append(kwargs) or {"status": "already_synced", "verified": True, "position_id": 111},
     )
 
@@ -611,7 +611,7 @@ def test_demo_existing_position_does_not_hijack_different_same_side_broker_posit
         lambda position, **kwargs: closed.append(position.id),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: pytest.fail("different broker position id must not be used for protection"),
     )
 
@@ -659,7 +659,7 @@ def test_demo_legacy_position_refuses_ambiguous_symbol_direction_identity(monkey
         ],
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: pytest.fail("ambiguous legacy identity must block broker protection"),
     )
 
@@ -700,7 +700,7 @@ def test_demo_existing_position_repairs_broker_protection_even_on_no_trade(monke
     )
     calls = []
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: calls.append(kwargs) or {"status": "synced", "verified": True, "position_id": 456},
     )
 
@@ -749,9 +749,9 @@ def test_demo_target_update_keeps_local_targets_when_broker_sync_fails(monkeypat
             return {"status": "already_synced", "verified": True, "position_id": 456}
         raise RuntimeError("broker amend rejected")
 
-    monkeypatch.setattr("backend.services.execution_engine.sync_demo_position_targets", _sync)
+    monkeypatch.setattr("backend.services.execution_engine.sync_position_targets", _sync)
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (True, "Broker symbol contract metadata is ready."),
     )
 
