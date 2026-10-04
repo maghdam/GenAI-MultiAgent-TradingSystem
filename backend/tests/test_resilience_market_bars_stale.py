@@ -45,7 +45,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=True,
-        demo_autotrade=False,
+        ctrader_autotrade=False,
         kill_switch=False,
         min_confidence=0.60,
         watchlist=[_watch_item()],
@@ -158,7 +158,7 @@ def test_stale_auto_scan_defers_before_same_bar_maintenance_or_intent(monkeypatc
     )
     monkeypatch.setattr(
         engine,
-        "_sync_existing_demo_protection",
+        "_sync_existing_ctrader_protection",
         lambda *args, **kwargs: pytest.fail("broker protection maintenance must be suppressed on stale data"),
     )
 
@@ -207,7 +207,7 @@ def test_fresh_bar_recovery_processes_once_and_prevents_duplicate_replay(monkeyp
     monkeypatch.setattr(engine_module, "add_analysis", lambda analysis: analysis)
     monkeypatch.setattr(engine_module, "record_confluence_shadow", lambda *args, **kwargs: None)
     monkeypatch.setattr(engine, "_mark_positions", lambda *args, **kwargs: None)
-    monkeypatch.setattr(engine, "_sync_existing_demo_protection", lambda *args, **kwargs: None)
+    monkeypatch.setattr(engine, "_sync_existing_ctrader_protection", lambda *args, **kwargs: None)
 
     def _execute(**kwargs) -> ExecutionResult:
         nonlocal executions
@@ -273,7 +273,7 @@ def test_market_status_reports_stale_then_recovers_on_fresh_bar(monkeypatch) -> 
 def test_active_stale_market_incident_is_actionable_and_clears_after_recovery() -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=False,
+        ctrader_autotrade=False,
         kill_switch=False,
         watchlist=[_watch_item()],
     )
