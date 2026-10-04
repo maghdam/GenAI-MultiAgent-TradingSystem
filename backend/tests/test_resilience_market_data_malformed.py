@@ -41,7 +41,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=True,
-        demo_autotrade=False,
+        ctrader_autotrade=False,
         kill_switch=False,
         min_confidence=0.60,
         watchlist=[_watch_item()],
@@ -181,7 +181,7 @@ def test_malformed_auto_scan_suppresses_strategy_maintenance_and_intent(monkeypa
     )
     monkeypatch.setattr(
         engine,
-        "_sync_existing_demo_protection",
+        "_sync_existing_ctrader_protection",
         lambda *args, **kwargs: pytest.fail("broker protection mutation must be suppressed on malformed data"),
     )
 
@@ -214,7 +214,7 @@ def test_valid_bar_recovery_processes_once_after_malformed_episode(monkeypatch) 
     monkeypatch.setattr(engine_module, "add_analysis", lambda value: value)
     monkeypatch.setattr(engine_module, "record_confluence_shadow", lambda *args, **kwargs: None)
     monkeypatch.setattr(engine, "_mark_positions", lambda *args, **kwargs: None)
-    monkeypatch.setattr(engine, "_sync_existing_demo_protection", lambda *args, **kwargs: None)
+    monkeypatch.setattr(engine, "_sync_existing_ctrader_protection", lambda *args, **kwargs: None)
 
     def _execute(**kwargs) -> ExecutionResult:
         nonlocal execution_calls
@@ -269,6 +269,7 @@ def test_active_malformed_market_incident_is_actionable_and_clears() -> None:
         market_data_ready=False,
         broker_mode="demo",
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
         notes=[f"market_data_unavailable: {malformed_reason}"],
