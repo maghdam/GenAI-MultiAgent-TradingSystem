@@ -576,7 +576,7 @@ def execute_paper_signal(
                         timeframe=position.timeframe,
                         strategy=position.strategy,
                         position_id=closed.id,
-                        summary="Closed cTrader cTrader position because an intended protective target was already crossed.",
+                        summary="Closed cTrader position because an intended protective target was already crossed.",
                         details={"protection": protection, "close_result": close_result},
                     )
                     return ExecutionResult(
@@ -648,7 +648,7 @@ def execute_paper_signal(
                     action_taken=True,
                     intent_id=None,
                     status="failed",
-                    summary="Demo position was closed by fail-safe because broker protection could not be verified.",
+                    summary="cTrader position was closed by fail-safe because broker protection could not be verified.",
                     position_id=int(failsafe.get("closed_position_id") or position.id),
                     mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
@@ -700,7 +700,7 @@ def execute_paper_signal(
             log_incident(
                 "warning",
                 "ctrader_demo_symbol_not_ready",
-                f"Deferred cTrader cTrader execution for {analysis.symbol}:{analysis.timeframe}",
+                f"Deferred cTrader execution for {analysis.symbol}:{analysis.timeframe}",
                 {"reason": broker_reason, "retryable": True},
             )
             add_trade_audit(
@@ -733,7 +733,7 @@ def execute_paper_signal(
             log_incident(
                 "warning",
                 "ctrader_demo_account_snapshot_not_ready",
-                f"Deferred cTrader cTrader execution for {analysis.symbol}:{analysis.timeframe}",
+                f"Deferred cTrader execution for {analysis.symbol}:{analysis.timeframe}",
                 {"reason": reason, **monetary_basis.as_details(), "retryable": True},
             )
             add_trade_audit(
@@ -1129,7 +1129,7 @@ def execute_paper_signal(
                             strategy=analysis.strategy,
                             intent_id=intent.id,
                             position_id=closed.id,
-                            summary="Closed cTrader cTrader position because the refreshed target was already crossed.",
+                            summary="Closed cTrader position because the refreshed target was already crossed.",
                             details={"protection": broker_protection, "close_result": close_result},
                         )
                         return ExecutionResult(
@@ -1221,7 +1221,7 @@ def execute_paper_signal(
                     intent_id=intent.id,
                     status="failed" if failsafe.get("closed") else "protection_failsafe_pending",
                     summary=(
-                        "Demo position was closed by fail-safe because broker protection could not be verified."
+                        "cTrader position was closed by fail-safe because broker protection could not be verified."
                         if failsafe.get("closed")
                         else "Broker protection failed and the fail-safe close failed; canonical tracking was retained."
                     ),
@@ -1326,7 +1326,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "sqlite_persistence_busy_pre_submit",
-                f"Blocked cTrader cTrader submission for {analysis.symbol}:{analysis.timeframe} because the durable submission reservation could not be written.",
+                f"Blocked cTrader submission for {analysis.symbol}:{analysis.timeframe} because the durable submission reservation could not be written.",
                 {
                     "intent_id": intent.id,
                     "phase": "submission_reservation",
@@ -1382,7 +1382,7 @@ def execute_paper_signal(
                 log_incident(
                     "warning",
                     "ctrader_demo_order_ack_timeout_reconciled",
-                    f"cTrader cTrader order acknowledgement timed out for {analysis.symbol}:{analysis.timeframe}, but broker reconciliation confirmed one new position.",
+                    f"cTrader order acknowledgement timed out for {analysis.symbol}:{analysis.timeframe}, but broker reconciliation confirmed one new position.",
                     {
                         "intent_id": intent.id,
                         "client_msg_id": client_msg_id,
@@ -1431,7 +1431,7 @@ def execute_paper_signal(
                 log_incident(
                     "error",
                     "ctrader_demo_order_ack_timeout_ambiguous",
-                    f"cTrader cTrader order acknowledgement timed out after submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
+                    f"cTrader order acknowledgement timed out after submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
                     {"intent_id": intent.id, **details},
                 )
                 add_trade_audit(
@@ -1448,7 +1448,7 @@ def execute_paper_signal(
                     intent_id=intent.id,
                     status="failed",
                     summary=(
-                        "cTrader cTrader order acknowledgement timed out after submission; "
+                        "cTrader order acknowledgement timed out after submission; "
                         "broker outcome is ambiguous and automatic retry is blocked."
                     ),
                     mode=_ctrader_execution_mode(),
@@ -1473,7 +1473,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "ctrader_demo_order_failed",
-                f"cTrader cTrader order failed for {analysis.symbol}:{analysis.timeframe}",
+                f"cTrader order failed for {analysis.symbol}:{analysis.timeframe}",
                 {"intent_id": intent.id, "error": str(exc)},
             )
             add_trade_audit(
@@ -1482,7 +1482,7 @@ def execute_paper_signal(
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
                 intent_id=intent.id,
-                summary="cTrader cTrader order was not executed.",
+                summary="cTrader order was not executed.",
                 details={"error": str(exc), "quantity": trade_quantity},
             )
             return ExecutionResult(
@@ -1553,7 +1553,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "sqlite_persistence_busy_post_submit",
-                f"SQLite became busy after cTrader cTrader submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
+                f"SQLite became busy after cTrader submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
                 {
                     "intent_id": intent.id,
                     "phase": "broker_confirmed_handoff",
@@ -1678,7 +1678,7 @@ def execute_paper_signal(
             )
             try:
                 if broker_position_id <= 0:
-                    raise RuntimeError("cTrader cTrader order did not return a valid broker position id for fail-safe close.")
+                    raise RuntimeError("cTrader order did not return a valid broker position id for fail-safe close.")
                 broker_close = close_position(
                     symbol=analysis.symbol,
                     position_id=broker_position_id,
@@ -1693,7 +1693,7 @@ def execute_paper_signal(
                 log_incident(
                     "error",
                     "ctrader_demo_unprotected_failsafe_close_failed",
-                    f"Fail-safe close failed for unprotected cTrader cTrader position {analysis.symbol}:{analysis.timeframe}",
+                    f"Fail-safe close failed for unprotected cTrader position {analysis.symbol}:{analysis.timeframe}",
                     {
                         "intent_id": intent.id,
                         "broker_position_id": broker_position_id or None,
@@ -1731,7 +1731,7 @@ def execute_paper_signal(
                 log_incident(
                     "warning",
                     "ctrader_demo_unprotected_failsafe_closed",
-                    f"Closed unprotected cTrader cTrader position for {analysis.symbol}:{analysis.timeframe}",
+                    f"Closed unprotected cTrader position for {analysis.symbol}:{analysis.timeframe}",
                     {
                         "intent_id": intent.id,
                         "broker_position_id": broker_position_id,
@@ -1745,7 +1745,7 @@ def execute_paper_signal(
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
                     intent_id=intent.id,
-                    summary="Closed cTrader cTrader position because broker SL/TP could not be verified.",
+                    summary="Closed cTrader position because broker SL/TP could not be verified.",
                     details={
                         "broker_position_id": broker_position_id,
                         "protection_error": str(exc),
@@ -1756,7 +1756,7 @@ def execute_paper_signal(
                     action_taken=True,
                     intent_id=intent.id,
                     status="failed",
-                    summary="Demo position was closed by fail-safe because broker protection could not be verified.",
+                    summary="cTrader position was closed by fail-safe because broker protection could not be verified.",
                     mode=_ctrader_execution_mode(),
                     broker_position_id=broker_position_id,
                     retryable=False,
@@ -1961,7 +1961,7 @@ def execute_paper_signal(
             intent_id=intent.id,
             position_id=created.id,
             summary=(
-                "Executed cTrader cTrader order and opened the local tracking position."
+                "Executed cTrader order and opened the local tracking position."
                 if broker_order
                 else "Opened new paper position from accepted signal."
             ),
