@@ -29,7 +29,7 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         market_detail = market_data_dependency_state.last_reason or f"Last market-data probe for {probe_symbol}:{probe_timeframe}."
     monetary_basis = resolve_monetary_basis(
         config,
-        demo_execution=bool(config.demo_autotrade),
+        ctrader_execution=bool(config.ctrader_autotrade),
         account_snapshot=broker.account_snapshot,
     )
     loss_budget = daily_loss_budget(config, realized_today, monetary_basis) if monetary_basis.verified else None
@@ -42,7 +42,7 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         ReadinessCheck(
             name="kill_switch",
             ok=not config.kill_switch,
-            detail="Kill switch is off." if not config.kill_switch else "Kill switch is active; live execution must remain disabled.",
+            detail="Kill switch is off." if not config.kill_switch else "Kill switch is active; cTrader execution is blocked.",
         ),
         ReadinessCheck(
             name="broker_transport",
@@ -50,18 +50,18 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
             detail="cTrader transport connected." if broker.connected else "cTrader transport disconnected.",
         ),
         ReadinessCheck(
-            name="demo_execution",
-            ok=not config.demo_autotrade or broker.execution_ready,
+            name="ctrader_execution",
+            ok=not config.ctrader_autotrade or broker.execution_ready,
             detail=(
-                "cTrader demo account and monetary risk basis are verified for execution."
+                f"cTrader {broker.account_type} account and monetary risk basis are verified for execution."
                 if broker.execution_ready
                 else (
-                    "Demo execution is off."
-                    if not config.demo_autotrade
+                    "cTrader execution is off."
+                    if not config.ctrader_autotrade
                     else (
-                        "Demo execution is blocked until cTrader confirms the connected account is demo."
-                        if not broker.demo_account_confirmed
-                        else "Demo execution is blocked until cTrader provides a verified account currency and positive equity."
+                        "cTrader execution is blocked until the selected account is authenticated and verified."
+                        if not broker.account_verified
+                        else "cTrader execution is blocked until cTrader provides a verified account currency and positive equity."
                     )
                 )
             ),
@@ -84,11 +84,6 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
             name="market_data_feed",
             ok=bool(market_ok),
             detail=market_detail,
-        ),
-        ReadinessCheck(
-            name="live_permission",
-            ok=not config.allow_live,
-            detail="Paper-only mode enforced." if not config.allow_live else "Live mode requested; execution engine is not enabled in V2 yet.",
         ),
         ReadinessCheck(
             name="daily_loss_limit",
