@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
-
 import pytest
 
 from backend import ctrader_client as ctd
 from backend.adapters.ctrader import CTraderBrokerAdapter
 from backend.api import router as router_module
-from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, EngineConfig
+from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, EngineConfig, EngineRuntime
 
 
 def _verified_snapshot(account_id: int = 47139918) -> BrokerAccountSnapshot:
@@ -165,7 +163,7 @@ def test_status_payload_reports_live_enabled_for_shared_ctrader_execution(monkey
     monkeypatch.setattr(router_module, "list_trade_audits", lambda limit: [])
     monkeypatch.setattr(router_module, "list_decision_records", lambda limit: [])
     monkeypatch.setattr(router_module, "list_confluence_shadows", lambda limit: [])
-    runtime = SimpleNamespace(
+    runtime = EngineRuntime(
         loop_active=False,
         active_watchlist=[],
         ollama_ready=True,
