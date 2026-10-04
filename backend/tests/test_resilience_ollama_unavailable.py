@@ -24,6 +24,7 @@ def _broker_ready() -> BrokerStatus:
         market_data_ready=True,
         broker_mode="demo",
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
         notes=[],
