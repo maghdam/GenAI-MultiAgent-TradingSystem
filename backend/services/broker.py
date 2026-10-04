@@ -7,6 +7,10 @@ from typing import Any, Callable, Dict, List, TypeVar
 import backend.ctrader_client as ctd
 
 from backend.adapters.ctrader import (
+    CTraderCloseOutcomeAmbiguous,
+    CTraderCloseRejected,
+    CTraderOrderAcknowledgementTimeout,
+    CTraderProtectionSyncFailure,
     DemoCloseOutcomeAmbiguous,
     DemoCloseRejected,
     DemoOrderAcknowledgementTimeout,
@@ -24,12 +28,12 @@ _T = TypeVar("_T")
 
 
 def _execution_ready() -> bool:
-    """Classify availability from local connection/auth/demo flags only."""
+    """Classify availability from local connection/auth/account-confirmation flags."""
     try:
         return bool(
             ctd.is_connected()
             and ctd.is_authorized()
-            and ctd.is_demo_account_confirmed()
+            and ctd.is_account_confirmed()
         )
     except Exception:
         return False
@@ -62,7 +66,7 @@ def _timed_broker_call(
         else:
             record_broker_unavailable(
                 operation,
-                "Broker-facing service call completed without confirmed demo execution availability.",
+                "Broker-facing service call completed without confirmed cTrader execution availability.",
             )
     except Exception:
         # Observability must never change broker-service behavior.
@@ -109,22 +113,35 @@ def get_instrument_spec(symbol: str, account_currency: str = "USD") -> Instrumen
     return adapter.get_instrument_spec(symbol, account_currency)
 
 
+def get_symbol_execution_readiness(symbol: str) -> tuple[bool, str]:
+    return adapter.symbol_execution_readiness(symbol)
+
+
+def sync_position_targets(**kwargs) -> Dict[str, Any]:
+    return _timed_broker_call(
+        "sync_position_targets",
+        lambda: adapter.sync_position_targets(**kwargs),
+    )
+
+
+def close_position(**kwargs) -> Dict[str, Any]:
+    return _timed_broker_call(
+        "close_position",
+        lambda: adapter.close_position(**kwargs),
+    )
+
+
+# Backward-compatible wrappers for pre-Phase-10.4 callers/tests.
 def get_demo_symbol_execution_readiness(symbol: str) -> tuple[bool, str]:
-    return adapter.demo_symbol_execution_readiness(symbol)
+    return get_symbol_execution_readiness(symbol)
 
 
 def sync_demo_position_targets(**kwargs) -> Dict[str, Any]:
-    return _timed_broker_call(
-        "sync_demo_position_targets",
-        lambda: adapter.sync_demo_position_targets(**kwargs),
-    )
+    return sync_position_targets(**kwargs)
 
 
 def close_demo_position(**kwargs) -> Dict[str, Any]:
-    return _timed_broker_call(
-        "close_demo_position",
-        lambda: adapter.close_demo_position(**kwargs),
-    )
+    return close_position(**kwargs)
 
 
 def get_position_close_deals(
@@ -159,8 +176,12 @@ def get_closed_position_summary(
     )
 
 
-def place_demo_market_order(**kwargs) -> Dict[str, Any]:
+def place_market_order(**kwargs) -> Dict[str, Any]:
     return _timed_broker_call(
-        "place_demo_market_order",
-        lambda: adapter.place_demo_market_order(**kwargs),
+        "place_market_order",
+        lambda: adapter.place_market_order(**kwargs),
     )
+
+
+def place_demo_market_order(**kwargs) -> Dict[str, Any]:
+    return place_market_order(**kwargs)
