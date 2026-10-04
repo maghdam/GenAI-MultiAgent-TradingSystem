@@ -1208,6 +1208,7 @@ Add one row after every completed task.
 | 2026-10-04 | Phase 10.1 cTrader account discovery foundation | Retain and expose every authorized cTrader account with broker-reported Demo/Live type and selected-account identity, without yet changing account switching or order routing | ✅ Local focused suite 20/20 + full backend regression + frontend build passed on `419ab23`; final local head `46fdf75` clean under `git status --short` and `git diff --check`; PR CI #264/#265 passed | PR #90 / `46fdf75` | Proceed to Phase 10.2 dashboard account selector and persisted active account |
 | 2026-10-04 | Phase 10.2 cTrader dashboard account selector | Persist the operator-selected authorized cTrader account and expose a cTrader-style broker/Demo-Live/login selector while keeping active transport truth separate | ✅ Local focused suite 28/28 + full backend regression + frontend build passed on `c3b79ff`; local tree/diff clean; PR CI #274 passed | PR #91 / `c3b79ff` | Proceed to Phase 10.3 account-aware transport switching |
 | 2026-10-04 | Phase 10.3 cTrader account-aware transport switching | Make the persisted account selection drive safe same-host re-authentication or Demo↔Live client replacement without restarting the Twisted reactor | ✅ Local focused suite 59/59 + full backend regression + frontend build passed on `451c5d3`; local tree/diff clean; PR CI #287 passed | PR #92 / `451c5d3` | Proceed to Phase 10.4 account-neutral execution path |
+| 2026-10-04 | Phase 10.4 cTrader account-neutral execution | Generalize the guarded cTrader execution path from Demo-specific semantics to the explicitly selected authenticated Demo or Live account without weakening risk/protection/reconciliation safeguards | ✅ Initial local regression exposed stale demo-only fixtures and a real monetary-snapshot Demo guard; repaired final head `a6941c0` passed focused regression, full backend suite, frontend build, clean tree/diff checks, and PR CI #320 | PR #93 / `a6941c0` | Proceed to Phase 10.5 documentation and operator/risk disclaimer cleanup |
 
 ---
 
@@ -1293,7 +1294,7 @@ This item stores operator intent and presents it truthfully in the dashboard. It
 Phase 10.3 changes account/transport activation only. Demo-specific execution APIs, `demo_autotrade`, `allow_live` rejection, and the final live-order guard remain unchanged until Phase 10.4.
 
 ### 10.4 Account-neutral execution path
-**Status:** 🧪
+**Status:** ✅
 
 **Target behavior**
 - [x] Replace the active execution configuration flag with account-neutral `ctrader_autotrade`.
@@ -1305,10 +1306,16 @@ Phase 10.3 changes account/transport activation only. Demo-specific execution AP
 - [x] Preserve backward-compatible read/wrapper aliases where needed for persisted state and older focused tests without using demo-only names in the active runtime path.
 - [x] Update System/Trade settings to label Live execution explicitly and warn that Live auto-trade can place real-money orders.
 - [x] Add focused regression coverage for legacy config migration, verified Live readiness, generic Live market-order routing, Live status mode, and config acceptance.
-- [ ] Local focused account-neutral execution/safety tests.
-- [ ] Local full backend regression suite.
-- [ ] Local frontend production build.
-- [ ] GitHub CI.
+- [x] Local focused account-neutral execution/safety tests passed.
+- [x] Local full backend regression suite passed.
+- [x] Local frontend production build passed (701 modules).
+- [x] GitHub CI #320 passed on the repaired final functional head.
+
+**Verification**
+- Initial local regression on the first 10.4 head exposed stale demo-only test hooks plus one real runtime gap: low-level cTrader monetary snapshots still required demo confirmation.
+- Repaired final functional head `a6941c0` uses generic active-account confirmation for Demo or Live monetary truth, updates runtime/audit identifiers for new account-neutral activity while retaining legacy-history readability, and aligns resilience/regression fixtures with `ctrader_autotrade`.
+- Final local validation on `a6941c0`: focused Phase 10.4 regression suite passed, full backend suite passed, frontend production build passed, and both `git status --short` and `git diff --check origin/main...HEAD` were clean.
+- PR #93 CI #320 passed on the same final functional head.
 
 **Scope boundary**
 This item changes the execution contract from Demo-specific to account-neutral while preserving all existing safety gates. Historical persisted audit/event identifiers are not rewritten in place. Final operator-facing documentation, environment examples, screenshots, and risk/disclaimer cleanup remain Phase 10.5.
@@ -1322,4 +1329,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.4 is ready for local validation. Validate legacy config migration, generic Demo/Live account confirmation and monetary readiness, generic order/protection/close routing, Live status/config behavior, the full backend regression suite, and the frontend production build. Do not begin the final documentation/operator-disclaimer cleanup until local validation and GitHub CI pass and Phase 10.4 is marked verified. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.4 is verified. Proceed to Phase 10.5: update current operator-facing documentation, environment examples, architecture/operations guidance, generated-strategy security wording, and screenshots/disclaimers so they accurately describe the account-neutral Demo/Live architecture. Recommend Demo for development/testing, clearly disclose real-money Live risk, and avoid reintroducing Demo/Live as separate product architectures. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
