@@ -1,13 +1,13 @@
 # TradeAgent
 
-TradeAgent is a local-first trading workstation organized into three connected areas: Trade, Build & Test, and System. It combines a FastAPI backend, React frontend, broker-connected market data, deterministic paper execution, SQLite-backed audit trails, and LLM-assisted research.
+TradeAgent is a local-first trading workstation organized into three connected areas: Trade, Build & Test, and System. It combines a FastAPI backend, React frontend, broker-connected market data, deterministic local paper execution, explicitly enabled cTrader demo-account routing, SQLite-backed audit trails, and LLM-assisted research.
 
 The project is intended to show AI product engineering rather than prompt-only experimentation: operator controls, explicit risk boundaries, persistent state, testing, research workflows, and a UI that supports the full operating loop.
 
 ## What It Demonstrates
 
 - one methodological workflow across Trade, Build & Test, and System
-- deterministic paper execution with explicit guardrails
+- deterministic local paper execution plus guarded cTrader demo-account execution, with live-account routing blocked
 - LLM-assisted strategy drafting, editing, and backtesting
 - persistent runtime, incidents, intents, positions, and audit history
 - broker-connected market data and trading context
@@ -76,7 +76,7 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 - live charting, selected-market context, and explicit strategy rules
 - watchlist, symbol, timeframe, and strategy selection
-- signal review, paper orders, positions, and trade journal
+- signal review, local paper orders/positions, explicitly enabled cTrader demo-account orders, and trade journal
 - broker, market-data, engine, and model status
 
 ### Build & Test
@@ -99,7 +99,7 @@ The project is intended to show AI product engineering rather than prompt-only e
 TradeAgent has one trading runtime and one separate research assistant:
 
 - Runtime trading engine:
-  one orchestrated paper-trading loop scans a watchlist, fetches bars, runs a deterministic strategy, passes the result through risk and sizing checks, and records intents and paper-trade audit history.
+  one orchestrated trading loop scans a watchlist, fetches bars, runs a deterministic strategy, passes the result through risk and sizing checks, and records intents plus the local position/audit ledger. When demo auto-trading is explicitly enabled and cTrader confirms the connected account is demo, accepted orders may also route to the cTrader demo account; live-account routing remains blocked.
 - Build & Test research pipeline:
   an LLM-assisted research workflow can chat, draft strategy code, backtest drafts or saved files, and save strategies into `backend/strategies_generated/`.
 
@@ -113,7 +113,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the current diagrams, agent-role mapp
   <img src="docs/images/architecture-overview.svg" alt="TradeAgent architecture overview" width="100%" />
 </p>
 <p align="center">
-  <sub>Current-state architecture: Trade, Build & Test, System, FastAPI services, deterministic paper runtime, and SQLite-backed audit memory.</sub>
+  <sub>Current-state architecture: Trade, Build & Test, System, FastAPI services, deterministic local paper runtime with guarded cTrader demo routing, and SQLite-backed audit memory.</sub>
 </p>
 
 ## Tech Stack
@@ -168,7 +168,7 @@ python scripts\validate.py
 
 The validator uses the Python interpreter that launches it, runs the accepted backend suite (`python -m pytest backend/tests -q`), then runs the frontend production build (`npm --prefix frontend run build`). It exits non-zero on the first failed validation step.
 
-Verified locally on October 3, 2026:
+Verified locally on October 4, 2026:
 
 - `428` backend tests passed
 - frontend production build passed
