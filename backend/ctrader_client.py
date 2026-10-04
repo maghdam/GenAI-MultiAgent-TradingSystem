@@ -529,7 +529,7 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
     ACCOUNT_VERIFICATION_ERROR = None
     LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
     ACTIVE_ACCOUNT_ID = active_account_id
-    ACTIVE_HOST_TYPE = HOST_TYPE
+    ACTIVE_HOST_TYPE = CLIENT_HOST_TYPE
     ACCOUNT_SWITCH_IN_PROGRESS = False
     ACCOUNT_SWITCH_TARGET_ID = None
     ACCOUNT_SWITCH_ERROR = None
@@ -631,10 +631,10 @@ def account_list_response_cb(res, source_client=None):
     is_live = bool(getattr(selected, "isLive", True))
     ACCOUNT_IS_DEMO = not is_live
     expected_host = "live" if is_live else "demo"
-    if HOST_TYPE != expected_host:
+    if CLIENT_HOST_TYPE != expected_host:
         ACCOUNT_VERIFICATION_ERROR = (
             f"Selected cTrader account requires the {expected_host} host; "
-            f"current transport host is {HOST_TYPE}."
+            f"current transport host is {CLIENT_HOST_TYPE}."
         )
     else:
         ACCOUNT_VERIFICATION_ERROR = None
