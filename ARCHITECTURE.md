@@ -9,7 +9,7 @@ It reflects the active consolidated stack in `backend/` and `frontend/`. Older a
 TradeAgent has two core execution surfaces:
 
 - Runtime trading engine:
-  a consolidated deterministic trading loop that scans a watchlist, analyzes trusted runtime strategies, runs risk checks, persists the local position/audit ledger, and can optionally route accepted orders to a cTrader account only after that account is positively confirmed as demo.
+  a consolidated deterministic trading loop that scans a watchlist, analyzes trusted runtime strategies, runs risk checks, persists the local position/audit ledger, and can optionally route accepted orders to the explicitly selected authenticated cTrader Demo or Live account after the same broker-readiness and safety checks pass.
 - Strategy Studio:
   an LLM-assisted research workflow for drafting strategy code, backtesting drafts or saved files, and saving strategies under `backend/strategies_generated/`.
 
@@ -28,11 +28,11 @@ The system is best described as an agent-inspired, service-oriented architecture
 - `backend/api/router.py`
   active `/api/*` surface
 - `backend/services/engine.py`
-  background V2 trading loop with local paper state and guarded cTrader demo routing
+  background V2 trading loop with local paper state and guarded account-neutral cTrader routing
 - `backend/services/risk_engine.py`
   runtime trade acceptance and rejection logic
 - `backend/services/execution_engine.py`
-  order-intent creation, local position open/update/flip flow, and guarded cTrader demo execution handoff
+  order-intent creation, local position open/update/flip flow, and guarded cTrader execution handoff
 - `backend/services/reconciler.py`
   startup and manual recovery/reconciliation
 - `backend/services/studio_tasks.py`
@@ -104,7 +104,7 @@ That distinction matters. In the current codebase, the runtime engine is not a s
 
 ## Runtime Trading Flow
 
-The runtime flow is paper-first, demo-gated, and operator-controlled.
+The runtime flow is paper-first, account-verified, and operator-controlled. Demo and Live are account types within the same cTrader execution architecture, not separate runtime products.
 
 1. The app boots through FastAPI and `app_bootstrap.py`.
 2. Broker transport and model warmup may be started depending on environment flags.
@@ -114,7 +114,7 @@ The runtime flow is paper-first, demo-gated, and operator-controlled.
 6. For each enabled watchlist item, it fetches fresh bars and skips unchanged bars.
 7. It runs the selected deterministic strategy.
 8. The resulting analysis is persisted.
-9. Risk and quantity checks decide whether to reject, update, flip, or open local position state; when demo auto-trading is explicitly enabled and broker readiness is verified, execution may also route the accepted order to the confirmed cTrader demo account.
+9. Risk and quantity checks decide whether to reject, update, flip, or open local position state; when cTrader auto-trading is explicitly enabled and broker readiness is verified, execution may also route the accepted order to the selected authenticated Demo or Live account.
 10. Intents, incidents, events, positions, and trade audit records are persisted for the UI.
 
 ### Runtime flow diagram
@@ -131,7 +131,7 @@ graph TD
   RISK -->|reject| INTENTS[Order intents and incidents]
   RISK -->|accept| EXEC[Execution engine]
   EXEC --> PAPER[Local position ledger and paper events]
-  EXEC -->|demo only when enabled and confirmed| CTRADER[cTrader Open API demo]
+  EXEC -->|selected account when enabled and verified| CTRADER[cTrader Open API Demo or Live]
   EXEC --> AUDIT[Trade audit records]
   INTENTS --> DB[(SQLite)]
   PAPER --> DB
@@ -147,7 +147,10 @@ graph TD
   - `rsi_reversal`
   - `breakout`
 - Generated strategies are research artifacts and are not imported into the trusted runtime registry; autonomous execution remains built around the reviewed deterministic runtime path.
-- cTrader execution is limited to accounts positively identified by the API as demo accounts; live execution remains disabled.
+- cTrader discovers every account authorized by the configured access token and retains the broker-reported Demo/Live type.
+- The System dashboard persists one selected account. Same-host account changes re-authenticate the existing client; Demo↔Live changes replace the cTrader client service while keeping the Twisted reactor alive.
+- Execution fails closed while selected and active account state differ. Once the selected account is authenticated, the same account currency/equity, symbol metadata, risk/sizing, protection, position-limit, reconciliation, recovery, close-safety, and audit controls apply to Demo and Live.
+- Demo is the recommended account type for development and testing. Selecting Live and enabling cTrader auto-trade can place real-money orders.
 
 ## Build & Test Research Flow
 
@@ -240,7 +243,7 @@ The older `/api/agent/*` routes referenced by historical docs are not the active
 The frontend exposes three connected product surfaces:
 
 - `/`
-  Trade: charting, selected-market context, signals, local paper orders plus guarded cTrader demo orders, positions, and journal
+  Trade: charting, selected-market context, signals, local paper orders plus guarded cTrader orders on the selected account, positions, and journal
 - `/build-test`
   Build & Test: hypothesis, drafting, backtesting, evidence validation, and lifecycle promotion
 - `/build-test/results`
@@ -252,11 +255,14 @@ Market context is embedded in Trade. Calibration and shadow replay are research-
 
 ## Active Boundaries And Safety
 
-- autonomous execution supports local paper positions and opt-in cTrader demo-account orders
-- live-account requests are rejected, and merely selecting the demo host is not sufficient: the connected account must be confirmed by cTrader with `isLive = false`
-- the runtime is intentionally guarded by confidence thresholds, bar freshness checks, protective-level validation, sizing rules, cooldowns, max trade counts, position limits, and daily loss controls
+- autonomous execution supports local paper positions and opt-in cTrader orders on the explicitly selected authenticated account
+- the cTrader access token supplies the authorized account directory; operators do not configure one environment-variable block per account
+- `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` are bootstrap/fallback configuration, while normal runtime selection is persisted through TradeAgent
+- selected-versus-active account truth is explicit, and execution fails closed during incomplete account switching or missing broker readiness
+- Demo and Live use the same guarded execution path: verified account currency/equity, symbol metadata, sizing/risk rules, protective stops, cooldowns, trade/position limits, daily-loss controls, reconciliation, recovery, close safety, and durable audit
+- the kill switch and per-symbol trading enablement remain independent execution gates
 
-This is a deliberate product boundary. The repo is built to demonstrate disciplined AI-assisted trading tooling and execution control, not unsafe fully autonomous live trading.
+Use Demo accounts for development, testing, and strategy validation. A selected Live account is not a simulation: if cTrader auto-trade and the symbol's auto-trade control are enabled and the kill switch/safety checks permit execution, TradeAgent can submit real-money orders. Operators remain responsible for broker permissions, account selection, configured risk, and live trading consequences.
 
 ## Legacy Notes
 
