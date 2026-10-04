@@ -7,7 +7,7 @@ import pytest
 
 from backend.domain.models import EngineConfig, WatchlistItem
 from backend.services import broker_ledger, reconciler as reconciler_module
-from backend.services.broker_ledger import reconcile_open_demo_position_ledger
+from backend.services.broker_ledger import reconcile_open_position_ledger
 from backend.services.reconciler import reconcile_open_positions
 from backend.storage.repositories import (
     list_broker_deals,
@@ -109,7 +109,7 @@ def test_partial_close_preserves_canonical_identity_and_books_once(monkeypatch) 
         lambda broker_position_id, **kwargs: calls.append(broker_position_id) or [deal],
     )
 
-    first = reconcile_open_demo_position_ledger(position, _broker_row(0.20))
+    first = reconcile_open_position_ledger(position, _broker_row(0.20))
     current = list_paper_positions("open")[0]
 
     assert first["status"] == "partial_close_synced"
@@ -119,7 +119,7 @@ def test_partial_close_preserves_canonical_identity_and_books_once(monkeypatch) 
     assert current.realized_pnl == pytest.approx(7.25)
     assert [row["deal_id"] for row in list_broker_deals(local_position_id=position.id)] == [94001]
 
-    second = reconcile_open_demo_position_ledger(current, _broker_row(0.20))
+    second = reconcile_open_position_ledger(current, _broker_row(0.20))
     assert second["status"] == "in_sync"
     assert calls == [BROKER_POSITION_ID]
     assert len(list_broker_deals(local_position_id=position.id)) == 1
@@ -133,7 +133,7 @@ def test_partial_close_refuses_broker_identity_change_without_mutation(monkeypat
         lambda *args, **kwargs: pytest.fail("identity mismatch must fail before deal-history lookup"),
     )
 
-    result = reconcile_open_demo_position_ledger(
+    result = reconcile_open_position_ledger(
         position,
         {
             **_broker_row(0.20),
@@ -158,7 +158,7 @@ def test_second_partial_close_recovers_when_deal_was_persisted_before_quantity_u
         "get_position_close_deals",
         lambda broker_position_id, **kwargs: [first_deal],
     )
-    first = reconcile_open_demo_position_ledger(position, _broker_row(0.20))
+    first = reconcile_open_position_ledger(position, _broker_row(0.20))
     assert first["status"] == "partial_close_synced"
 
     current = list_paper_positions("open")[0]
@@ -180,7 +180,7 @@ def test_second_partial_close_recovers_when_deal_was_persisted_before_quantity_u
         "get_position_close_deals",
         lambda broker_position_id, **kwargs: [first_deal, second_deal],
     )
-    recovered = reconcile_open_demo_position_ledger(current, _broker_row(0.10))
+    recovered = reconcile_open_position_ledger(current, _broker_row(0.10))
 
     assert recovered["status"] == "partial_close_synced"
     assert recovered["inserted_deals"] == 0
@@ -203,11 +203,11 @@ def test_missing_second_deal_stays_pending_instead_of_reusing_old_volume(monkeyp
         "get_position_close_deals",
         lambda broker_position_id, **kwargs: [first_deal],
     )
-    first = reconcile_open_demo_position_ledger(position, _broker_row(0.20))
+    first = reconcile_open_position_ledger(position, _broker_row(0.20))
     assert first["status"] == "partial_close_synced"
 
     current = list_paper_positions("open")[0]
-    pending = reconcile_open_demo_position_ledger(current, _broker_row(0.10))
+    pending = reconcile_open_position_ledger(current, _broker_row(0.10))
 
     assert pending["status"] == "pending_deal_history"
     assert pending["total_closed_lots"] == pytest.approx(0.10)
@@ -228,7 +228,7 @@ def test_reconciler_waits_for_deal_history_then_converges_without_close_submissi
     history_calls: list[int] = []
     protection_calls: list[dict] = []
 
-    monkeypatch.setattr(reconciler_module, "recover_demo_broker_trackers", lambda cfg: {})
+    monkeypatch.setattr(reconciler_module, "recover_broker_trackers", lambda cfg: {})
     monkeypatch.setattr(
         reconciler_module,
         "get_broker_status",
@@ -238,7 +238,7 @@ def test_reconciler_waits_for_deal_history_then_converges_without_close_submissi
     monkeypatch.setattr(reconciler_module, "get_bars", lambda *args, **kwargs: _bars())
     monkeypatch.setattr(
         reconciler_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: protection_calls.append(kwargs)
         or {
             "status": "already_synced",
@@ -253,7 +253,7 @@ def test_reconciler_waits_for_deal_history_then_converges_without_close_submissi
     )
     monkeypatch.setattr(
         reconciler_module,
-        "attempt_verified_demo_close",
+        "attempt_verified_close",
         lambda *args, **kwargs: pytest.fail("partial-close reconciliation must not submit a broker close"),
     )
     partial_deal = _deal(deal_id=94031, closed_lots=0.10, net_profit=8.0)
