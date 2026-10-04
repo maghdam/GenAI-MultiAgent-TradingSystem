@@ -24,7 +24,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         kill_switch=False,
         watchlist=[
             WatchlistItem(
