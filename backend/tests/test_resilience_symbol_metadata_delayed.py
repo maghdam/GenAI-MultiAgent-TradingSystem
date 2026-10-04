@@ -42,9 +42,16 @@ def isolated_ctrader_symbol_state(monkeypatch):
     monkeypatch.setattr(ctd, "CONNECTED", True)
     monkeypatch.setattr(ctd, "AUTHORIZED", True)
     monkeypatch.setattr(ctd, "AUTH_ERROR", None)
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", "demo")
     monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", True)
     monkeypatch.setattr(ctd, "ACCOUNT_VERIFICATION_ERROR", None)
-    monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_IN_PROGRESS", False)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_TARGET_ID", None)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_ERROR", None)
     monkeypatch.setattr(ctd, "SYMBOL_METADATA_READY", False)
     monkeypatch.setattr(ctd, "FALLBACK_SYMBOLS", ["XAUUSD", "EURUSD"])
 
@@ -97,7 +104,7 @@ def test_disconnect_invalidates_stale_symbol_contract_metadata() -> None:
     ctd.symbol_step_verified[1] = True
     ctd.SYMBOL_METADATA_READY = True
 
-    ctd._on_disconnected(None, "test metadata delay")
+    ctd._on_disconnected(ctd.client, "test metadata delay")
 
     assert ctd.CONNECTED is False
     assert ctd.AUTHORIZED is False
