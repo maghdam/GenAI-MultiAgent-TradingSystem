@@ -223,12 +223,12 @@ def evaluate_risk(
 
     if source != "manual":
         paper_enabled = bool(config.paper_autotrade)
-        demo_enabled = bool(config.demo_autotrade and watch_item.trading_enabled)
-        if not paper_enabled and not demo_enabled:
+        ctrader_enabled = bool(config.ctrader_autotrade and watch_item.trading_enabled)
+        if not paper_enabled and not ctrader_enabled:
             decision.reasons.append(
-                "Paper autotrade is disabled."
-                if not config.demo_autotrade
-                else "Automatic execution is disabled for this symbol."
+                "Paper and cTrader autotrade are disabled."
+                if not config.ctrader_autotrade
+                else "Automatic cTrader execution is disabled for this symbol."
             )
             return decision
 
