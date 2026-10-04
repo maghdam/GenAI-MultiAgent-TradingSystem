@@ -417,7 +417,7 @@ def test_broker_confirmed_handoff_survives_db_restart_and_recovers_exactly_once(
     recovered_audits = [
         row
         for row in list_trade_audits(50)
-        if row.event_type == "ctrader_demo_tracker_recovered"
+        if row.event_type == "ctrader_tracker_recovered"
     ]
     assert len(recovered_audits) == 1
     assert recovered_audits[0].intent_id == intent.id
@@ -564,7 +564,7 @@ def test_restart_tracker_recovery_failure_is_actionable_and_persists_after_reope
     incidents = list_incidents(20)
     incident = next(
         row for row in incidents
-        if row.code == "ctrader_demo_tracker_recovery_failed"
+        if row.code == "ctrader_tracker_recovery_failed"
     )
     assert incident.details["automatic_adoption"] is False
     assert incident.details["broker_mutation_suppressed"] is True
@@ -574,6 +574,6 @@ def test_restart_tracker_recovery_failure_is_actionable_and_persists_after_reope
     persisted = list_incidents(20)
     recovered_incident = next(
         row for row in persisted
-        if row.code == "ctrader_demo_tracker_recovery_failed"
+        if row.code == "ctrader_tracker_recovery_failed"
     )
     assert recovered_incident.details["action_required"] == incident.details["action_required"]
