@@ -109,10 +109,17 @@ class CTraderBrokerAdapter:
         self._account_snapshot_cached_at: float = 0.0
         self._conversion_rate_cache: Dict[tuple[str, str], tuple[float, float]] = {}
 
-    def start_transport(self) -> bool:
+    def start_transport(
+        self,
+        *,
+        account_id: int | None = None,
+        account_type: str | None = None,
+    ) -> bool:
         with self._thread_lock:
             if self._thread_started:
                 return False
+            if account_id is not None and account_type is not None:
+                ctd.configure_target_account(account_id, account_type)
             threading.Thread(target=ctd.init_client, daemon=True).start()
             self._thread_started = True
             return True
@@ -122,6 +129,14 @@ class CTraderBrokerAdapter:
 
     def list_accounts(self) -> List[CTraderAccount]:
         return [CTraderAccount(**row) for row in ctd.get_available_accounts()]
+
+    def switch_account(self, account_id: int, account_type: str) -> Dict[str, Any]:
+        self._account_snapshot_cache = None
+        self._account_snapshot_cached_at = 0.0
+        self._conversion_rate_cache.clear()
+        self._symbol_cache = []
+        self._symbol_cache_count = 0
+        return ctd.switch_account(account_id, account_type)
 
     def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
         """Return whether broker state and metadata are ready to safely submit a demo order."""
@@ -165,7 +180,7 @@ class CTraderBrokerAdapter:
 
     @staticmethod
     def _account_id_value() -> int | None:
-        raw = getattr(ctd, "ACCOUNT_ID", None)
+        raw = ctd.get_active_account_id()
         if raw in (None, ""):
             return None
         try:
@@ -269,6 +284,18 @@ class CTraderBrokerAdapter:
             except Exception as exc:
                 notes.append(f"reconcile_unavailable: {exc}")
 
+        switch_in_progress = bool(ctd.is_account_switch_in_progress())
+        switch_target_id = ctd.get_account_switch_target_id()
+        switch_error = ctd.get_account_switch_error()
+        active_host_type = ctd.get_active_host_type()
+        if switch_in_progress:
+            notes.append(
+                f"cTrader account switch is in progress"
+                + (f" for account {switch_target_id}." if switch_target_id is not None else ".")
+            )
+        if switch_error:
+            notes.append(f"account_switch_error: {switch_error}")
+
         if not connected:
             notes.append("cTrader transport is not connected.")
         if not authorized:
@@ -333,9 +360,13 @@ class CTraderBrokerAdapter:
             pending_orders=len(pending_orders),
             ready=ready,
             market_data_ready=market_data_ready,
-            broker_mode=str(getattr(ctd, "HOST_TYPE", "unknown")),
+            broker_mode=str(getattr(ctd, "CLIENT_HOST_TYPE", getattr(ctd, "HOST_TYPE", "unknown"))),
             account_id=self._account_id_value(),
             account_type=account_type,
+            active_host_type=active_host_type,
+            account_switch_in_progress=switch_in_progress,
+            account_switch_target_id=switch_target_id,
+            account_switch_error=switch_error,
             demo_account_confirmed=demo_confirmed,
             execution_ready=execution_ready,
             account_snapshot=account_snapshot,
