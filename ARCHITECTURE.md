@@ -9,7 +9,7 @@ It reflects the active consolidated stack in `backend/` and `frontend/`. Older a
 TradeAgent has two core execution surfaces:
 
 - Runtime trading engine:
-  a consolidated paper-trading loop that scans a watchlist, analyzes deterministic strategies, runs risk checks, and persists intents, paper positions, and audit history.
+  a consolidated deterministic trading loop that scans a watchlist, analyzes trusted runtime strategies, runs risk checks, persists the local position/audit ledger, and can optionally route accepted orders to a cTrader account only after that account is positively confirmed as demo.
 - Strategy Studio:
   an LLM-assisted research workflow for drafting strategy code, backtesting drafts or saved files, and saving strategies under `backend/strategies_generated/`.
 
@@ -24,15 +24,15 @@ The system is best described as an agent-inspired, service-oriented architecture
 - `backend/app.py`
   FastAPI entrypoint
 - `backend/app_bootstrap.py`
-  startup wiring, dependency warmup, generated-strategy loading, engine lifecycle
+  startup wiring, dependency warmup, generated-strategy compatibility validation, engine lifecycle
 - `backend/api/router.py`
   active `/api/*` surface
 - `backend/services/engine.py`
-  background V2 paper-trading loop
+  background V2 trading loop with local paper state and guarded cTrader demo routing
 - `backend/services/risk_engine.py`
   runtime trade acceptance and rejection logic
 - `backend/services/execution_engine.py`
-  order-intent creation, paper position open/update/flip flow
+  order-intent creation, local position open/update/flip flow, and guarded cTrader demo execution handoff
 - `backend/services/reconciler.py`
   startup and manual recovery/reconciliation
 - `backend/services/studio_tasks.py`
@@ -99,22 +99,22 @@ That distinction matters. In the current codebase, the runtime engine is not a s
   `backend/backtesting_agent.py`
 - Saved strategy backtests:
   `backend/services/studio_backtests.py`
-- Generated strategy loader:
-  `backend/strategy.py` on startup for saved strategy modules
+- Generated strategy compatibility validator:
+  `backend/strategy.py` validates saved generated source on startup without importing or registering it into the trusted runtime
 
 ## Runtime Trading Flow
 
-The runtime flow is paper-first and operator-controlled.
+The runtime flow is paper-first, demo-gated, and operator-controlled.
 
 1. The app boots through FastAPI and `app_bootstrap.py`.
 2. Broker transport and model warmup may be started depending on environment flags.
-3. Generated strategies are loaded for research tooling.
+3. Saved generated-strategy files are compatibility-validated for research tooling without being imported or registered into the trusted runtime.
 4. The V2 engine starts and enters its background loop.
 5. On each cycle, the engine loads config and the active watchlist.
 6. For each enabled watchlist item, it fetches fresh bars and skips unchanged bars.
 7. It runs the selected deterministic strategy.
 8. The resulting analysis is persisted.
-9. Risk and quantity checks decide whether to reject, update, flip, or open a paper position.
+9. Risk and quantity checks decide whether to reject, update, flip, or open local position state; when demo auto-trading is explicitly enabled and broker readiness is verified, execution may also route the accepted order to the confirmed cTrader demo account.
 10. Intents, incidents, events, positions, and trade audit records are persisted for the UI.
 
 ### Runtime flow diagram
@@ -130,7 +130,8 @@ graph TD
   ANALYSIS --> RISK[Risk engine and quantity rules]
   RISK -->|reject| INTENTS[Order intents and incidents]
   RISK -->|accept| EXEC[Execution engine]
-  EXEC --> PAPER[Paper positions and paper events]
+  EXEC --> PAPER[Local position ledger and paper events]
+  EXEC -->|demo only when enabled and confirmed| CTRADER[cTrader Open API demo]
   EXEC --> AUDIT[Trade audit records]
   INTENTS --> DB[(SQLite)]
   PAPER --> DB
@@ -145,12 +146,12 @@ graph TD
   - `sma_cross`
   - `rsi_reversal`
   - `breakout`
-- Generated strategies are useful in Strategy Studio research, but autonomous paper execution is built around the deterministic runtime path.
+- Generated strategies are research artifacts and are not imported into the trusted runtime registry; autonomous execution remains built around the reviewed deterministic runtime path.
 - cTrader execution is limited to accounts positively identified by the API as demo accounts; live execution remains disabled.
 
 ## Build & Test Research Flow
 
-Strategy Studio is separate from the paper-trading loop. It is a research workflow, not the autonomous execution path.
+Strategy Studio is separate from the autonomous runtime trading loop. It is a research workflow, not the autonomous execution path.
 
 1. The frontend sends a studio task to `/api/studio/tasks`.
 2. `studio_tasks.py` normalizes the task type and routes it.
@@ -162,7 +163,7 @@ Strategy Studio is separate from the paper-trading loop. It is a research workfl
    - draft code can be backtested directly without saving
 5. For save actions:
    - code is written to `backend/strategies_generated/`
-   - generated strategy modules can be loaded on startup for research access
+   - startup compatibility validation may inspect that source, but it does not import or register generated modules into the trusted runtime
 
 ### Build & Test flow diagram
 
@@ -186,7 +187,8 @@ graph TD
 
 - It is a research tool, not the live runtime engine.
 - Saved strategy files are not the same thing as the deterministic runtime strategy registry.
-- Some compatibility code still exists around `backend/strategy.py` and older generated-strategy paths, but that is not the main autonomous runtime path.
+- Lifecycle promotion governs evidence and execution eligibility for a strategy identifier/version, but it does not import raw generated source into the trusted runtime registry.
+- Some compatibility code still exists around `backend/strategy.py` and older generated-strategy paths, but current startup validation does not make those generated files executable.
 
 ## Persistence Model
 
@@ -238,9 +240,11 @@ The older `/api/agent/*` routes referenced by historical docs are not the active
 The frontend exposes three connected product surfaces:
 
 - `/`
-  Trade: charting, selected-market context, signals, paper orders, positions, and journal
+  Trade: charting, selected-market context, signals, local paper orders plus guarded cTrader demo orders, positions, and journal
 - `/build-test`
   Build & Test: hypothesis, drafting, backtesting, evidence validation, and lifecycle promotion
+- `/build-test/results`
+  Build & Test results: persisted backtest/validation result review
 - `/system`
   System: runtime health, safety controls, reconciliation, recovery, and audit
 
