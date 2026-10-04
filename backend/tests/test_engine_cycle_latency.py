@@ -64,7 +64,7 @@ def test_normal_scan_cycle_records_latency_without_changing_scan_result(monkeypa
         EngineConfig(
             enabled=True,
             kill_switch=False,
-            demo_autotrade=False,
+            ctrader_autotrade=False,
             watchlist=[
                 WatchlistItem(
                     symbol="XAUUSD",
