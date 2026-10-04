@@ -1028,14 +1028,22 @@ def get_last_auth_attempt() -> datetime | None:
     return LAST_AUTH_ATTEMPT_AT
 
 
-def is_demo_account_confirmed() -> bool:
+def is_account_confirmed() -> bool:
+    """Return whether the configured cTrader account is the authenticated active session."""
+    if ACTIVE_HOST_TYPE not in {"demo", "live"} or ACCOUNT_IS_DEMO is None:
+        return False
+    expected_demo = ACTIVE_HOST_TYPE == "demo"
     return bool(
         CONNECTED
         and AUTHORIZED
-        and ACTIVE_HOST_TYPE == "demo"
         and ACTIVE_ACCOUNT_ID == _account_id_int(ACCOUNT_ID)
-        and ACCOUNT_IS_DEMO is True
+        and ACCOUNT_IS_DEMO is expected_demo
     )
+
+
+def is_demo_account_confirmed() -> bool:
+    """Backward-compatible demo-specific view of the generic account confirmation."""
+    return bool(is_account_confirmed() and ACTIVE_HOST_TYPE == "demo")
 
 
 def get_account_verification_error() -> str | None:
