@@ -137,7 +137,7 @@ def _mock_demo_ready(monkeypatch) -> None:
 
 
 def test_adapter_classifies_explicit_close_rejection(monkeypatch) -> None:
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
@@ -166,7 +166,7 @@ def test_adapter_classifies_explicit_close_rejection(monkeypatch) -> None:
 
 def test_adapter_timeout_reconciles_to_verified_close_when_position_disappears(monkeypatch) -> None:
     broker = CTraderBrokerAdapter()
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
@@ -194,7 +194,7 @@ def test_adapter_timeout_reconciles_to_verified_close_when_position_disappears(m
 
 def test_adapter_timeout_still_open_is_ambiguous_post_submit(monkeypatch) -> None:
     broker = CTraderBrokerAdapter()
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
