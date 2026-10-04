@@ -111,6 +111,8 @@ def test_execution_ready_requires_verified_monetary_snapshot(monkeypatch) -> Non
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_reconcile_snapshot", lambda: {"positions": [], "orders": [], "error": None})
     monkeypatch.setattr("backend.adapters.ctrader.ctd.HOST_TYPE", "demo")
     monkeypatch.setattr("backend.adapters.ctrader.ctd.ACCOUNT_ID", 123)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_active_account_id", lambda: 123)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_active_host_type", lambda: "demo")
     monkeypatch.setattr("backend.adapters.ctrader.external_dependency_state.snapshot_notes", lambda: [])
 
     adapter = CTraderBrokerAdapter()
@@ -145,6 +147,8 @@ def test_execution_ready_is_true_with_verified_currency_and_positive_equity(monk
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_reconcile_snapshot", lambda: {"positions": [], "orders": [], "error": None})
     monkeypatch.setattr("backend.adapters.ctrader.ctd.HOST_TYPE", "demo")
     monkeypatch.setattr("backend.adapters.ctrader.ctd.ACCOUNT_ID", 123)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_active_account_id", lambda: 123)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.get_active_host_type", lambda: "demo")
     monkeypatch.setattr("backend.adapters.ctrader.external_dependency_state.snapshot_notes", lambda: [])
 
     adapter = CTraderBrokerAdapter()
