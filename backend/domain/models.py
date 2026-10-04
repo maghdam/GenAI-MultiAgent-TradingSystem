@@ -40,6 +40,13 @@ class BrokerAccountSnapshot(BaseModel):
     notes: List[str] = Field(default_factory=list)
 
 
+class CTraderAccount(BaseModel):
+    account_id: int
+    account_type: Literal["demo", "live"]
+    is_live: bool
+    selected: bool = False
+
+
 class BrokerStatus(BaseModel):
     connected: bool
     socket_connected: bool = False
