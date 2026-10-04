@@ -380,6 +380,18 @@ def on_error(failure):
         ACCOUNT_SWITCH_ERROR = err_msg
     print("[ERROR]", err_msg)
 
+
+def _session_error(
+    failure,
+    source_client=None,
+    expected_account_id: int | None = None,
+):
+    """Ignore late failures emitted by a superseded client/account session."""
+    if not _is_current_session(source_client, expected_account_id):
+        return failure
+    on_error(failure)
+    return failure
+
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
 def _install_fallback_symbols(reason: str | None = None):
     print(f"[WARN] Using fallback symbols ({reason or 'unknown error'})")
@@ -451,7 +463,11 @@ def symbols_response_cb(res, source_client=None, expected_account_id: int | None
                 active_client,
                 expected_account_id,
             ),
-            on_error,
+            lambda failure: _session_error(
+                failure,
+                active_client,
+                expected_account_id,
+            ),
         )
 
 
@@ -529,7 +545,11 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
             active_client,
             active_account_id,
         ),
-        on_error,
+        lambda failure: _session_error(
+            failure,
+            active_client,
+            active_account_id,
+        ),
     )
 
 
@@ -551,7 +571,11 @@ def asset_class_response_cb(res, source_client=None, expected_account_id: int | 
             active_client,
             account_id,
         ),
-        on_error,
+        lambda failure: _session_error(
+            failure,
+            active_client,
+            account_id,
+        ),
     )
 
 def account_list_response_cb(res, source_client=None):
@@ -632,13 +656,19 @@ def account_list_response_cb(res, source_client=None):
     )
     return active_client.send(req).addCallbacks(
         lambda response: account_auth_cb(response, active_client, account_id),
-        on_error,
+        lambda failure: _session_error(
+            failure,
+            active_client,
+            account_id,
+        ),
     )
 
 
-def account_list_error_cb(failure):
+def account_list_error_cb(failure, source_client=None):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
     global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
+    if source_client is not None and source_client is not client:
+        return failure
     AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = f"Unable to verify cTrader account type: {failure}"
@@ -665,7 +695,7 @@ def app_auth_cb(_, source_client=None):
     )
     active_client.send(req).addCallbacks(
         lambda response: account_list_response_cb(response, active_client),
-        account_list_error_cb,
+        lambda failure: account_list_error_cb(failure, active_client),
     )
 
 
@@ -683,7 +713,7 @@ def _on_connected(connected_client):
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
     connected_client.send(req).addCallbacks(
         lambda response: app_auth_cb(response, connected_client),
-        on_error,
+        lambda failure: _session_error(failure, connected_client),
     )
 
 
@@ -878,7 +908,11 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
                     current_client,
                     target_id,
                 ),
-                on_error,
+                lambda failure: _session_error(
+                    failure,
+                    current_client,
+                    target_id,
+                ),
             )
         elif not getattr(current_client, "running", False):
             _configure_client_callbacks(current_client)
