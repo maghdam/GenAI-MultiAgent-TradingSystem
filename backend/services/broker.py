@@ -78,6 +78,10 @@ def list_accounts() -> List[CTraderAccount]:
     return adapter.list_accounts()
 
 
+def switch_account(account_id: int, account_type: str) -> Dict[str, Any]:
+    return adapter.switch_account(account_id, account_type)
+
+
 def get_broker_account_snapshot(*, force: bool = False) -> BrokerAccountSnapshot:
     return _timed_broker_call(
         "get_broker_account_snapshot",
