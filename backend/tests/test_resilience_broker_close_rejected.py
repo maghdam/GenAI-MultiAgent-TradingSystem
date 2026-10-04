@@ -78,9 +78,8 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
-        allow_live=False,
-        kill_switch=False,
+        ctrader_autotrade=True,
+                kill_switch=False,
         require_stops=True,
         cooldown_minutes=0,
         risk_per_trade_pct=0,
