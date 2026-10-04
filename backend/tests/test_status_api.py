@@ -52,6 +52,7 @@ def test_v2_status_exposes_matched_broker_position_truth(monkeypatch) -> None:
             broker_mode="demo",
             account_id=123,
             account_type="demo",
+            account_verified=True,
             demo_account_confirmed=True,
             execution_ready=True,
         ),
