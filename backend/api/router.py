@@ -363,20 +363,20 @@ def _active_status_incidents(
         )
 
     if config.ctrader_autotrade and broker.socket_connected:
-        if not broker.demo_account_confirmed:
+        if not broker.account_verified:
             incidents.append(
                 ActiveIncident(
                     level="error",
-                    code="demo_account_not_confirmed",
-                    message="Automatic execution is enabled but the connected account is not confirmed as demo.",
+                    code="ctrader_account_not_verified",
+                    message="Automatic cTrader execution is enabled but the selected account is not the authenticated active account.",
                 )
             )
         elif not broker.execution_ready:
             incidents.append(
                 ActiveIncident(
                     level="error",
-                    code="demo_execution_not_ready",
-                    message="The demo account is confirmed, but execution prerequisites are not currently ready.",
+                    code="ctrader_execution_not_ready",
+                    message="The selected cTrader account is authenticated, but execution prerequisites are not currently ready.",
                 )
             )
 
@@ -1089,7 +1089,7 @@ async def v2_engine_scan() -> dict:
 @router.post("/engine/reconcile")
 async def v2_engine_reconcile() -> dict:
     summary = reconcile_open_positions(reason="manual")
-    history = reconcile_closed_history(limit=20) if _current_config().demo_autotrade else {
+    history = reconcile_closed_history(limit=20) if _current_config().ctrader_autotrade else {
         "checked": 0,
         "reconciled": 0,
         "missing_broker_id": 0,
