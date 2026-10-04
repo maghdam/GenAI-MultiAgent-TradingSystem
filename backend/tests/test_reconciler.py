@@ -120,7 +120,7 @@ def test_reconcile_open_positions_logs_skip_incident_when_market_data_fails(monk
 def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="NAS100",
@@ -222,7 +222,7 @@ def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None
 def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="NAS100",
@@ -304,7 +304,7 @@ def test_recover_demo_broker_tracker_attaches_id_to_legacy_local_tracker(monkeyp
 def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_position(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="XAUUSD",
@@ -380,7 +380,7 @@ def test_demo_reconcile_does_not_replace_missing_persisted_id_with_same_side_pos
 def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="XAUUSD",
@@ -449,7 +449,7 @@ def test_demo_reconcile_does_not_locally_close_while_broker_position_is_open(mon
 def test_demo_reconcile_closes_broker_when_take_profit_was_already_crossed(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         watchlist=[
             WatchlistItem(
                 symbol="NAS100",
