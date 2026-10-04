@@ -248,7 +248,7 @@ def test_same_bar_in_different_timezone_representation_does_not_duplicate_action
     config = EngineConfig(
         enabled=True,
         paper_autotrade=True,
-        demo_autotrade=False,
+        ctrader_autotrade=False,
         kill_switch=False,
         min_confidence=0.60,
     )
@@ -284,7 +284,7 @@ def test_same_bar_in_different_timezone_representation_does_not_duplicate_action
     monkeypatch.setattr(engine_module, "add_analysis", lambda analysis: analysis)
     monkeypatch.setattr(engine_module, "record_confluence_shadow", lambda *args, **kwargs: None)
     monkeypatch.setattr(engine, "_mark_positions", lambda *args, **kwargs: None)
-    monkeypatch.setattr(engine, "_sync_existing_demo_protection", lambda *args, **kwargs: None)
+    monkeypatch.setattr(engine, "_sync_existing_ctrader_protection", lambda *args, **kwargs: None)
 
     def _execute(**kwargs) -> ExecutionResult:
         nonlocal executions
