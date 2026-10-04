@@ -146,7 +146,7 @@ class V2Engine:
             except Exception as exc:
                 log_incident(
                     "error",
-                    "ctrader_demo_tracker_recovery_failed",
+                    "ctrader_tracker_recovery_failed",
                     "Could not reconcile cTrader positions with local trackers.",
                     {"error": str(exc)},
                 )
@@ -371,7 +371,7 @@ class V2Engine:
                     reason = "The selected cTrader account is not the authenticated active account."
                 log_incident(
                     "warning",
-                    "ctrader_demo_protection_verification_deferred",
+                    "ctrader_protection_verification_deferred",
                     f"Deferred broker protection verification for {position.symbol}:{position.timeframe}.",
                     {
                         "position_id": position.id,
@@ -394,7 +394,7 @@ class V2Engine:
         if match.status in {"id_mismatch", "legacy_ambiguous"}:
             log_incident(
                 "error",
-                "ctrader_demo_position_identity_ambiguous",
+                "ctrader_position_identity_ambiguous",
                 f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
                 {
                     "position_id": position.id,
@@ -417,7 +417,7 @@ class V2Engine:
         if ledger_sync.get("status") == "partial_close_synced":
             position = get_open_position(item.symbol.upper(), item.timeframe.upper()) or position
             add_trade_audit(
-                event_type="ctrader_demo_partial_close_synced",
+                event_type="ctrader_partial_close_synced",
                 symbol=position.symbol,
                 timeframe=position.timeframe,
                 strategy=position.strategy,
@@ -428,14 +428,14 @@ class V2Engine:
         elif ledger_sync.get("status") == "pending_deal_history":
             log_incident(
                 "warning",
-                "ctrader_demo_partial_close_history_pending",
+                "ctrader_partial_close_history_pending",
                 f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                 {"position_id": position.id, **ledger_sync, "phase": "same_bar_maintenance"},
             )
         elif ledger_sync.get("status") in {"identity_mismatch", "volume_increase_mismatch", "unavailable"}:
             log_incident(
                 "error",
-                "ctrader_demo_volume_reconciliation_failed",
+                "ctrader_volume_reconciliation_failed",
                 f"Could not reconcile broker volume for {position.symbol}:{position.timeframe}.",
                 {"position_id": position.id, **ledger_sync, "phase": "same_bar_maintenance"},
             )
@@ -447,7 +447,7 @@ class V2Engine:
                 self._protection_failsafe_pending_positions.discard(position_key)
                 log_incident(
                     "warning",
-                    "ctrader_demo_protection_recovered",
+                    "ctrader_protection_recovered",
                     f"Broker protection is verified again for {position.symbol}:{position.timeframe}.",
                     {
                         "position_id": position.id,
@@ -458,7 +458,7 @@ class V2Engine:
                     },
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_protection_recovered",
+                    event_type="ctrader_protection_recovered",
                     symbol=position.symbol,
                     timeframe=position.timeframe,
                     strategy=position.strategy,
@@ -497,7 +497,7 @@ class V2Engine:
                 )
                 if close_result.get("closed"):
                     add_trade_audit(
-                        event_type="ctrader_demo_protective_exit",
+                        event_type="ctrader_protective_exit",
                         symbol=position.symbol,
                         timeframe=position.timeframe,
                         strategy=position.strategy,
@@ -510,7 +510,7 @@ class V2Engine:
                 self._protection_failsafe_pending_positions.discard(int(position.id))
                 if protection.get("status") == "synced":
                     add_trade_audit(
-                        event_type="ctrader_demo_protection_repaired",
+                        event_type="ctrader_protection_repaired",
                         symbol=position.symbol,
                         timeframe=position.timeframe,
                         strategy=position.strategy,
@@ -533,7 +533,7 @@ class V2Engine:
         except Exception as exc:
             log_incident(
                 "error",
-                "ctrader_demo_protection_sync_failed",
+                "ctrader_protection_sync_failed",
                 f"Could not synchronize broker protection for {position.symbol}:{position.timeframe}",
                 {"position_id": position.id, "error": str(exc), "phase": "same_bar_maintenance"},
             )
@@ -556,7 +556,7 @@ class V2Engine:
         if match.status in {"id_mismatch", "legacy_ambiguous"}:
             log_incident(
                 "error",
-                "ctrader_demo_position_identity_ambiguous",
+                "ctrader_position_identity_ambiguous",
                 f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
                 {
                     "position_id": position.id,
@@ -583,7 +583,7 @@ class V2Engine:
         ledger_sync = reconcile_open_position_ledger(position, match.row)
         if ledger_sync.get("status") == "partial_close_synced":
             add_trade_audit(
-                event_type="ctrader_demo_partial_close_synced",
+                event_type="ctrader_partial_close_synced",
                 symbol=position.symbol,
                 timeframe=position.timeframe,
                 strategy=position.strategy,
@@ -594,14 +594,14 @@ class V2Engine:
         elif ledger_sync.get("status") == "pending_deal_history":
             log_incident(
                 "warning",
-                "ctrader_demo_partial_close_history_pending",
+                "ctrader_partial_close_history_pending",
                 f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                 {"position_id": position.id, **ledger_sync, "phase": "same_bar_mark"},
             )
         elif ledger_sync.get("status") in {"identity_mismatch", "volume_increase_mismatch", "unavailable"}:
             log_incident(
                 "error",
-                "ctrader_demo_volume_reconciliation_failed",
+                "ctrader_volume_reconciliation_failed",
                 f"Could not reconcile broker volume for {position.symbol}:{position.timeframe}.",
                 {"position_id": position.id, **ledger_sync, "phase": "same_bar_mark"},
             )
