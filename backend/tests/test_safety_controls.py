@@ -249,7 +249,7 @@ def test_per_symbol_trading_permission_blocks_ctrader_auto_execution() -> None:
     )
 
     assert decision.accepted is False
-    assert decision.reasons == ["Automatic execution is disabled for this symbol."]
+    assert decision.reasons == ["Automatic cTrader execution is disabled for this symbol."]
 
 
 def test_per_symbol_trading_permission_allows_ctrader_path_when_enabled() -> None:
