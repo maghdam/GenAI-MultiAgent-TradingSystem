@@ -1262,9 +1262,28 @@ This item does not yet change the active account, reconnect transports, or route
 This item stores operator intent and presents it truthfully in the dashboard. It does not reconnect the cTrader client, change the active host/account, or alter order routing; those remain Phase 10.3 and 10.4.
 
 ### 10.3 Account-aware transport switching
-**Status:** ⬜
+**Status:** 🧪
 
-Select the correct cTrader Demo/Live Open API host automatically from the chosen account, re-authenticate safely, clear stale symbol/account caches, and fail closed while the transition is incomplete.
+**Target behavior**
+- [x] Persist the selected account's broker-reported Demo/Live type alongside its internal cTrader account ID.
+- [x] Apply a persisted account ID/type before the cTrader transport thread starts so restarts can boot directly on the correct host.
+- [x] Preserve a one-time migration path for Phase 10.2 selections that stored an account ID before account type was persisted.
+- [x] Re-authenticate Demo→Demo or Live→Live account changes on the existing cTrader client without restarting Twisted's reactor.
+- [x] Replace only the cTrader `ClientService` for Demo↔Live host changes; keep the existing Twisted reactor running.
+- [x] Ignore stale connection/auth callbacks from the previous cTrader client after a host switch.
+- [x] Separate desired account state from authenticated active-account state; execution/readiness fail closed while a switch is incomplete.
+- [x] Clear symbol, asset, monetary, conversion, and adapter caches before changing account context.
+- [x] Expose switch-in-progress, target-account, active-host, and last-switch-error state through broker status/UI.
+- [x] Permit a Live account to authenticate for broker truth/market data while keeping the existing demo-only order-submission guard unchanged until Phase 10.4.
+- [x] Reject account switching while the engine is active without the kill switch or while TradeAgent tracks an open broker-backed position.
+- [x] Poll account-directory truth during the transition so the System page automatically converges from selected→active.
+- [ ] Local focused account-switching/safety tests.
+- [ ] Local full backend regression suite.
+- [ ] Local frontend production build.
+- [ ] GitHub CI.
+
+**Scope boundary**
+Phase 10.3 changes account/transport activation only. Demo-specific execution APIs, `demo_autotrade`, `allow_live` rejection, and the final live-order guard remain unchanged until Phase 10.4.
 
 ### 10.4 Account-neutral execution path
 **Status:** ⬜
@@ -1280,4 +1299,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.2 is verified. Proceed to Phase 10.3: make the persisted cTrader account selection drive a safe host-aware reconnect/re-authentication so selecting a Demo or Live account changes the active broker transport truthfully. Keep execution semantics unchanged in 10.3; account-neutral order routing remains Phase 10.4. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.3 is ready for local validation. Validate same-host re-authentication, Demo↔Live client replacement without reactor restart, persisted startup targeting, switch-state truthfulness, safety-gate rejection, the full backend regression suite, and the frontend production build. Do not begin account-neutral order routing until local validation and GitHub CI pass and Phase 10.3 is marked verified. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
