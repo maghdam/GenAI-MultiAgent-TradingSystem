@@ -32,6 +32,7 @@ def test_account_list_confirms_demo_before_account_authorization(monkeypatch) ->
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
     monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
     monkeypatch.setattr(
         ctd.Protobuf,
         "extract",
@@ -79,6 +80,7 @@ def test_account_list_allows_live_account_auth_on_live_host_but_demo_execution_s
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
     monkeypatch.setattr(ctd, "HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
     monkeypatch.setattr(ctd, "CONNECTED", True)
     monkeypatch.setattr(ctd, "AUTHORIZED", False)
     monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", None)
