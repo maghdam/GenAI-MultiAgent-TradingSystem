@@ -465,11 +465,16 @@ def account_list_response_cb(res):
             continue
         is_live = bool(getattr(account, "isLive", False))
         is_active = account_id == int(ACCOUNT_ID)
+        trader_login_raw = getattr(account, "traderLogin", None)
+        trader_login = int(trader_login_raw) if trader_login_raw is not None else None
+        broker_title = str(getattr(account, "brokerTitleShort", "") or "").strip() or None
         AVAILABLE_ACCOUNTS.append(
             {
                 "account_id": account_id,
                 "account_type": "live" if is_live else "demo",
                 "is_live": is_live,
+                "trader_login": trader_login,
+                "broker_title": broker_title,
                 "selected": is_active,
                 "active": is_active,
             }
