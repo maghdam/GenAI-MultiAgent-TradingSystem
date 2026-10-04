@@ -15,6 +15,7 @@ from backend.domain.models import (
     AnalyzeRequest,
     BrokerApiLatencyResponse,
     BrokerStatus,
+    CTraderAccount,
     ConfluenceReplayResponse,
     DailySummaryResponse,
     EngineConfig,
@@ -45,7 +46,7 @@ from backend.domain.models import (
     StatementComparisonResponse,
     WatchlistItem,
 )
-from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_positions, list_symbols
+from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_accounts, list_positions, list_symbols
 from backend.services.engine import engine
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.confluence_shadow import record_confluence_shadow
@@ -479,6 +480,11 @@ async def llm_status() -> dict:
 @router.get("/status", response_model=EngineStatus)
 async def v2_status() -> EngineStatus:
     return await _status_payload()
+
+
+@router.get("/broker/accounts", response_model=List[CTraderAccount])
+async def v2_broker_accounts() -> List[CTraderAccount]:
+    return await asyncio.to_thread(list_accounts)
 
 
 @router.get("/config", response_model=EngineConfig)
