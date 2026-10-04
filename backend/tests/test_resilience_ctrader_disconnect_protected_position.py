@@ -82,12 +82,12 @@ def test_same_bar_disconnect_preserves_protected_tracker_and_suppresses_broker_a
     )
     monkeypatch.setattr(
         engine_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: pytest.fail("disconnected maintenance must not amend broker protection"),
     )
     monkeypatch.setattr(
         engine_module,
-        "attempt_verified_demo_close",
+        "attempt_verified_close",
         lambda *args, **kwargs: pytest.fail("disconnected maintenance must not close broker or local position"),
     )
 
@@ -156,12 +156,12 @@ def test_recovery_reconciles_canonical_broker_position_id_and_resumes_protection
     monkeypatch.setattr(engine_module, "list_positions", _positions)
     monkeypatch.setattr(
         engine_module,
-        "reconcile_open_demo_position_ledger",
+        "reconcile_open_position_ledger",
         lambda position, broker_row: {"status": "unchanged"},
     )
     monkeypatch.setattr(
         engine_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: sync_calls.append(kwargs)
         or {
             "status": "already_synced",
@@ -171,7 +171,7 @@ def test_recovery_reconciles_canonical_broker_position_id_and_resumes_protection
     )
     monkeypatch.setattr(
         engine_module,
-        "attempt_verified_demo_close",
+        "attempt_verified_close",
         lambda *args, **kwargs: pytest.fail("healthy protected position must not be closed on recovery"),
     )
 
@@ -205,17 +205,17 @@ def test_new_bar_disconnect_keeps_open_tracker_and_returns_retryable_without_com
         lambda: pytest.fail("disconnected new-bar refresh must not query broker positions"),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.sync_demo_position_targets",
+        "backend.services.execution_engine.sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(
             RuntimeError("Demo target sync blocked: cTrader transport is not connected.")
         ),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: pytest.fail("existing disconnected position must not create a competing order"),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.close_demo_position",
+        "backend.services.execution_engine.close_position",
         lambda **kwargs: pytest.fail("disconnected position must not be closed by a competing action"),
     )
 
