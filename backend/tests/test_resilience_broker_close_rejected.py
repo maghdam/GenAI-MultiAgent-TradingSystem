@@ -286,7 +286,7 @@ def test_explicit_rejection_retains_tracker_and_surfaces_active_incident(monkeyp
     assert calls["close"] == 1
 
     events = list_paper_events(20)
-    rejected = next(event for event in events if event.event_type == "ctrader_demo_close_rejected")
+    rejected = next(event for event in events if event.event_type == "ctrader_close_rejected")
     assert rejected.details["broker_position_id"] == 111
     assert rejected.details["tracking_retained"] is True
     assert rejected.details["automatic_retry"] is False
@@ -375,8 +375,8 @@ def test_ambiguous_close_never_resubmits_and_later_broker_absence_closes_tracker
     assert len(list_paper_positions("closed")) == 1
 
     events = list_paper_events(20)
-    assert any(event.event_type == "ctrader_demo_close_ambiguous" for event in events)
-    assert any(event.event_type == "ctrader_demo_close_reconciled" for event in events)
+    assert any(event.event_type == "ctrader_close_ambiguous" for event in events)
+    assert any(event.event_type == "ctrader_close_reconciled" for event in events)
 
     recovered_active = router_module._active_status_incidents(
         _config(),
@@ -450,6 +450,6 @@ def test_new_order_protective_close_rejection_sends_only_one_close_and_retains_t
     assert open_positions[0].broker_position_id == 111
 
     events = list_paper_events(20)
-    rejected = next(event for event in events if event.event_type == "ctrader_demo_close_rejected")
+    rejected = next(event for event in events if event.event_type == "ctrader_close_rejected")
     assert rejected.details["position_id"] == open_positions[0].id
     assert rejected.details["broker_position_id"] == 111
