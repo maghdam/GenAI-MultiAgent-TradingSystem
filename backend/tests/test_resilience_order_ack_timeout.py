@@ -45,7 +45,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         allow_live=False,
         kill_switch=False,
         require_stops=True,
@@ -205,7 +205,7 @@ def test_unresolved_ack_timeout_is_nonretryable_and_blocks_later_resubmission(mo
     assert intent.details["reconciliation"]["status"] == "broker_position_not_observed"
 
     incidents = list_incidents(20)
-    assert incidents[0].code == "ctrader_demo_order_ack_timeout_ambiguous"
+    assert incidents[0].code == "ctrader_order_ack_timeout_ambiguous"
     assert incidents[0].details["automatic_retry"] is False
 
     second = _run_signal()
@@ -362,7 +362,7 @@ def test_reconciliation_refuses_symbol_only_adoption_without_baseline(monkeypatc
     assert details["automatic_adoption"] is False
 
 
-def test_live_account_remains_blocked_before_order_submission(monkeypatch) -> None:
+def test_unverified_account_remains_blocked_before_order_submission(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "is_connected", lambda: True)
     monkeypatch.setattr(ctd, "is_authorized", lambda: True)
     monkeypatch.setattr(ctd, "is_account_confirmed", lambda: False)
@@ -377,7 +377,7 @@ def test_live_account_remains_blocked_before_order_submission(monkeypatch) -> No
         lambda **kwargs: pytest.fail("live-account order submission must remain blocked"),
     )
 
-    with pytest.raises(RuntimeError, match="demo-only execution is enforced"):
+    with pytest.raises(RuntimeError, match="not the authenticated active account"):
         adapter.place_market_order(
             symbol="XAUUSD",
             direction="long",
