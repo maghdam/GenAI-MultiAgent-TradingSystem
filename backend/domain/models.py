@@ -58,6 +58,7 @@ class CTraderAccountSelectionResponse(BaseModel):
     selected_account: CTraderAccount
     active_account_id: Optional[int] = None
     transport_switch_required: bool = False
+    switch_started: bool = False
 
 
 class BrokerStatus(BaseModel):
@@ -74,6 +75,10 @@ class BrokerStatus(BaseModel):
     broker_mode: str
     account_id: Optional[int] = None
     account_type: Literal["demo", "live", "unknown"] = "unknown"
+    active_host_type: Literal["demo", "live", "unknown"] = "unknown"
+    account_switch_in_progress: bool = False
+    account_switch_target_id: Optional[int] = None
+    account_switch_error: Optional[str] = None
     demo_account_confirmed: bool = False
     execution_ready: bool = False
     account_snapshot: Optional["BrokerAccountSnapshot"] = None
@@ -113,6 +118,7 @@ class InstrumentSpec(BaseModel):
 class EngineConfig(BaseModel):
     enabled: bool = False
     selected_ctrader_account_id: Optional[int] = Field(default=None, gt=0)
+    selected_ctrader_account_type: Optional[Literal["demo", "live"]] = None
     paper_autotrade: bool = False
     demo_autotrade: bool = False
     allow_live: bool = False
