@@ -1,15 +1,15 @@
 # Strategy lifecycle
 
-V2 treats AI-generated strategy code as a research artifact. Saving a strategy registers an immutable SHA-256 source version; it does not load the code into the trusted runtime or authorize execution.
+V2 treats AI-generated strategy code as a research artifact. Saving a strategy registers an immutable SHA-256 source version; it does not load the code into the trusted runtime or authorize execution. Lifecycle promotion governs evidence and execution eligibility for a strategy identifier/version, but it does not itself import or register raw generated source.
 
 ## Stages
 
-1. `draft` ? define a measurable hypothesis and run development evidence.
-2. `backtested` ? development gate passed; collect independent validation.
-3. `validated` ? both holdout and alternate-regime gates passed.
-4. `paper` ? an operator explicitly approved supervised paper observation.
-5. `eligible` ? paper-trading evidence passed. This is eligibility for a later supervised deployment decision, not automatic live activation.
-6. `retired` ? version is no longer eligible for promotion or execution.
+1. `draft` — define a measurable hypothesis and run development evidence.
+2. `backtested` — development gate passed; collect independent validation.
+3. `validated` — both holdout and alternate-regime gates passed.
+4. `paper` — an operator explicitly approved supervised paper observation.
+5. `eligible` — paper-trading evidence passed. This is eligibility for a later supervised deployment decision, not automatic live activation.
+6. `retired` — version is no longer eligible for promotion or execution.
 
 Promotion is sequential and requires a named operator. Every transition, reason, evidence record, dataset window, metric set, and source hash is stored in SQLite.
 
@@ -42,7 +42,7 @@ Backtest evidence attaches only to the exact saved source hash. Editing and savi
 5. Run Holdout 30% without changing the code.
 6. Select an alternate market, timeframe, or historical regime and run Regime evidence.
 7. Promote to `validated`, then explicitly approve `paper` observation.
-8. Run the exact governed strategy in paper mode. Use **Collect paper evidence** to calculate results from closed V2 paper positions.
+8. If that strategy identifier is already available through the trusted runtime registry, run supervised paper observation for the governed current version and use **Collect paper evidence** to calculate results from closed V2 paper positions. Raw generated source is not made executable merely by promotion; it still requires explicit reviewed runtime integration.
 9. Promote to `eligible` only after the paper gate passes.
 
-For lifecycle-registered strategies, the central risk engine rejects paper execution unless the current source hash matches and the stage is `paper` or `eligible`. Existing built-in strategies without a lifecycle record keep their legacy behavior until they are enrolled.
+For lifecycle-registered strategy identifiers, the central risk engine rejects paper execution unless the current saved-source hash matches and the stage is `paper` or `eligible`. This gate is separate from the trusted runtime registry boundary: it does not import or register generated code. Existing built-in strategies without a lifecycle record keep their legacy behavior until they are enrolled.
