@@ -31,6 +31,7 @@ def _ready_broker(*, open_positions: int = 1) -> BrokerStatus:
         broker_mode="ctrader_demo",
         account_id=123,
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
     )
@@ -48,6 +49,7 @@ def _unavailable_broker() -> BrokerStatus:
         market_data_ready=False,
         broker_mode="ctrader",
         account_type="unknown",
+        account_verified=False,
         demo_account_confirmed=False,
         execution_ready=False,
     )
