@@ -35,7 +35,7 @@ def _config() -> EngineConfig:
     return EngineConfig(
         enabled=True,
         paper_autotrade=False,
-        demo_autotrade=True,
+        ctrader_autotrade=True,
         allow_live=False,
         kill_switch=False,
         require_stops=True,
@@ -114,6 +114,7 @@ def _healthy_broker() -> BrokerStatus:
         market_data_ready=True,
         broker_mode="demo",
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
         notes=[],
@@ -234,8 +235,8 @@ def test_rejected_existing_protection_amend_closes_canonical_position_once(monke
     assert list_order_intents(10) == []
 
     codes = [item.code for item in list_incidents(20)]
-    assert "ctrader_demo_protection_unverified" in codes
-    assert "ctrader_demo_protection_failsafe_closed" in codes
+    assert "ctrader_protection_unverified" in codes
+    assert "ctrader_protection_failsafe_closed" in codes
 
 
 def test_rejected_amend_and_failed_failsafe_close_retains_tracker_nonretryable(monkeypatch) -> None:
@@ -275,7 +276,7 @@ def test_rejected_amend_and_failed_failsafe_close_retains_tracker_nonretryable(m
     assert remaining[0].take_profit == 102.0
 
     incidents = list_incidents(20)
-    failure = next(item for item in incidents if item.code == "ctrader_demo_protection_failsafe_close_failed")
+    failure = next(item for item in incidents if item.code == "ctrader_protection_failsafe_close_failed")
     assert failure.details["tracking_retained"] is True
     assert "Do not submit a competing open order" in failure.details["action_required"]
 
@@ -350,18 +351,18 @@ def test_same_bar_pending_failure_suppresses_duplicate_amend_and_recovers_from_b
         lambda *args, **kwargs: pytest.fail("same-bar pending state must not issue another close"),
     )
 
-    engine._sync_existing_demo_protection(_config(), _watch(), 100.0)
+    engine._sync_existing_ctrader_protection(_config(), _watch(), 100.0)
     assert opened.id in engine._protection_failsafe_pending_positions
 
     broker_row["stop_loss"] = 99.0
     broker_row["take_profit"] = 102.0
-    engine._sync_existing_demo_protection(_config(), _watch(), 100.0)
+    engine._sync_existing_ctrader_protection(_config(), _watch(), 100.0)
 
     assert opened.id not in engine._protection_failsafe_pending_positions
     recovery = next(
         item
         for item in list_incidents(20)
-        if item.code == "ctrader_demo_protection_recovered"
+        if item.code == "ctrader_protection_recovered"
     )
     assert recovery.details["broker_position_id"] == 111
     assert recovery.details["amend_suppressed"] is True
