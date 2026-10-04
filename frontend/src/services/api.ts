@@ -24,6 +24,13 @@ export interface V2CTraderAccount {
   account_type: 'demo' | 'live';
   is_live: boolean;
   selected: boolean;
+  active: boolean;
+}
+
+export interface V2CTraderAccountSelectionResponse {
+  selected_account: V2CTraderAccount;
+  active_account_id?: number | null;
+  transport_switch_required: boolean;
 }
 
 export interface V2BrokerStatus {
@@ -57,6 +64,7 @@ export interface V2WatchlistItem {
 
 export interface V2Config {
   enabled: boolean;
+  selected_ctrader_account_id?: number | null;
   paper_autotrade: boolean;
   demo_autotrade: boolean;
   allow_live: boolean;
@@ -615,6 +623,21 @@ export const getV2CTraderAccounts = async (): Promise<V2CTraderAccount[]> => {
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, `Failed to fetch cTrader accounts: ${response.status} ${response.statusText}`));
   }
+  return response.json();
+};
+
+export const selectV2CTraderAccount = async (
+  accountId: number,
+): Promise<V2CTraderAccountSelectionResponse> => {
+  const response = await authFetch('/api/broker/accounts/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account_id: accountId }),
+  });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Failed to select cTrader account: ${response.status} ${response.statusText}`));
+  }
+  invalidateStatusCache();
   return response.json();
 };
 
