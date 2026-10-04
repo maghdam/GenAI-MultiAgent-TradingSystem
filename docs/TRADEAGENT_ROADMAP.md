@@ -738,6 +738,8 @@ Simulate deliberately:
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #113 on implementation head `637fc00` passed backend tests + frontend production build.
     - [ ] Real forced Ollama-down/recovery observation remains pending. The attempted field probe could not hold Ollama offline because the Windows Ollama supervisor immediately respawned the listener on port 11434; the probe therefore never observed `ollama_ready=false`. During that attempted probe, config/engine/mode/position identity stayed unchanged and no dangerous open/close/update intent appeared.
+    - 2026-10-04 field re-check protocol: require a healthy baseline first; stop both Windows Ollama processes (`ollama.exe` server and `ollama app.exe` supervisor) rather than only the listener; verify port 11434 is actually closed; wait beyond the 30-second healthy model-service cache and 10-second status cache; confirm `/api/llm_status` reports unreachable/not ready and `/api/status` exposes `model_not_ready` while deterministic trading state remains independent; run one deterministic `/api/analyze` request without routing an order; restart the original Ollama app (or `ollama serve` fallback), then verify readiness recovers after the short failure/status caches expire.
+    - The field probe must preserve engine configuration and broker-position identity, must not deliberately create cTrader exposure, and must leave live-account routing blocked.
 - [x] Symbol metadata delayed.
   - [x] Current-session cTrader symbol-contract readiness is tracked explicitly; stale prior-session maps cannot satisfy readiness after reconnect.
   - [x] Symbol metadata is invalidated on connect/disconnect, including cached symbol IDs, lot sizes, volume limits, and verification hints.
