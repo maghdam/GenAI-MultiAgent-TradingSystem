@@ -44,6 +44,8 @@ class CTraderAccount(BaseModel):
     account_id: int
     account_type: Literal["demo", "live"]
     is_live: bool
+    trader_login: Optional[int] = None
+    broker_title: Optional[str] = None
     selected: bool = False
     active: bool = False
 
