@@ -24,7 +24,7 @@ TradeAgent now runs on one active consolidated stack:
 - `backend/`
 - `frontend/`
 
-The autonomous runtime supports local paper execution and explicitly enabled cTrader demo-account orders. Broker execution remains blocked unless cTrader confirms the connected account is demo. Strategy Studio remains a separate research workflow for drafting and backtesting strategies.
+The autonomous runtime supports local paper execution and explicitly enabled cTrader execution on the selected authenticated Demo or Live account. The access token supplies the authorized account directory, the System dashboard persists the operator's account selection, and the same broker-readiness/risk/protection/reconciliation controls apply to both account types. Demo is recommended for development and testing; enabling cTrader auto-trade on a selected Live account can place real-money orders. Strategy Studio remains a separate research workflow for drafting and backtesting strategies.
 
 
 ## Historical Planning Documents
