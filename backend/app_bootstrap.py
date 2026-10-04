@@ -13,7 +13,8 @@ from backend.services.event_calibration import calibrate_pending_event_outcomes
 from backend.services.event_intelligence import configured_feed_urls, refresh_configured_feeds
 from backend.services.market_data_monitor import market_data_probe_loop
 from backend.services.runtime_state import external_dependency_state
-from backend.storage.repositories import log_incident
+from backend.domain.models import EngineConfig
+from backend.storage.repositories import load_engine_config, log_incident, save_engine_config
 
 
 @lru_cache(maxsize=1)
@@ -78,8 +79,15 @@ async def app_lifespan(_: FastAPI):
     external_dependency_state.ollama_warmed = False
     external_dependency_state.ollama_reason = ""
 
+    persisted_config = await asyncio.to_thread(load_engine_config, EngineConfig())
+
     if _env_flag("APP_START_CTRADER_ON_BOOT", _boot_default()):
-        did_start = broker_adapter.start_transport()
+        selected_id = persisted_config.selected_ctrader_account_id
+        selected_type = persisted_config.selected_ctrader_account_type
+        did_start = broker_adapter.start_transport(
+            account_id=selected_id if selected_id is not None and selected_type is not None else None,
+            account_type=selected_type,
+        )
         external_dependency_state.ctrader_started = True
         external_dependency_state.ctrader_reason = "booted on startup" if did_start else "transport already running"
     else:
@@ -99,6 +107,40 @@ async def app_lifespan(_: FastAPI):
 
     if external_dependency_state.ctrader_started:
         await asyncio.sleep(5)
+
+        # Phase 10.2 stored only the internal account ID. Resolve and persist
+        # its broker-reported type once so later restarts can boot directly
+        # onto the correct Demo/Live Open API host.
+        if (
+            persisted_config.selected_ctrader_account_id is not None
+            and persisted_config.selected_ctrader_account_type is None
+        ):
+            try:
+                accounts = await asyncio.to_thread(broker_adapter.list_accounts)
+                target = next(
+                    (
+                        account
+                        for account in accounts
+                        if account.account_id == persisted_config.selected_ctrader_account_id
+                    ),
+                    None,
+                )
+                if target is not None:
+                    persisted_config = persisted_config.model_copy(
+                        update={"selected_ctrader_account_type": target.account_type}
+                    )
+                    await asyncio.to_thread(save_engine_config, persisted_config)
+                    if not target.active:
+                        await asyncio.to_thread(
+                            broker_adapter.switch_account,
+                            target.account_id,
+                            target.account_type,
+                        )
+                        await asyncio.sleep(5)
+            except Exception as exc:
+                external_dependency_state.notes.append(
+                    f"cTrader persisted account selection could not be activated: {exc}"
+                )
 
     if external_dependency_state.ctrader_started:
         await tradeagent_engine.start()
