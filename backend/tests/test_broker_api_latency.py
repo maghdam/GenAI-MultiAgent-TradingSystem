@@ -95,7 +95,7 @@ def test_successful_broker_service_call_records_latency_and_preserves_result(mon
     monkeypatch.setattr(broker_module.adapter, "list_positions", _positions)
     monkeypatch.setattr(broker_module.ctd, "is_connected", lambda: True)
     monkeypatch.setattr(broker_module.ctd, "is_authorized", lambda: True)
-    monkeypatch.setattr(broker_module.ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(broker_module.ctd, "is_account_confirmed", lambda: True)
     _clock(monkeypatch, broker_module, 100.0, 100.042)
 
     result = broker_module.list_positions()
@@ -136,7 +136,7 @@ def test_unavailable_broker_result_is_not_recorded_as_successful_latency(monkeyp
     monkeypatch.setattr(broker_module.adapter, "list_positions", lambda: [])
     monkeypatch.setattr(broker_module.ctd, "is_connected", lambda: False)
     monkeypatch.setattr(broker_module.ctd, "is_authorized", lambda: True)
-    monkeypatch.setattr(broker_module.ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(broker_module.ctd, "is_account_confirmed", lambda: True)
     _clock(monkeypatch, broker_module, 300.0, 300.015)
 
     assert broker_module.list_positions() == []
