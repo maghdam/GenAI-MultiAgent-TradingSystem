@@ -1,13 +1,13 @@
 # TradeAgent
 
-TradeAgent is a local-first trading workstation organized into three connected areas: Trade, Build & Test, and System. It combines a FastAPI backend, React frontend, broker-connected market data, deterministic local paper execution, explicitly enabled cTrader demo-account routing, SQLite-backed audit trails, and LLM-assisted research.
+TradeAgent is a local-first trading workstation organized into three connected areas: Trade, Build & Test, and System. It combines a FastAPI backend, React frontend, broker-connected market data, deterministic local paper execution, guarded cTrader execution on an explicitly selected Demo or Live account, SQLite-backed audit trails, and LLM-assisted research.
 
 The project is intended to show AI product engineering rather than prompt-only experimentation: operator controls, explicit risk boundaries, persistent state, testing, research workflows, and a UI that supports the full operating loop.
 
 ## What It Demonstrates
 
 - one methodological workflow across Trade, Build & Test, and System
-- deterministic local paper execution plus guarded cTrader demo-account execution, with live-account routing blocked
+- deterministic local paper execution plus one guarded cTrader execution path for an explicitly selected Demo or Live account
 - LLM-assisted strategy drafting, editing, and backtesting
 - persistent runtime, incidents, intents, positions, and audit history
 - broker-connected market data and trading context
@@ -39,7 +39,7 @@ The project is intended to show AI product engineering rather than prompt-only e
   <img src="docs/images/System.png" alt="Current TradeAgent System workspace with runtime health, readiness, safety controls, recovery, and audit" width="100%" />
 </p>
 <p align="center">
-  <sub>Current operations workspace for runtime health, readiness, safety configuration, recovery/reconciliation, and audit. cTrader execution remains demo-only and live-account routing remains blocked.</sub>
+  <sub>Operations workspace for runtime health, account selection/readiness, safety configuration, recovery/reconciliation, and audit. Demo and Live accounts use the same guarded cTrader execution architecture.</sub>
 </p>
 
 <details>
@@ -76,7 +76,7 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 - live charting, selected-market context, and explicit strategy rules
 - watchlist, symbol, timeframe, and strategy selection
-- signal review, local paper orders/positions, explicitly enabled cTrader demo-account orders, and trade journal
+- signal review, local paper orders/positions, explicitly enabled cTrader orders on the selected account, and trade journal
 - broker, market-data, engine, and model status
 
 ### Build & Test
@@ -99,7 +99,7 @@ The project is intended to show AI product engineering rather than prompt-only e
 TradeAgent has one trading runtime and one separate research assistant:
 
 - Runtime trading engine:
-  one orchestrated trading loop scans a watchlist, fetches bars, runs a deterministic strategy, passes the result through risk and sizing checks, and records intents plus the local position/audit ledger. When demo auto-trading is explicitly enabled and cTrader confirms the connected account is demo, accepted orders may also route to the cTrader demo account; live-account routing remains blocked.
+  one orchestrated trading loop scans a watchlist, fetches bars, runs a deterministic strategy, passes the result through risk and sizing checks, and records intents plus the local position/audit ledger. When cTrader auto-trading is explicitly enabled, the selected account is authenticated and execution-ready, the kill switch permits trading, and per-symbol auto-trade is enabled, accepted orders may route to that selected Demo or Live account. The same sizing, monetary-account verification, protective-stop, position-limit, reconciliation, recovery, and audit controls apply to both account types.
 - Build & Test research pipeline:
   an LLM-assisted research workflow can chat, draft strategy code, backtest drafts or saved files, and save strategies into `backend/strategies_generated/`.
 
@@ -113,7 +113,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the current diagrams, agent-role mapp
   <img src="docs/images/architecture-overview.svg" alt="TradeAgent architecture overview" width="100%" />
 </p>
 <p align="center">
-  <sub>Current-state architecture: Trade, Build & Test, System, FastAPI services, deterministic local paper runtime with guarded cTrader demo routing, and SQLite-backed audit memory.</sub>
+  <sub>Current-state architecture: Trade, Build & Test, System, FastAPI services, deterministic local paper runtime with account-verified cTrader routing, and SQLite-backed audit memory.</sub>
 </p>
 
 ## Tech Stack
@@ -137,6 +137,14 @@ This starts:
 
 - backend on `http://127.0.0.1:4000`
 - frontend on `http://127.0.0.1:5173`
+
+### cTrader account setup
+
+Configure one cTrader Open API application/access token, not one environment entry per trading account. The access token supplies the authorized account directory, and TradeAgent discovers the available accounts with their broker-reported Demo/Live type. Select the account from the System dashboard; that selection is persisted in SQLite and restored on restart.
+
+`CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` remain bootstrap/fallback values for initial discovery or migration. They are not a manual account directory and normally do not need to be changed when switching between authorized accounts in the UI.
+
+> **Trading risk:** use a Demo account for development, testing, and strategy validation. If a Live account is selected and authenticated, enabling cTrader auto-trade plus per-symbol auto-trade with the kill switch off can submit real-money orders. Broker execution still requires account verification, broker monetary/symbol metadata, risk and sizing checks, protective-stop policy, position limits, daily-loss controls, reconciliation, and audit safeguards.
 
 ### Manual startup
 
@@ -181,8 +189,9 @@ Verified locally on October 4, 2026:
 
 ## Current Constraints
 
-- autonomous execution supports local paper positions and explicitly enabled cTrader demo-account orders
-- cTrader execution stays blocked until the API confirms the configured account has `isLive = false`; live-account execution remains intentionally blocked
+- autonomous execution supports local paper positions plus explicitly enabled cTrader execution on the selected authenticated Demo or Live account
+- cTrader execution fails closed until the selected account is active, authorized, monetary account truth and symbol metadata are verified, and the configured safety gates permit trading
+- Demo accounts are strongly recommended for development/testing; Live execution carries real financial risk
 - broker connectivity and market data depend on the local cTrader/Open API environment
 - Strategy Studio quality depends on the configured local or remote model
 
