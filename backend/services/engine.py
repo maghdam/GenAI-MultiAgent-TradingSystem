@@ -8,27 +8,27 @@ from typing import Dict
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.broker import (
-    DemoProtectionSyncFailure,
+    CTraderProtectionSyncFailure,
     get_broker_status,
     list_positions,
-    sync_demo_position_targets,
+    sync_position_targets,
 )
 from backend.services.confluence_shadow import record_confluence_shadow
 from backend.services.market_data import MarketDataError, get_bars, record_market_bar_freshness
 from backend.services.market_bar_validation import assess_market_frame
-from backend.services.close_safety import attempt_verified_demo_close
+from backend.services.close_safety import attempt_verified_close
 from backend.services.protection_safety import (
     broker_protection_matches,
-    fail_safe_close_unverified_demo_position,
+    fail_safe_close_unverified_position,
 )
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.runtime_state import market_data_dependency_state
 from backend.services.broker_ledger import (
     close_local_position_from_broker,
-    reconcile_open_demo_position_ledger,
+    reconcile_open_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
-from backend.services.reconciler import reconcile_open_positions, recover_demo_broker_trackers, recover_runtime_state
+from backend.services.reconciler import reconcile_open_positions, recover_broker_trackers, recover_runtime_state
 from backend.storage.repositories import (
     add_analysis,
     add_trade_audit,
@@ -140,14 +140,14 @@ class V2Engine:
             return runtime.last_cycle_summary
 
         runtime.loop_active = True
-        if config.demo_autotrade:
+        if config.ctrader_autotrade:
             try:
-                recover_demo_broker_trackers(config)
+                recover_broker_trackers(config)
             except Exception as exc:
                 log_incident(
                     "error",
                     "ctrader_demo_tracker_recovery_failed",
-                    "Could not reconcile cTrader demo positions with local trackers.",
+                    "Could not reconcile cTrader positions with local trackers.",
                     {"error": str(exc)},
                 )
         bar_state = load_bar_state()
@@ -299,7 +299,7 @@ class V2Engine:
         if bar_state.get(key) == last_ts:
             last_price = float(df["close"].iloc[-1])
             self._mark_positions(config, item, last_price)
-            self._sync_existing_demo_protection(config, item, last_price)
+            self._sync_existing_ctrader_protection(config, item, last_price)
             return False, False
         strategy = get_strategy(item.strategy)
         analysis = strategy.analyze(
@@ -342,13 +342,13 @@ class V2Engine:
             bar_state[key] = last_ts
         return True, result.action_taken
 
-    def _sync_existing_demo_protection(
+    def _sync_existing_ctrader_protection(
         self,
         config: EngineConfig,
         item: WatchlistItem,
         last_price: float,
     ) -> None:
-        if not (config.demo_autotrade and item.trading_enabled):
+        if not (config.ctrader_autotrade and item.trading_enabled):
             return
         position = get_open_position(item.symbol.upper(), item.timeframe.upper())
         if not position:
@@ -358,7 +358,7 @@ class V2Engine:
         broker_available = bool(
             broker.socket_connected
             and broker.account_authorized
-            and broker.demo_account_confirmed
+            and broker.account_verified
         )
         if not broker_available:
             position_key = int(position.id)
@@ -368,7 +368,7 @@ class V2Engine:
                 elif not broker.account_authorized:
                     reason = broker.auth_error or "cTrader account is not authorized."
                 else:
-                    reason = "Connected cTrader account is not confirmed as demo."
+                    reason = "The selected cTrader account is not the authenticated active account."
                 log_incident(
                     "warning",
                     "ctrader_demo_protection_verification_deferred",
@@ -380,7 +380,7 @@ class V2Engine:
                         "reason": reason,
                         "socket_connected": broker.socket_connected,
                         "account_authorized": broker.account_authorized,
-                        "demo_account_confirmed": broker.demo_account_confirmed,
+                        "account_verified": broker.account_verified,
                         "broker_protection_state": "unverified_broker_unavailable",
                         "local_exit_suppressed": True,
                         "broker_mutation_suppressed": True,
@@ -413,7 +413,7 @@ class V2Engine:
                 int(match.row.get("position_id") or 0),
             )
         broker_match = match.row
-        ledger_sync = reconcile_open_demo_position_ledger(position, broker_match)
+        ledger_sync = reconcile_open_position_ledger(position, broker_match)
         if ledger_sync.get("status") == "partial_close_synced":
             position = get_open_position(item.symbol.upper(), item.timeframe.upper()) or position
             add_trade_audit(
@@ -474,7 +474,7 @@ class V2Engine:
             return
 
         try:
-            protection = sync_demo_position_targets(
+            protection = sync_position_targets(
                 symbol=position.symbol,
                 direction=position.direction,
                 stop_loss=position.stop_loss,
@@ -488,7 +488,7 @@ class V2Engine:
                     if protection.get("status") == "exit_due_stop_loss"
                     else "broker_take_profit"
                 )
-                close_result = attempt_verified_demo_close(
+                close_result = attempt_verified_close(
                     position,
                     fallback_price=last_price,
                     reason=reason,
@@ -502,7 +502,7 @@ class V2Engine:
                         timeframe=position.timeframe,
                         strategy=position.strategy,
                         position_id=position.id,
-                        summary="Closed cTrader demo position after its intended protective target was crossed.",
+                        summary="Closed cTrader position after its intended protective target was crossed.",
                         details={"protection": protection, "close_result": close_result},
                     )
                 return
@@ -518,8 +518,8 @@ class V2Engine:
                         summary="Repaired broker SL/TP during same-bar engine maintenance.",
                         details=protection,
                     )
-        except DemoProtectionSyncFailure as exc:
-            failsafe = fail_safe_close_unverified_demo_position(
+        except CTraderProtectionSyncFailure as exc:
+            failsafe = fail_safe_close_unverified_position(
                 position,
                 broker_row=broker_match,
                 fallback_price=last_price,
@@ -543,8 +543,8 @@ class V2Engine:
         if not position:
             return
 
-        demo_managed = bool(config.demo_autotrade and item.trading_enabled)
-        if not demo_managed:
+        ctrader_managed = bool(config.ctrader_autotrade and item.trading_enabled)
+        if not ctrader_managed:
             reconcile_position(position, last_price)
             return
 
@@ -580,7 +580,7 @@ class V2Engine:
                 int(match.row.get("position_id") or 0),
             )
 
-        ledger_sync = reconcile_open_demo_position_ledger(position, match.row)
+        ledger_sync = reconcile_open_position_ledger(position, match.row)
         if ledger_sync.get("status") == "partial_close_synced":
             add_trade_audit(
                 event_type="ctrader_demo_partial_close_synced",
