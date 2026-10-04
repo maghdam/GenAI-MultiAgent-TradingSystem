@@ -122,7 +122,7 @@ def test_cross_host_switch_replaces_client_and_ignores_stale_disconnect(monkeypa
     assert ctd.CONNECTED is True
     assert len(replacement.sent) == 1
     app_auth_request, _ = replacement.sent[0]
-    assert app_auth_request.clientId == ctd.CLIENT_ID
+    assert app_auth_request.clientId == (ctd.CLIENT_ID or "")
 
     ctd._on_disconnected(current, "stale old transport")
 
