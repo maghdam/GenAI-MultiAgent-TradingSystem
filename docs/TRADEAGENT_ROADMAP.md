@@ -564,6 +564,13 @@ Only after enough evidence, evaluate whether one global 60% threshold is inferio
 - 0 of 3 cells passed the screening gate.
 - No threshold comparison or execution-setting change is authorized from the current sample.
 
+**Re-check protocol (2026-10-04)**
+- Use the existing read-only `GET /api/studio/confidence-threshold-sufficiency` endpoint against the current persisted runtime database.
+- Review every exact strategy × symbol × timeframe cell; manual trades remain excluded by the service.
+- A cell may proceed to threshold-comparison research only if `sufficient_for_threshold_study=true` and every screening check passes.
+- If no cell passes, record the updated sample evidence and stop; do not tune parameters, run threshold selection, or change the global 60% execution threshold.
+- This re-check is evidence-only and does not route broker orders or mutate execution settings.
+
 **Pending acceptance**
 - [ ] Re-run the sufficiency screen after substantially more closed automatic trades accumulate.
 - [ ] Only if a cell passes the screen, perform a leakage-safe development/holdout comparison of threshold alternatives.
