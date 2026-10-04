@@ -19,6 +19,13 @@ export interface SymbolsResponse {
   default: string | null;
 }
 
+export interface V2CTraderAccount {
+  account_id: number;
+  account_type: 'demo' | 'live';
+  is_live: boolean;
+  selected: boolean;
+}
+
 export interface V2BrokerStatus {
   connected: boolean;
   socket_connected: boolean;
@@ -601,6 +608,14 @@ export const getV2Status = async (options: { force?: boolean } = {}): Promise<V2
     });
 
   return statusInflight;
+};
+
+export const getV2CTraderAccounts = async (): Promise<V2CTraderAccount[]> => {
+  const response = await authFetch('/api/broker/accounts');
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Failed to fetch cTrader accounts: ${response.status} ${response.statusText}`));
+  }
+  return response.json();
 };
 
 export const getV2Config = async (): Promise<V2Config> => {
