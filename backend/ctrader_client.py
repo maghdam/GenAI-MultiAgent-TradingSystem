@@ -74,6 +74,7 @@ AUTH_ERROR = None
 LAST_AUTH_ATTEMPT_AT = None
 ACCOUNT_IS_DEMO: bool | None = None
 ACCOUNT_VERIFICATION_ERROR: str | None = None
+AVAILABLE_ACCOUNTS: list[dict[str, object]] = []
 
 _asset_name_cache: dict[int, str] = {}
 _asset_cache_account_id: int | None = None
@@ -456,6 +457,22 @@ def account_list_response_cb(res):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
     payload = Protobuf.extract(res)
     accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
+
+    AVAILABLE_ACCOUNTS.clear()
+    for account in accounts:
+        account_id = int(getattr(account, "ctidTraderAccountId", 0) or 0)
+        if account_id <= 0:
+            continue
+        is_live = bool(getattr(account, "isLive", False))
+        AVAILABLE_ACCOUNTS.append(
+            {
+                "account_id": account_id,
+                "account_type": "live" if is_live else "demo",
+                "is_live": is_live,
+                "selected": account_id == int(ACCOUNT_ID),
+            }
+        )
+
     selected = next(
         (
             account
@@ -494,6 +511,7 @@ def account_list_response_cb(res):
 
 def account_list_error_cb(failure):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
+    AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = f"Unable to verify cTrader account type: {failure}"
     AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
@@ -504,6 +522,7 @@ def account_list_error_cb(failure):
 def app_auth_cb(_):
     global LAST_AUTH_ATTEMPT_AT, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
     LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
+    AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = None
     req = ProtoOAGetAccountListByAccessTokenReq(
@@ -527,6 +546,7 @@ def _on_disconnected(c, reason):
     global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
     _clear_asset_cache()
     _clear_symbol_metadata()
+    AVAILABLE_ACCOUNTS.clear()
     CONNECTED = False
     AUTHORIZED = False
     ACCOUNT_IS_DEMO = None
@@ -673,6 +693,12 @@ def is_demo_account_confirmed() -> bool:
 
 def get_account_verification_error() -> str | None:
     return ACCOUNT_VERIFICATION_ERROR
+
+
+def get_available_accounts() -> list[dict[str, object]]:
+    """Return broker-reported accounts authorized by the current access token."""
+    return [dict(account) for account in AVAILABLE_ACCOUNTS]
+
 
 def _trendbar_lookback_minutes(tf: str, n: int | None) -> int:
     tf_min_map = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}

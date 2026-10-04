@@ -13,7 +13,7 @@ from backend.adapters.ctrader import (
     DemoProtectionSyncFailure,
     adapter,
 )
-from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, InstrumentSpec, SymbolLimits
+from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, CTraderAccount, InstrumentSpec, SymbolLimits
 from backend.services.latency_observability import (
     record_broker_latency,
     record_broker_unavailable,
@@ -72,6 +72,10 @@ def _timed_broker_call(
 
 def get_broker_status() -> BrokerStatus:
     return adapter.get_status()
+
+
+def list_accounts() -> List[CTraderAccount]:
+    return adapter.list_accounts()
 
 
 def get_broker_account_snapshot(*, force: bool = False) -> BrokerAccountSnapshot:
