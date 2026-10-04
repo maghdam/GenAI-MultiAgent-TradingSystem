@@ -22,6 +22,7 @@ def _close_storage_connection() -> None:
 def test_settings_and_watchlist_survive_storage_restart() -> None:
     original = EngineConfig(
         enabled=True,
+        selected_ctrader_account_id=2123962,
         paper_autotrade=True,
         demo_autotrade=False,
         kill_switch=False,
