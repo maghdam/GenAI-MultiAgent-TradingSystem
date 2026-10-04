@@ -1236,9 +1236,23 @@ Add one row after every completed task.
 This item does not yet change the active account, reconnect transports, or route orders differently. It establishes broker-truth account discovery so account selection can be implemented without environment-variable assumptions.
 
 ### 10.2 Dashboard account selector and persisted active account
-**Status:** ⬜
+**Status:** 🧪
 
-Target a cTrader-like selector that lists authorized accounts with broker-reported Demo/Live labels, persists the operator-selected account ID, and changes broker context only through an explicit account-switch operation.
+**Target behavior**
+- [x] Persist the explicitly selected cTrader account ID in the existing SQLite-backed engine configuration.
+- [x] Keep broker truth explicit by distinguishing the saved `selected` account from the currently authenticated `active` transport account.
+- [x] Validate account selection against the authorized account directory before saving it.
+- [x] Expose an explicit `POST /api/broker/accounts/select` operation without reconnecting or mutating broker execution state.
+- [x] Add a cTrader-style account selector to the System dashboard with automatic Demo/Live labels.
+- [x] Show the active authenticated account separately and disclose when a saved selection is pending a transport switch.
+- [x] Persist the selected account through the existing config serializer without a database schema migration.
+- [ ] Local focused backend tests.
+- [ ] Local full backend regression suite.
+- [ ] Local frontend production build.
+- [ ] GitHub CI.
+
+**Scope boundary**
+This item stores operator intent and presents it truthfully in the dashboard. It does not reconnect the cTrader client, change the active host/account, or alter order routing; those remain Phase 10.3 and 10.4.
 
 ### 10.3 Account-aware transport switching
 **Status:** ⬜
@@ -1259,4 +1273,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.1 is verified. Proceed to Phase 10.2: add a cTrader-style dashboard account selector backed by the authorized account directory and persist the explicitly selected account ID. Do not mix transport switching or execution-path changes into 10.2; those remain separate Phase 10.3/10.4 items. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.2 is ready for local validation. Validate persisted account selection, authorized-directory rejection, active-vs-selected broker truth, the full backend regression suite, and the frontend production build. Do not begin transport switching until local validation and GitHub CI pass and Phase 10.2 is marked verified. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
