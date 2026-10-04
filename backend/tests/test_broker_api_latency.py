@@ -26,6 +26,7 @@ def _ready_status() -> BrokerStatus:
         broker_mode="ctrader_demo",
         account_id=123,
         account_type="demo",
+        account_verified=True,
         demo_account_confirmed=True,
         execution_ready=True,
     )
@@ -43,6 +44,7 @@ def _unavailable_status() -> BrokerStatus:
         market_data_ready=False,
         broker_mode="ctrader",
         account_type="unknown",
+        account_verified=False,
         demo_account_confirmed=False,
         execution_ready=False,
     )
@@ -145,7 +147,7 @@ def test_unavailable_broker_result_is_not_recorded_as_successful_latency(monkeyp
     assert report.broker.state == "unavailable"
     assert report.broker.operation == "list_positions"
     assert report.broker.duration_ms is None
-    assert "without confirmed demo execution availability" in report.broker.detail
+    assert "without confirmed cTrader execution availability" in report.broker.detail
 
 
 def test_unverified_account_snapshot_is_unavailable_not_measured(monkeypatch) -> None:
@@ -203,16 +205,15 @@ def test_completed_4xx_api_response_is_a_measured_boundary_sample(monkeypatch) -
     app_module = importlib.import_module("backend.app")
     _clock(monkeypatch, app_module, 600.0, 600.010)
 
+    payload = EngineConfig().model_dump(mode="json")
+    payload["account_currency"] = "US"
     with TestClient(app_module.app) as client:
-        response = client.post(
-            "/api/config",
-            json=EngineConfig(allow_live=True).model_dump(mode="json"),
-        )
+        response = client.post("/api/config", json=payload)
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     report = build_broker_api_latency()
     assert report.api.state == "measured"
-    assert report.api.status_code == 400
+    assert report.api.status_code == 422
     assert report.api.duration_ms == pytest.approx(10.0)
 
 
