@@ -4,9 +4,9 @@ from typing import Any, Dict
 
 from backend.domain.models import PaperEvent, PaperPosition
 from backend.services.broker import (
-    DemoCloseOutcomeAmbiguous,
-    DemoCloseRejected,
-    close_demo_position,
+    CTraderCloseOutcomeAmbiguous,
+    CTraderCloseRejected,
+    close_position,
     get_closed_position_summary,
     list_positions,
 )
@@ -39,7 +39,7 @@ def _event_matches_position(event: PaperEvent, position: PaperPosition) -> bool:
     )
 
 
-def unresolved_demo_close_event(position: PaperPosition) -> PaperEvent | None:
+def unresolved_close_event(position: PaperPosition) -> PaperEvent | None:
     if not position.broker_position_id:
         return None
     for event in list_paper_events(500):
@@ -56,7 +56,7 @@ def _canonical_broker_row(position: PaperPosition) -> Dict[str, Any] | None:
     broker_id = int(position.broker_position_id or 0)
     if broker_id <= 0:
         raise RuntimeError(
-            f"Tracked demo position {position.id} has no canonical broker position id."
+            f"Tracked cTrader position {position.id} has no canonical broker position id."
         )
     for row in list_positions() or []:
         try:
@@ -95,10 +95,10 @@ def _verified_absence_payload(
     }
 
 
-def record_ambiguous_demo_close(
+def record_ambiguous_close(
     position: PaperPosition,
     *,
-    error: DemoCloseOutcomeAmbiguous,
+    error: CTraderCloseOutcomeAmbiguous,
     phase: str,
     quantity_lots: float,
 ) -> None:
@@ -123,13 +123,13 @@ def record_ambiguous_demo_close(
     }
     add_paper_event(
         _AMBIGUOUS_EVENT,
-        "Demo close outcome is ambiguous after broker submission.",
+        "cTrader close outcome is ambiguous after broker submission.",
         details,
     )
     log_incident(
         "error",
         "ctrader_demo_close_ambiguous",
-        f"Demo close outcome is ambiguous for {position.symbol}:{position.timeframe}; automatic re-close is blocked.",
+        f"cTrader close outcome is ambiguous for {position.symbol}:{position.timeframe}; automatic re-close is blocked.",
         details,
     )
     add_trade_audit(
@@ -143,10 +143,10 @@ def record_ambiguous_demo_close(
     )
 
 
-def record_rejected_demo_close(
+def record_rejected_close(
     position: PaperPosition,
     *,
-    error: DemoCloseRejected,
+    error: CTraderCloseRejected,
     phase: str,
     quantity_lots: float,
 ) -> None:
@@ -170,13 +170,13 @@ def record_rejected_demo_close(
     }
     add_paper_event(
         "ctrader_demo_close_rejected",
-        "Broker explicitly rejected a demo close request.",
+        "Broker explicitly rejected a cTrader close request.",
         details,
     )
     log_incident(
         "error",
         "ctrader_demo_close_rejected",
-        f"Broker rejected the demo close for {position.symbol}:{position.timeframe}; local tracking remains open.",
+        f"Broker rejected the cTrader close for {position.symbol}:{position.timeframe}; local tracking remains open.",
         details,
     )
     add_trade_audit(
@@ -190,7 +190,7 @@ def record_rejected_demo_close(
     )
 
 
-def attempt_verified_demo_close(
+def attempt_verified_close(
     position: PaperPosition,
     *,
     fallback_price: float,
@@ -198,16 +198,16 @@ def attempt_verified_demo_close(
     phase: str,
     quantity_lots: float | None = None,
 ) -> Dict[str, Any]:
-    """Close one tracked demo position without ever synthesizing broker truth."""
+    """Close one tracked cTrader position without ever synthesizing broker truth."""
 
     broker_id = int(position.broker_position_id or 0)
     if broker_id <= 0:
         raise RuntimeError(
-            f"Demo close blocked: tracked position {position.id} has no canonical broker id."
+            f"cTrader close blocked: tracked position {position.id} has no canonical broker id."
         )
     quantity = float(quantity_lots or position.quantity)
 
-    unresolved = unresolved_demo_close_event(position)
+    unresolved = unresolved_close_event(position)
     if unresolved is not None:
         prior_ambiguous = unresolved.event_type == _AMBIGUOUS_EVENT
         pending_status = "ambiguous_pending" if prior_ambiguous else "rejected_pending"
@@ -227,7 +227,7 @@ def attempt_verified_demo_close(
             log_incident(
                 "error",
                 "ctrader_demo_close_reconciliation_deferred",
-                f"Could not reconcile prior demo close failure for {position.symbol}:{position.timeframe}.",
+                f"Could not reconcile prior cTrader close failure for {position.symbol}:{position.timeframe}.",
                 details,
             )
             return {
@@ -288,7 +288,7 @@ def attempt_verified_demo_close(
         }
         add_paper_event(
             _RESOLVED_EVENT,
-            "Resolved ambiguous demo close from broker position absence.",
+            "Resolved ambiguous cTrader close from broker position absence.",
             details,
         )
         log_incident(
@@ -315,13 +315,13 @@ def attempt_verified_demo_close(
         }
 
     try:
-        broker_close = close_demo_position(
+        broker_close = close_position(
             symbol=position.symbol,
             position_id=broker_id,
             quantity_lots=quantity,
         )
-    except DemoCloseRejected as exc:
-        record_rejected_demo_close(
+    except CTraderCloseRejected as exc:
+        record_rejected_close(
             position,
             error=exc,
             phase=phase,
@@ -336,8 +336,8 @@ def attempt_verified_demo_close(
             "tracking_retained": True,
             "close_request_sent": True,
         }
-    except DemoCloseOutcomeAmbiguous as exc:
-        record_ambiguous_demo_close(
+    except CTraderCloseOutcomeAmbiguous as exc:
+        record_ambiguous_close(
             position,
             error=exc,
             phase=phase,
@@ -365,7 +365,7 @@ def attempt_verified_demo_close(
         log_incident(
             "error",
             "ctrader_demo_close_failed",
-            f"Demo close failed before a verified broker close for {position.symbol}:{position.timeframe}.",
+            f"cTrader close failed before a verified broker close for {position.symbol}:{position.timeframe}.",
             details,
         )
         add_trade_audit(
@@ -374,7 +374,7 @@ def attempt_verified_demo_close(
             timeframe=position.timeframe,
             strategy=position.strategy,
             position_id=position.id,
-            summary="Demo close failed; local tracker remained open.",
+            summary="cTrader close failed; local tracker remained open.",
             details=details,
         )
         return {
@@ -401,7 +401,7 @@ def attempt_verified_demo_close(
     }
     add_paper_event(
         "ctrader_demo_close_verified",
-        "Broker-confirmed demo close completed.",
+        "Broker-confirmed cTrader close completed.",
         details,
     )
     return {
@@ -411,3 +411,10 @@ def attempt_verified_demo_close(
         "position": closed,
         **details,
     }
+
+
+# Backward-compatible aliases for pre-Phase-10.4 callers/tests.
+unresolved_demo_close_event = unresolved_close_event
+record_ambiguous_demo_close = record_ambiguous_close
+record_rejected_demo_close = record_rejected_close
+attempt_verified_demo_close = attempt_verified_close
