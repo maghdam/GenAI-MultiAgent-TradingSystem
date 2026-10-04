@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 import backend.ctrader_client as ctd
-from backend.adapters.ctrader import CTraderBrokerAdapter, DemoProtectionSyncFailure
+from backend.adapters.ctrader import CTraderBrokerAdapter, CTraderProtectionSyncFailure
 from backend.domain.models import (
     BrokerAccountSnapshot,
     BrokerStatus,
@@ -120,8 +120,8 @@ def _healthy_broker() -> BrokerStatus:
     )
 
 
-def _sync_failure(kind: str = "amend_rejected") -> DemoProtectionSyncFailure:
-    return DemoProtectionSyncFailure(
+def _sync_failure(kind: str = "amend_rejected") -> CTraderProtectionSyncFailure:
+    return CTraderProtectionSyncFailure(
         "cTrader demo target sync rejected: TRADING_BAD_STOPS",
         failure_kind=kind,
         broker_position_id=111,
@@ -175,8 +175,8 @@ def test_adapter_classifies_rejected_protection_amend(monkeypatch) -> None:
         },
     )
 
-    with pytest.raises(DemoProtectionSyncFailure) as exc_info:
-        CTraderBrokerAdapter().sync_demo_position_targets(
+    with pytest.raises(CTraderProtectionSyncFailure) as exc_info:
+        CTraderBrokerAdapter().sync_position_targets(
             symbol="XAUUSD",
             direction="long",
             stop_loss=99.0,
@@ -194,20 +194,20 @@ def test_rejected_existing_protection_amend_closes_canonical_position_once(monke
     monkeypatch.setattr(execution_engine, "_refresh_open_position", lambda *args, **kwargs: opened)
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(_sync_failure()),
     )
     monkeypatch.setattr(execution_engine, "list_positions", lambda: [_broker_row()])
     close_calls = []
     monkeypatch.setattr(
         close_safety,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: close_calls.append(kwargs)
         or {"status": "closed", "position_id": 111, "verified": True},
     )
     monkeypatch.setattr(
         execution_engine,
-        "place_demo_market_order",
+        "place_market_order",
         lambda **kwargs: pytest.fail("protection failure must never create a competing open order"),
     )
 
@@ -243,13 +243,13 @@ def test_rejected_amend_and_failed_failsafe_close_retains_tracker_nonretryable(m
     monkeypatch.setattr(execution_engine, "_refresh_open_position", lambda *args, **kwargs: opened)
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(_sync_failure()),
     )
     monkeypatch.setattr(execution_engine, "list_positions", lambda: [_broker_row()])
     monkeypatch.setattr(
         close_safety,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("broker close rejected")),
     )
 
@@ -283,7 +283,7 @@ def test_rejected_amend_and_failed_failsafe_close_retains_tracker_nonretryable(m
 def test_rejected_new_targets_never_replace_local_targets(monkeypatch) -> None:
     opened = _open_position()
     monkeypatch.setattr(execution_engine, "_refresh_open_position", lambda *args, **kwargs: opened)
-    monkeypatch.setattr(execution_engine, "get_demo_symbol_execution_readiness", lambda symbol: (True, "ready"))
+    monkeypatch.setattr(execution_engine, "get_symbol_execution_readiness", lambda symbol: (True, "ready"))
     monkeypatch.setattr(execution_engine, "get_broker_account_snapshot", _verified_account)
     monkeypatch.setattr(execution_engine, "list_positions", lambda: [_broker_row(stop_loss=99.0, take_profit=102.0)])
     sync_calls = []
@@ -294,10 +294,10 @@ def test_rejected_new_targets_never_replace_local_targets(monkeypatch) -> None:
             return {"status": "already_synced", "verified": True, "position_id": 111}
         raise _sync_failure()
 
-    monkeypatch.setattr(execution_engine, "sync_demo_position_targets", _sync)
+    monkeypatch.setattr(execution_engine, "sync_position_targets", _sync)
     monkeypatch.setattr(
         close_safety,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("fail-safe close rejected")),
     )
 
@@ -336,17 +336,17 @@ def test_same_bar_pending_failure_suppresses_duplicate_amend_and_recovers_from_b
     monkeypatch.setattr(engine_module, "list_positions", lambda: [dict(broker_row)])
     monkeypatch.setattr(
         engine_module,
-        "reconcile_open_demo_position_ledger",
+        "reconcile_open_position_ledger",
         lambda position, row: {"status": "unchanged"},
     )
     monkeypatch.setattr(
         engine_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: pytest.fail("same-bar pending state must not repeat protection amend"),
     )
     monkeypatch.setattr(
         engine_module,
-        "attempt_verified_demo_close",
+        "attempt_verified_close",
         lambda *args, **kwargs: pytest.fail("same-bar pending state must not issue another close"),
     )
 
@@ -372,7 +372,7 @@ def test_startup_reconciliation_applies_same_failsafe_close_policy(monkeypatch) 
     opened = _open_position()
     row = _broker_row()
 
-    monkeypatch.setattr(reconciler_module, "recover_demo_broker_trackers", lambda config: {"recovered": 0})
+    monkeypatch.setattr(reconciler_module, "recover_broker_trackers", lambda config: {"recovered": 0})
     monkeypatch.setattr(
         reconciler_module,
         "get_broker_status",
@@ -389,18 +389,18 @@ def test_startup_reconciliation_applies_same_failsafe_close_policy(monkeypatch) 
     )
     monkeypatch.setattr(
         reconciler_module,
-        "reconcile_open_demo_position_ledger",
+        "reconcile_open_position_ledger",
         lambda position, broker_row: {"status": "unchanged"},
     )
     monkeypatch.setattr(
         reconciler_module,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(_sync_failure()),
     )
     close_calls = []
     monkeypatch.setattr(
         close_safety,
-        "close_demo_position",
+        "close_position",
         lambda **kwargs: close_calls.append(kwargs)
         or {"status": "closed", "position_id": 111, "verified": True},
     )
@@ -420,12 +420,12 @@ def test_generic_precondition_failure_does_not_trigger_failsafe_close(monkeypatc
     monkeypatch.setattr(execution_engine, "_refresh_open_position", lambda *args, **kwargs: opened)
     monkeypatch.setattr(
         execution_engine,
-        "sync_demo_position_targets",
+        "sync_position_targets",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("cTrader transport is not connected")),
     )
     monkeypatch.setattr(
         protection_safety,
-        "attempt_verified_demo_close",
+        "attempt_verified_close",
         lambda *args, **kwargs: pytest.fail("precondition failure must not trigger protection fail-safe close"),
     )
 
