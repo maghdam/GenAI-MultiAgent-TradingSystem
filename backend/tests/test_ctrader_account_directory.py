@@ -25,6 +25,8 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
     monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", None)
+    monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", None)
     monkeypatch.setattr(
         ctd.Protobuf,
         "extract",
@@ -73,7 +75,7 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
             "trader_login": 1105460,
             "broker_title": "FP Trading",
             "selected": True,
-            "active": True,
+            "active": False,
         },
         {
             "account_id": 47140449,
@@ -87,6 +89,16 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     ]
     assert len(sent) == 1
     assert sent[0].ctidTraderAccountId == 47140414
+
+    deferred = ctd.account_list_response_cb(object())
+    success, _ = deferred.callbacks
+    success(object())
+
+    active_rows = ctd.get_available_accounts()
+    active = next(row for row in active_rows if row["account_id"] == 47140414)
+    assert active["active"] is True
+    assert ctd.ACTIVE_ACCOUNT_ID == 47140414
+    assert ctd.ACTIVE_HOST_TYPE == "demo"
 
 
 def test_broker_accounts_endpoint_overlays_persisted_selection(monkeypatch) -> None:
@@ -121,8 +133,9 @@ def test_broker_accounts_endpoint_overlays_persisted_selection(monkeypatch) -> N
     assert [row.active for row in result] == [False, True]
 
 
-def test_select_broker_account_persists_choice_without_switching_transport(monkeypatch) -> None:
+def test_select_broker_account_persists_choice_and_starts_transport_switch(monkeypatch) -> None:
     saved = {}
+    switches = []
     rows = [
         CTraderAccount(
             account_id=2123962,
@@ -140,11 +153,18 @@ def test_select_broker_account_persists_choice_without_switching_transport(monke
         ),
     ]
     monkeypatch.setattr(router_module, "list_accounts", lambda: rows)
+    monkeypatch.setattr(router_module, "list_paper_positions", lambda status=None: [])
     monkeypatch.setattr(router_module, "_current_config", lambda: EngineConfig())
     monkeypatch.setattr(
         router_module,
         "save_engine_config",
         lambda config: saved.setdefault("config", config) or config,
+    )
+    monkeypatch.setattr(
+        router_module,
+        "switch_account",
+        lambda account_id, account_type: switches.append((account_id, account_type))
+        or {"switch_started": True},
     )
 
     response = asyncio.run(
@@ -154,15 +174,84 @@ def test_select_broker_account_persists_choice_without_switching_transport(monke
     )
 
     assert saved["config"].selected_ctrader_account_id == 2123962
+    assert saved["config"].selected_ctrader_account_type == "live"
+    assert switches == [(2123962, "live")]
     assert response.selected_account.account_id == 2123962
     assert response.selected_account.selected is True
     assert response.selected_account.active is False
     assert response.active_account_id == 1105460
     assert response.transport_switch_required is True
+    assert response.switch_started is True
+
+
+def test_select_broker_account_requires_engine_safe_state(monkeypatch) -> None:
+    rows = [
+        CTraderAccount(
+            account_id=2123962,
+            account_type="live",
+            is_live=True,
+            active=False,
+        ),
+        CTraderAccount(
+            account_id=1105460,
+            account_type="demo",
+            is_live=False,
+            active=True,
+        ),
+    ]
+    monkeypatch.setattr(router_module, "list_accounts", lambda: rows)
+    monkeypatch.setattr(
+        router_module,
+        "_current_config",
+        lambda: EngineConfig(enabled=True, kill_switch=False),
+    )
+
+    with pytest.raises(HTTPException, match="kill switch") as exc:
+        asyncio.run(
+            router_module.v2_select_broker_account(
+                CTraderAccountSelectionRequest(account_id=2123962)
+            )
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_select_broker_account_blocks_managed_open_broker_position(monkeypatch) -> None:
+    rows = [
+        CTraderAccount(
+            account_id=2123962,
+            account_type="live",
+            is_live=True,
+            active=False,
+        ),
+        CTraderAccount(
+            account_id=1105460,
+            account_type="demo",
+            is_live=False,
+            active=True,
+        ),
+    ]
+    monkeypatch.setattr(router_module, "list_accounts", lambda: rows)
+    monkeypatch.setattr(router_module, "_current_config", lambda: EngineConfig())
+    monkeypatch.setattr(
+        router_module,
+        "list_paper_positions",
+        lambda status=None: [SimpleNamespace(broker_position_id=555)],
+    )
+
+    with pytest.raises(HTTPException, match="open broker-backed position") as exc:
+        asyncio.run(
+            router_module.v2_select_broker_account(
+                CTraderAccountSelectionRequest(account_id=2123962)
+            )
+        )
+
+    assert exc.value.status_code == 409
 
 
 def test_select_broker_account_rejects_account_not_in_authorized_directory(monkeypatch) -> None:
     monkeypatch.setattr(router_module, "list_accounts", lambda: [])
+    monkeypatch.setattr(router_module, "list_paper_positions", lambda status=None: [])
 
     with pytest.raises(HTTPException, match="not available") as exc:
         asyncio.run(
