@@ -69,6 +69,23 @@ This script kills listeners on ports `4000` and `5173` and aggressively cleans u
 - `VITE_API_BASE=http://127.0.0.1:4000`
   points the frontend to the local FastAPI server
 
+### cTrader credentials and account selection
+
+Configure the cTrader Open API application credentials and one access token in `backend/.env` (using `backend/.env.example` as the template). The access token is the source of truth for the authorized account directory: TradeAgent discovers every account available to that token and reads the broker-reported Demo/Live type.
+
+Do **not** create separate environment-variable entries for every broker account. `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` are bootstrap/fallback values used for initial connection/discovery and older persisted-selection migration. During normal operation, choose the desired account from the System dashboard. TradeAgent persists that account ID/type in SQLite and restores it on restart.
+
+Account switching is deliberately guarded:
+
+- selected account and currently authenticated active account are shown separately
+- execution remains blocked while a switch is incomplete
+- Demo→Demo and Live→Live can re-authenticate on the same host/client
+- Demo↔Live switches replace the cTrader client service without restarting the Twisted reactor
+- account switching is blocked while TradeAgent tracks an open broker-backed position
+- when the engine is active, stop it or activate the kill switch before switching accounts
+
+> **Live-account warning:** use Demo for development/testing. Once a Live account is selected and authenticated, enabling `cTrader auto-trade` plus per-symbol `Auto-trade` with the kill switch off can place real-money orders. Live uses the same verified monetary snapshot, symbol-contract metadata, risk sizing, protective-stop, position-limit, daily-loss, reconciliation, recovery, and audit controls as Demo; those safeguards reduce risk but do not make live trading risk-free.
+
 ## Runtime SQLite Database
 
 TradeAgent keeps runtime SQLite state outside the repository by default. The active database path is resolved in this order:
@@ -179,6 +196,8 @@ Check:
 ### Broker-related status is degraded
 
 That can still be valid local behavior.
+
+Check the System page for selected-versus-active account state, authorization, account verification, symbol metadata, monetary snapshot readiness, and any account-switch error. cTrader execution intentionally fails closed until those prerequisites agree.
 
 The app is designed to boot in constrained environments, and broker/model readiness can be partially unavailable while the API and UI still work for inspection, paper-state review, or Strategy Studio work.
 
