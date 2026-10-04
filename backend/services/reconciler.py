@@ -5,24 +5,24 @@ from typing import Any, Dict
 
 from backend.domain.models import EngineConfig
 from backend.services.broker import (
-    DemoProtectionSyncFailure,
-    close_demo_position,
+    CTraderProtectionSyncFailure,
+    close_position,
     get_broker_account_snapshot,
     get_broker_status,
     get_instrument_spec,
     list_positions,
-    sync_demo_position_targets,
+    sync_position_targets,
 )
 from backend.services.market_data import MarketDataError, get_bars
-from backend.services.close_safety import attempt_verified_demo_close
+from backend.services.close_safety import attempt_verified_close
 from backend.services.financial_units import resolve_monetary_basis
 from backend.services.broker_ledger import (
     close_local_position_from_broker,
-    reconcile_open_demo_position_ledger,
+    reconcile_open_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.paper_book import apply_mark, reconcile_position
-from backend.services.protection_safety import fail_safe_close_unverified_demo_position
+from backend.services.protection_safety import fail_safe_close_unverified_position
 from backend.storage.repositories import (
     add_paper_event,
     add_trade_audit,
@@ -79,7 +79,7 @@ def _is_canonical_tradeagent_recovery_intent(intent, broker_row: Dict[str, Any])
     ):
         return True
 
-    # A demo order can remain open after broker protection setup and the
+    # A cTrader order can remain open after broker protection setup and the
     # fail-safe close both fail. That intent is deliberately marked failed but
     # retains a local tracker so restart recovery must keep following broker
     # truth rather than abandoning the still-open TradeAgent position.
@@ -90,8 +90,8 @@ def _is_canonical_tradeagent_recovery_intent(intent, broker_row: Dict[str, Any])
     )
 
 
-def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any]:
-    """Recover local tracking rows for cTrader demo positions opened by TradeAgent.
+def recover_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any]:
+    """Recover local tracking rows for cTrader positions opened by TradeAgent.
 
     Recovery is limited to broker positions canonically linked to a TradeAgent
     open intent with matching broker position id, symbol, and direction. Normal
@@ -101,7 +101,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
     or identity-mismatched broker positions are never silently adopted.
     """
     cfg = config or load_engine_config(EngineConfig())
-    if not cfg.demo_autotrade:
+    if not cfg.ctrader_autotrade:
         return {"checked": 0, "recovered": 0, "untracked": 0, "ready": False}
 
     status = get_broker_status()
@@ -110,7 +110,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
 
     monetary_basis = resolve_monetary_basis(
         cfg,
-        demo_execution=True,
+        ctrader_execution=True,
         account_snapshot=get_broker_account_snapshot(),
     )
     if not monetary_basis.verified:
@@ -151,7 +151,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             log_incident(
                 "error",
                 "ctrader_demo_broker_position_missing_id",
-                f"Broker demo position for {symbol} has no valid position id.",
+                f"Broker cTrader position for {symbol} has no valid position id.",
                 {"broker_position": row, "automatic_adoption": False},
             )
             continue
@@ -172,7 +172,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             log_incident(
                 "error",
                 "ctrader_demo_untracked_broker_position",
-                f"Broker demo position {broker_position_id} for {symbol} has no local tracker.",
+                f"Broker cTrader position {broker_position_id} for {symbol} has no local tracker.",
                 {
                     "broker_position": row,
                     "automatic_adoption": False,
@@ -222,7 +222,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             log_incident(
                 "error",
                 "ctrader_demo_broker_position_identity_conflict",
-                f"Broker demo position {broker_position_id} conflicts with an existing local tracker.",
+                f"Broker cTrader position {broker_position_id} conflicts with an existing local tracker.",
                 {
                     "broker_position": row,
                     "local_position_id": conflicting_local.id,
@@ -264,7 +264,7 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
             strategy=created.strategy,
             position_id=created.id,
             intent_id=matching_intent.id,
-            summary="Recovered local tracking position from an existing cTrader demo position.",
+            summary="Recovered local tracking position from an existing cTrader position.",
             details={"broker_position_id": broker_position_id},
         )
         # Market-aware protection repair happens in normal reconciliation,
@@ -278,6 +278,11 @@ def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str
         "untracked": untracked,
         "ready": True,
     }
+
+
+def recover_demo_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any]:
+    """Backward-compatible alias for pre-Phase-10.4 callers/tests."""
+    return recover_broker_trackers(config)
 
 
 def recover_runtime_state(config: EngineConfig | None = None) -> Dict[str, Any]:
@@ -303,14 +308,14 @@ def recover_runtime_state(config: EngineConfig | None = None) -> Dict[str, Any]:
 
 def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
     cfg = load_engine_config(EngineConfig())
-    if cfg.demo_autotrade:
+    if cfg.ctrader_autotrade:
         try:
-            recover_demo_broker_trackers(cfg)
+            recover_broker_trackers(cfg)
         except Exception as exc:
             log_incident(
                 "error",
                 "ctrader_demo_tracker_recovery_failed",
-                "Could not reconcile cTrader demo positions with local trackers.",
+                "Could not reconcile cTrader positions with local trackers.",
                 {
                     "reason": reason,
                     "error": str(exc),
@@ -318,7 +323,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                     "broker_mutation_suppressed": True,
                     "action_required": (
                         "Keep existing durable tracker/intent state unchanged, restore the recovery dependency, "
-                        "and rerun reconciliation before any new demo order is allowed."
+                        "and rerun reconciliation before any new cTrader order is allowed."
                     ),
                 },
             )
@@ -326,8 +331,8 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
     checked = 0
     closed = 0
     skipped = 0
-    demo_ready = bool(cfg.demo_autotrade and get_broker_status().execution_ready)
-    broker_rows = list_positions() if demo_ready else []
+    ctrader_ready = bool(cfg.ctrader_autotrade and get_broker_status().execution_ready)
+    broker_rows = list_positions() if ctrader_ready else []
 
     for position in positions:
         try:
@@ -355,11 +360,11 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
             ),
             None,
         )
-        demo_managed = bool(cfg.demo_autotrade and watch is not None)
+        ctrader_managed = bool(cfg.ctrader_autotrade and watch is not None)
 
-        if demo_managed:
+        if ctrader_managed:
             apply_mark(position, last_price)
-            if not demo_ready:
+            if not ctrader_ready:
                 skipped += 1
                 continue
             match = match_broker_position(position, broker_rows)
@@ -392,7 +397,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                     int(match.row.get("position_id") or 0),
                 )
             broker_match = match.row
-            ledger_sync = reconcile_open_demo_position_ledger(position, broker_match)
+            ledger_sync = reconcile_open_position_ledger(position, broker_match)
             if ledger_sync.get("status") == "partial_close_synced":
                 position = get_position_by_id(position.id)
                 add_trade_audit(
@@ -422,7 +427,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 continue
 
             try:
-                protection = sync_demo_position_targets(
+                protection = sync_position_targets(
                     symbol=position.symbol,
                     direction=position.direction,
                     stop_loss=position.stop_loss,
@@ -436,7 +441,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                         if protection.get("status") == "exit_due_stop_loss"
                         else "broker_take_profit"
                     )
-                    close_result = attempt_verified_demo_close(
+                    close_result = attempt_verified_close(
                         position,
                         fallback_price=last_price,
                         reason=close_reason,
@@ -451,7 +456,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                             timeframe=position.timeframe,
                             strategy=position.strategy,
                             position_id=position.id,
-                            summary="Closed cTrader demo position because the intended protective target was already crossed.",
+                            summary="Closed cTrader position because the intended protective target was already crossed.",
                             details={
                                 "protection": protection,
                                 "close_result": close_result,
@@ -460,8 +465,8 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                         )
                     else:
                         skipped += 1
-            except DemoProtectionSyncFailure as exc:
-                failsafe = fail_safe_close_unverified_demo_position(
+            except CTraderProtectionSyncFailure as exc:
+                failsafe = fail_safe_close_unverified_position(
                     position,
                     broker_row=broker_match,
                     fallback_price=last_price,
