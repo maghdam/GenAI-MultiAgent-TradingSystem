@@ -6,33 +6,33 @@ from uuid import uuid4
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.broker import (
-    DemoCloseOutcomeAmbiguous,
-    DemoCloseRejected,
-    DemoOrderAcknowledgementTimeout,
-    DemoProtectionSyncFailure,
-    close_demo_position,
+    CTraderCloseOutcomeAmbiguous,
+    CTraderCloseRejected,
+    CTraderOrderAcknowledgementTimeout,
+    CTraderProtectionSyncFailure,
+    close_position,
     get_broker_account_snapshot,
     get_broker_status,
-    get_demo_symbol_execution_readiness,
+    get_symbol_execution_readiness,
     get_instrument_spec,
     list_positions,
-    place_demo_market_order,
-    sync_demo_position_targets,
+    place_market_order,
+    sync_position_targets,
 )
 from backend.services.paper_book import apply_mark, reconcile_position
 from backend.services.broker_ledger import (
     close_local_position_from_broker,
-    reconcile_open_demo_position_ledger,
+    reconcile_open_position_ledger,
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.financial_units import resolve_monetary_basis
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.close_safety import (
-    attempt_verified_demo_close,
-    record_ambiguous_demo_close,
-    record_rejected_demo_close,
+    attempt_verified_close,
+    record_ambiguous_close,
+    record_rejected_close,
 )
-from backend.services.protection_safety import fail_safe_close_unverified_demo_position
+from backend.services.protection_safety import fail_safe_close_unverified_position
 from backend.services.risk_engine import evaluate_risk
 from backend.storage.db import SQLiteBusyError
 from backend.storage.repositories import (
@@ -64,6 +64,15 @@ class ExecutionResult:
 
 class BrokerPositionIdentityError(RuntimeError):
     pass
+
+
+def _ctrader_account_type() -> str:
+    account_type = str(getattr(get_broker_status(), "account_type", "unknown") or "unknown").lower()
+    return account_type if account_type in {"demo", "live"} else "unknown"
+
+
+def _ctrader_execution_mode() -> str:
+    return "live_enabled" if _ctrader_account_type() == "live" else "demo_enabled"
 
 
 def _canonical_broker_row_for_position(position: PaperPosition) -> dict[str, object]:
@@ -212,7 +221,7 @@ def _unresolved_order_ack_timeout(symbol: str, timeframe: str):
     return None
 
 
-def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
+def _resolve_reserved_ctrader_submission(intent) -> ExecutionResult:
     details = intent.details if isinstance(intent.details, dict) else {}
     baseline_available = bool(details.get("baseline_snapshot_available"))
     baseline_ids = {
@@ -237,7 +246,7 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
         broker_position_id = _broker_position_id(confirmed_row)
         broker_order = {
             "status": "executed_reconciled",
-            "account_type": "demo",
+            "account_type": _ctrader_account_type(),
             "symbol": intent.symbol.upper(),
             "direction": intent.direction,
             "quantity_lots": float(confirmed_row.get("volume_lots") or quantity_lots),
@@ -271,7 +280,7 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
             log_incident(
                 "error",
                 "sqlite_persistence_busy_post_submit",
-                f"SQLite remained busy while reconciling a submitted demo order for {intent.symbol}:{intent.timeframe}.",
+                f"SQLite remained busy while reconciling a submitted cTrader order for {intent.symbol}:{intent.timeframe}.",
                 {
                     "intent_id": intent.id,
                     "phase": "submission_reservation_recovery",
@@ -286,7 +295,7 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
                 intent_id=intent.id,
                 status="persistence_pending",
                 summary="Broker position is confirmed but SQLite persistence is still busy; automatic resubmission remains blocked.",
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 broker_position_id=broker_position_id,
                 retryable=False,
             )
@@ -294,7 +303,7 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
         log_incident(
             "warning",
             "sqlite_persistence_post_submit_reconciled",
-            f"Recovered broker truth after SQLite interrupted the demo-order handoff for {intent.symbol}:{intent.timeframe}.",
+            f"Recovered broker truth after SQLite interrupted the cTrader-order handoff for {intent.symbol}:{intent.timeframe}.",
             {
                 "intent_id": intent.id,
                 "broker_position_id": broker_position_id,
@@ -308,7 +317,7 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
             intent_id=intent.id,
             status="blocked",
             summary="Broker position confirmed after persistence recovery; tracker recovery is required before any new order.",
-            mode="demo_enabled",
+            mode=_ctrader_execution_mode(),
             broker_position_id=broker_position_id,
             retryable=False,
         )
@@ -335,7 +344,7 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
             log_incident(
                 "error",
                 "sqlite_persistence_busy_post_submit",
-                f"SQLite remained busy while resolving a submitted demo order for {intent.symbol}:{intent.timeframe}.",
+                f"SQLite remained busy while resolving a submitted cTrader order for {intent.symbol}:{intent.timeframe}.",
                 {
                     "intent_id": intent.id,
                     "phase": "submission_reservation_recovery",
@@ -349,14 +358,14 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
                 intent_id=intent.id,
                 status="persistence_pending",
                 summary="SQLite persistence is still busy; automatic resubmission remains blocked.",
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 retryable=False,
             )
 
         log_incident(
             "warning",
             "sqlite_persistence_submission_resolved",
-            f"Resolved SQLite-interrupted demo submission for {intent.symbol}:{intent.timeframe}; no broker position remains.",
+            f"Resolved SQLite-interrupted cTrader submission for {intent.symbol}:{intent.timeframe}; no broker position remains.",
             {
                 "intent_id": intent.id,
                 "reconciliation": reconciliation,
@@ -369,14 +378,14 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
             intent_id=intent.id,
             status="deferred",
             summary="Interrupted submission resolved with no broker position; a later cycle may evaluate a fresh order.",
-            mode="demo_enabled",
+            mode=_ctrader_execution_mode(),
             retryable=True,
         )
 
     log_incident(
         "error",
         "sqlite_persistence_post_submit_unresolved",
-        f"Could not safely resolve an SQLite-interrupted demo submission for {intent.symbol}:{intent.timeframe}.",
+        f"Could not safely resolve an SQLite-interrupted cTrader submission for {intent.symbol}:{intent.timeframe}.",
         {
             "intent_id": intent.id,
             "reconciliation": reconciliation,
@@ -388,8 +397,8 @@ def _resolve_reserved_demo_submission(intent) -> ExecutionResult:
         action_taken=False,
         intent_id=intent.id,
         status="blocked",
-        summary="Prior demo submission remains unresolved; automatic resubmission is blocked.",
-        mode="demo_enabled",
+        summary="Prior cTrader submission remains unresolved; automatic resubmission is blocked.",
+        mode=_ctrader_execution_mode(),
         retryable=False,
     )
 
@@ -435,17 +444,17 @@ def _refresh_open_position(
     item: WatchlistItem,
     mark_price: float,
     *,
-    demo_execution: bool = False,
+    ctrader_execution: bool = False,
 ) -> PaperPosition | None:
     position = get_open_position(item.symbol.upper(), item.timeframe.upper())
     if not position:
         return None
 
-    if not demo_execution:
+    if not ctrader_execution:
         reconcile_position(position, mark_price)
         return get_open_position(item.symbol.upper(), item.timeframe.upper())
 
-    # In demo mode the broker is the execution source of truth. Never simulate
+    # In cTrader mode the broker is the execution source of truth. Never simulate
     # a local-only SL/TP exit while the broker position is still open.
     apply_mark(position, mark_price)
     status = get_broker_status()
@@ -478,7 +487,7 @@ def _refresh_open_position(
                 int(match.row.get("position_id") or 0),
             )
 
-        ledger_sync = reconcile_open_demo_position_ledger(position, match.row)
+        ledger_sync = reconcile_open_position_ledger(position, match.row)
         if ledger_sync.get("status") == "partial_close_synced":
             add_trade_audit(
                 event_type="ctrader_demo_partial_close_synced",
@@ -520,25 +529,25 @@ def execute_paper_signal(
     quantity: float | None = None,
     source: str = "auto",
 ) -> ExecutionResult:
-    demo_execution = bool(config.demo_autotrade and watch_item.trading_enabled)
+    ctrader_execution = bool(config.ctrader_autotrade and watch_item.trading_enabled)
     try:
-        position = _refresh_open_position(watch_item, mark_price, demo_execution=demo_execution)
+        position = _refresh_open_position(watch_item, mark_price, ctrader_execution=ctrader_execution)
     except BrokerPositionIdentityError as exc:
         return ExecutionResult(
             action_taken=False,
             intent_id=None,
             status="failed",
             summary=str(exc),
-            mode="demo_enabled",
+            mode=_ctrader_execution_mode(),
             retryable=True,
         )
 
-    # Keep an already-open demo position protected at the broker even when the
+    # Keep an already-open cTrader position protected at the broker even when the
     # current strategy result is no_trade or later fails a new-entry risk gate.
     # The local ledger is not allowed to drift silently from broker SL/TP.
-    if demo_execution and position:
+    if ctrader_execution and position:
         try:
-            protection = sync_demo_position_targets(
+            protection = sync_position_targets(
                 symbol=position.symbol,
                 direction=position.direction,
                 stop_loss=position.stop_loss,
@@ -552,7 +561,7 @@ def execute_paper_signal(
                     if protection.get("status") == "exit_due_stop_loss"
                     else "broker_take_profit"
                 )
-                close_result = attempt_verified_demo_close(
+                close_result = attempt_verified_close(
                     position,
                     fallback_price=mark_price,
                     reason=reason,
@@ -567,7 +576,7 @@ def execute_paper_signal(
                         timeframe=position.timeframe,
                         strategy=position.strategy,
                         position_id=closed.id,
-                        summary="Closed cTrader demo position because an intended protective target was already crossed.",
+                        summary="Closed cTrader cTrader position because an intended protective target was already crossed.",
                         details={"protection": protection, "close_result": close_result},
                     )
                     return ExecutionResult(
@@ -576,7 +585,7 @@ def execute_paper_signal(
                         status="executed",
                         summary=reason,
                         position_id=closed.id,
-                        mode="demo_enabled",
+                        mode=_ctrader_execution_mode(),
                         broker_position_id=position.broker_position_id,
                         retryable=False,
                     )
@@ -586,7 +595,7 @@ def execute_paper_signal(
                     status=str(close_result.get("status") or "failed"),
                     summary="Broker close was not verified; local tracker remains open.",
                     position_id=position.id,
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=bool(close_result.get("retryable")),
                 )
@@ -600,10 +609,10 @@ def execute_paper_signal(
                     summary="Repaired broker SL/TP from the local tracking position.",
                     details=protection,
                 )
-        except DemoProtectionSyncFailure as exc:
+        except CTraderProtectionSyncFailure as exc:
             try:
                 broker_row = _canonical_broker_row_for_position(position)
-                failsafe = fail_safe_close_unverified_demo_position(
+                failsafe = fail_safe_close_unverified_position(
                     position,
                     broker_row=broker_row,
                     fallback_price=mark_price,
@@ -629,7 +638,7 @@ def execute_paper_signal(
                     status="protection_failsafe_pending",
                     summary=str(failsafe_exc),
                     position_id=position.id,
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=False,
                 )
@@ -641,7 +650,7 @@ def execute_paper_signal(
                     status="failed",
                     summary="Demo position was closed by fail-safe because broker protection could not be verified.",
                     position_id=int(failsafe.get("closed_position_id") or position.id),
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=False,
                 )
@@ -651,7 +660,7 @@ def execute_paper_signal(
                 status="protection_failsafe_pending",
                 summary="Broker protection failed and the fail-safe close failed; canonical tracking was retained.",
                 position_id=position.id,
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 broker_position_id=position.broker_position_id,
                 retryable=False,
             )
@@ -677,21 +686,21 @@ def execute_paper_signal(
                 status="failed",
                 summary=str(exc),
                 position_id=position.id,
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
     # Broker symbol metadata arrives asynchronously after account authorization.
-    # If demo execution is enabled, never attempt an order until the exact
+    # If cTrader execution is enabled, never attempt an order until the exact
     # symbol contract is loaded. Mark this as retryable so the engine can
     # revisit the same bar without risking a duplicate order.
-    if demo_execution and analysis.signal != "no_trade":
-        broker_ready, broker_reason = get_demo_symbol_execution_readiness(analysis.symbol)
+    if ctrader_execution and analysis.signal != "no_trade":
+        broker_ready, broker_reason = get_symbol_execution_readiness(analysis.symbol)
         if not broker_ready:
             log_incident(
                 "warning",
                 "ctrader_demo_symbol_not_ready",
-                f"Deferred cTrader demo execution for {analysis.symbol}:{analysis.timeframe}",
+                f"Deferred cTrader cTrader execution for {analysis.symbol}:{analysis.timeframe}",
                 {"reason": broker_reason, "retryable": True},
             )
             add_trade_audit(
@@ -699,7 +708,7 @@ def execute_paper_signal(
                 symbol=analysis.symbol,
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
-                summary="Demo order deferred until broker symbol metadata is ready.",
+                summary="cTrader order deferred until broker symbol metadata is ready.",
                 details={"reason": broker_reason},
             )
             return ExecutionResult(
@@ -707,16 +716,16 @@ def execute_paper_signal(
                 intent_id=None,
                 status="deferred",
                 summary=broker_reason,
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
     monetary_basis = resolve_monetary_basis(config)
-    if demo_execution and analysis.signal != "no_trade":
+    if ctrader_execution and analysis.signal != "no_trade":
         account_snapshot = get_broker_account_snapshot()
         monetary_basis = resolve_monetary_basis(
             config,
-            demo_execution=True,
+            ctrader_execution=True,
             account_snapshot=account_snapshot,
         )
         if not monetary_basis.verified:
@@ -724,7 +733,7 @@ def execute_paper_signal(
             log_incident(
                 "warning",
                 "ctrader_demo_account_snapshot_not_ready",
-                f"Deferred cTrader demo execution for {analysis.symbol}:{analysis.timeframe}",
+                f"Deferred cTrader cTrader execution for {analysis.symbol}:{analysis.timeframe}",
                 {"reason": reason, **monetary_basis.as_details(), "retryable": True},
             )
             add_trade_audit(
@@ -732,7 +741,7 @@ def execute_paper_signal(
                 symbol=analysis.symbol,
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
-                summary="Demo order deferred until broker monetary account data is verified.",
+                summary="cTrader order deferred until broker monetary account data is verified.",
                 details={"reason": reason, **monetary_basis.as_details()},
             )
             return ExecutionResult(
@@ -740,7 +749,7 @@ def execute_paper_signal(
                 intent_id=None,
                 status="deferred",
                 summary=reason,
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
@@ -903,7 +912,7 @@ def execute_paper_signal(
         intent_reasons = [*quantity_decision.reasons, *intent_reasons]
 
     if (
-        demo_execution
+        ctrader_execution
         and position is None
         and risk.accepted
         and risk.intent_type == "open"
@@ -917,17 +926,17 @@ def execute_paper_signal(
                 unresolved_ack.details if isinstance(unresolved_ack.details, dict) else {}
             )
             if unresolved_details.get("outcome_state") == "submission_reserved":
-                return _resolve_reserved_demo_submission(unresolved_ack)
+                return _resolve_reserved_ctrader_submission(unresolved_ack)
             return ExecutionResult(
                 action_taken=False,
                 intent_id=unresolved_ack.id,
                 status="blocked",
                 summary=(
-                    "Automatic demo order blocked because a prior post-submission "
+                    "Automatic cTrader order blocked because a prior post-submission "
                     "outcome or broker-confirmed tracking handoff is unresolved. "
                     "Reconcile broker truth before any new order is allowed."
                 ),
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 broker_position_id=(
                     int((unresolved_details.get("broker_order") or {}).get("position_id") or 0)
                     or None
@@ -990,8 +999,8 @@ def execute_paper_signal(
             action_taken=False,
             intent_id=None,
             status="deferred",
-            summary="SQLite persistence is busy; broker submission was suppressed before any demo order.",
-            mode="demo_enabled" if demo_execution else "paper_only",
+            summary="SQLite persistence is busy; broker submission was suppressed before any cTrader order.",
+            mode=_ctrader_execution_mode() if ctrader_execution else "paper_only",
             retryable=True,
         )
 
@@ -1023,7 +1032,7 @@ def execute_paper_signal(
             summary=risk.reasons[0] if risk.reasons else "signal rejected",
         )
 
-    if demo_execution and position and position.direction != analysis.signal:
+    if ctrader_execution and position and position.direction != analysis.signal:
         update_order_intent_status(
             intent.id,
             "failed",
@@ -1043,7 +1052,7 @@ def execute_paper_signal(
             strategy=analysis.strategy,
             intent_id=intent.id,
             position_id=position.id,
-            summary="Demo order blocked because the opposite broker position must be reconciled first.",
+            summary="cTrader order blocked because the opposite broker position must be reconciled first.",
             details={"direction": analysis.signal},
         )
         return ExecutionResult(
@@ -1052,7 +1061,7 @@ def execute_paper_signal(
             status="failed",
             summary="Demo signal flip blocked pending broker reconciliation.",
             position_id=position.id,
-            mode="demo_enabled",
+            mode=_ctrader_execution_mode(),
         )
 
     if position and position.direction != analysis.signal:
@@ -1078,9 +1087,9 @@ def execute_paper_signal(
 
     if position and position.direction == analysis.signal:
         broker_protection = None
-        if demo_execution:
+        if ctrader_execution:
             try:
-                broker_protection = sync_demo_position_targets(
+                broker_protection = sync_position_targets(
                     symbol=position.symbol,
                     direction=position.direction,
                     stop_loss=analysis.stop_loss,
@@ -1094,7 +1103,7 @@ def execute_paper_signal(
                         if broker_protection.get("status") == "exit_due_stop_loss"
                         else "broker_take_profit"
                     )
-                    close_result = attempt_verified_demo_close(
+                    close_result = attempt_verified_close(
                         position,
                         fallback_price=mark_price,
                         reason=reason,
@@ -1120,7 +1129,7 @@ def execute_paper_signal(
                             strategy=analysis.strategy,
                             intent_id=intent.id,
                             position_id=closed.id,
-                            summary="Closed cTrader demo position because the refreshed target was already crossed.",
+                            summary="Closed cTrader cTrader position because the refreshed target was already crossed.",
                             details={"protection": broker_protection, "close_result": close_result},
                         )
                         return ExecutionResult(
@@ -1129,7 +1138,7 @@ def execute_paper_signal(
                             status="executed",
                             summary=reason,
                             position_id=closed.id,
-                            mode="demo_enabled",
+                            mode=_ctrader_execution_mode(),
                             broker_position_id=position.broker_position_id,
                             retryable=False,
                         )
@@ -1150,14 +1159,14 @@ def execute_paper_signal(
                         status=str(close_result.get("status") or "failed"),
                         summary="Broker close was not verified; local tracker remains open.",
                         position_id=position.id,
-                        mode="demo_enabled",
+                        mode=_ctrader_execution_mode(),
                         broker_position_id=position.broker_position_id,
                         retryable=bool(close_result.get("retryable")),
                     )
-            except DemoProtectionSyncFailure as exc:
+            except CTraderProtectionSyncFailure as exc:
                 try:
                     broker_row = _canonical_broker_row_for_position(position)
-                    failsafe = fail_safe_close_unverified_demo_position(
+                    failsafe = fail_safe_close_unverified_position(
                         position,
                         broker_row=broker_row,
                         fallback_price=mark_price,
@@ -1217,7 +1226,7 @@ def execute_paper_signal(
                         else "Broker protection failed and the fail-safe close failed; canonical tracking was retained."
                     ),
                     position_id=int(failsafe.get("closed_position_id") or position.id),
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=False,
                 )
@@ -1250,7 +1259,7 @@ def execute_paper_signal(
                     status="failed",
                     summary=str(exc),
                     position_id=position.id,
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                 )
 
         update_paper_position_targets(position.id, analysis.stop_loss, analysis.take_profit)
@@ -1283,7 +1292,7 @@ def execute_paper_signal(
     unprotected_close_failure: Exception | None = None
     unprotected_close_phase: str | None = None
     ack_timeout_reconciled = False
-    if demo_execution:
+    if ctrader_execution:
         baseline_rows: list[dict[str, object]] = []
         baseline_error: str | None = None
         try:
@@ -1317,7 +1326,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "sqlite_persistence_busy_pre_submit",
-                f"Blocked cTrader demo submission for {analysis.symbol}:{analysis.timeframe} because the durable submission reservation could not be written.",
+                f"Blocked cTrader cTrader submission for {analysis.symbol}:{analysis.timeframe} because the durable submission reservation could not be written.",
                 {
                     "intent_id": intent.id,
                     "phase": "submission_reservation",
@@ -1332,13 +1341,13 @@ def execute_paper_signal(
                 action_taken=False,
                 intent_id=intent.id,
                 status="deferred",
-                summary="SQLite persistence is busy; demo order submission was blocked before routing.",
-                mode="demo_enabled",
+                summary="SQLite persistence is busy; cTrader order submission was blocked before routing.",
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
         try:
-            broker_order = place_demo_market_order(
+            broker_order = place_market_order(
                 symbol=analysis.symbol,
                 direction=analysis.signal,
                 quantity_lots=trade_quantity,
@@ -1346,7 +1355,7 @@ def execute_paper_signal(
                 take_profit=analysis.take_profit,
                 client_msg_id=client_msg_id,
             )
-        except DemoOrderAcknowledgementTimeout as exc:
+        except CTraderOrderAcknowledgementTimeout as exc:
             confirmed_row, reconciliation = _reconcile_order_ack_timeout(
                 baseline_available=baseline_error is None,
                 baseline_ids=baseline_ids,
@@ -1357,7 +1366,7 @@ def execute_paper_signal(
             if confirmed_row is not None:
                 broker_order = {
                     "status": "executed_reconciled",
-                    "account_type": "demo",
+                    "account_type": _ctrader_account_type(),
                     "symbol": analysis.symbol.upper(),
                     "direction": analysis.signal,
                     "quantity_lots": float(confirmed_row.get("volume_lots") or trade_quantity),
@@ -1373,7 +1382,7 @@ def execute_paper_signal(
                 log_incident(
                     "warning",
                     "ctrader_demo_order_ack_timeout_reconciled",
-                    f"cTrader demo order acknowledgement timed out for {analysis.symbol}:{analysis.timeframe}, but broker reconciliation confirmed one new position.",
+                    f"cTrader cTrader order acknowledgement timed out for {analysis.symbol}:{analysis.timeframe}, but broker reconciliation confirmed one new position.",
                     {
                         "intent_id": intent.id,
                         "client_msg_id": client_msg_id,
@@ -1388,7 +1397,7 @@ def execute_paper_signal(
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
                     intent_id=intent.id,
-                    summary="Broker truth confirmed one new demo position after the order acknowledgement timed out.",
+                    summary="Broker truth confirmed one new cTrader position after the order acknowledgement timed out.",
                     details={
                         "client_msg_id": client_msg_id,
                         "baseline_position_ids": sorted(baseline_ids),
@@ -1399,7 +1408,7 @@ def execute_paper_signal(
             else:
                 details = {
                     "broker": "ctrader",
-                    "account_type": "demo",
+                    "account_type": _ctrader_account_type(),
                     "error": str(exc),
                     "outcome_state": "ambiguous_post_submit",
                     "acknowledgement_timeout": True,
@@ -1422,7 +1431,7 @@ def execute_paper_signal(
                 log_incident(
                     "error",
                     "ctrader_demo_order_ack_timeout_ambiguous",
-                    f"cTrader demo order acknowledgement timed out after submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
+                    f"cTrader cTrader order acknowledgement timed out after submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
                     {"intent_id": intent.id, **details},
                 )
                 add_trade_audit(
@@ -1431,7 +1440,7 @@ def execute_paper_signal(
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
                     intent_id=intent.id,
-                    summary="Demo order acknowledgement timed out after submission; broker outcome remains ambiguous and automatic retry is blocked.",
+                    summary="cTrader order acknowledgement timed out after submission; broker outcome remains ambiguous and automatic retry is blocked.",
                     details=details,
                 )
                 return ExecutionResult(
@@ -1439,10 +1448,10 @@ def execute_paper_signal(
                     intent_id=intent.id,
                     status="failed",
                     summary=(
-                        "cTrader demo order acknowledgement timed out after submission; "
+                        "cTrader cTrader order acknowledgement timed out after submission; "
                         "broker outcome is ambiguous and automatic retry is blocked."
                     ),
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                     retryable=False,
                 )
         except Exception as exc:
@@ -1451,7 +1460,7 @@ def execute_paper_signal(
                 "failed",
                 {
                     "broker": "ctrader",
-                    "account_type": "demo",
+                    "account_type": _ctrader_account_type(),
                     "error": str(exc),
                     "outcome_state": "submission_failed",
                     "submission_may_have_succeeded": False,
@@ -1464,7 +1473,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "ctrader_demo_order_failed",
-                f"cTrader demo order failed for {analysis.symbol}:{analysis.timeframe}",
+                f"cTrader cTrader order failed for {analysis.symbol}:{analysis.timeframe}",
                 {"intent_id": intent.id, "error": str(exc)},
             )
             add_trade_audit(
@@ -1473,7 +1482,7 @@ def execute_paper_signal(
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
                 intent_id=intent.id,
-                summary="cTrader demo order was not executed.",
+                summary="cTrader cTrader order was not executed.",
                 details={"error": str(exc), "quantity": trade_quantity},
             )
             return ExecutionResult(
@@ -1481,7 +1490,7 @@ def execute_paper_signal(
                 intent_id=intent.id,
                 status="failed",
                 summary=str(exc),
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
             )
 
     if broker_order:
@@ -1512,7 +1521,7 @@ def execute_paper_signal(
             if broker_position_id > 0:
                 failsafe_close["attempted"] = True
                 try:
-                    close_result = close_demo_position(
+                    close_result = close_position(
                         symbol=analysis.symbol,
                         position_id=broker_position_id,
                         quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
@@ -1521,10 +1530,10 @@ def execute_paper_signal(
                     failsafe_close["error"] = str(close_exc)
                     failsafe_close["outcome"] = (
                         "ambiguous_post_submit"
-                        if isinstance(close_exc, DemoCloseOutcomeAmbiguous)
+                        if isinstance(close_exc, CTraderCloseOutcomeAmbiguous)
                         else (
                             "broker_rejected"
-                            if isinstance(close_exc, DemoCloseRejected)
+                            if isinstance(close_exc, CTraderCloseRejected)
                             else "close_failed"
                         )
                     )
@@ -1544,7 +1553,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "sqlite_persistence_busy_post_submit",
-                f"SQLite became busy after cTrader demo submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
+                f"SQLite became busy after cTrader cTrader submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
                 {
                     "intent_id": intent.id,
                     "phase": "broker_confirmed_handoff",
@@ -1566,13 +1575,13 @@ def execute_paper_signal(
                     "Broker submission occurred but SQLite could not persist the canonical handoff; "
                     "fail-safe close was attempted and automatic resubmission is blocked."
                 ),
-                mode="demo_enabled",
+                mode=_ctrader_execution_mode(),
                 broker_position_id=broker_position_id or None,
                 retryable=False,
             )
 
         try:
-            broker_protection = sync_demo_position_targets(
+            broker_protection = sync_position_targets(
                 symbol=analysis.symbol,
                 direction=analysis.signal,
                 stop_loss=analysis.stop_loss,
@@ -1583,7 +1592,7 @@ def execute_paper_signal(
             broker_order["protection"] = broker_protection
             if broker_protection.get("status") in {"exit_due_stop_loss", "exit_due_take_profit"}:
                 try:
-                    broker_close = close_demo_position(
+                    broker_close = close_position(
                         symbol=analysis.symbol,
                         position_id=int(broker_order.get("position_id") or 0),
                         quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
@@ -1625,7 +1634,7 @@ def execute_paper_signal(
                         timeframe=analysis.timeframe,
                         strategy=analysis.strategy,
                         intent_id=intent.id,
-                        summary="Closed newly opened demo position because its protective target was already crossed.",
+                        summary="Closed newly opened cTrader position because its protective target was already crossed.",
                         details={"protection": broker_protection, "broker_close": broker_close},
                     )
                     return ExecutionResult(
@@ -1633,7 +1642,7 @@ def execute_paper_signal(
                         intent_id=intent.id,
                         status="failed" if ack_timeout_reconciled else "executed",
                         summary=broker_protection.get("status") or "protective exit",
-                        mode="demo_enabled",
+                        mode=_ctrader_execution_mode(),
                         broker_position_id=int(broker_order.get("position_id") or 0) or None,
                         retryable=False,
                     )
@@ -1646,7 +1655,7 @@ def execute_paper_signal(
             log_incident(
                 "error",
                 "ctrader_demo_order_unprotected",
-                f"Demo order opened but broker SL/TP could not be verified for {analysis.symbol}:{analysis.timeframe}",
+                f"cTrader order opened but broker SL/TP could not be verified for {analysis.symbol}:{analysis.timeframe}",
                 {
                     "intent_id": intent.id,
                     "broker_position_id": broker_position_id or None,
@@ -1659,7 +1668,7 @@ def execute_paper_signal(
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
                 intent_id=intent.id,
-                summary="Demo order opened without verified broker protection; fail-safe close will be attempted.",
+                summary="cTrader order opened without verified broker protection; fail-safe close will be attempted.",
                 details={
                     "broker_position_id": broker_position_id or None,
                     "error": str(exc),
@@ -1669,8 +1678,8 @@ def execute_paper_signal(
             )
             try:
                 if broker_position_id <= 0:
-                    raise RuntimeError("cTrader demo order did not return a valid broker position id for fail-safe close.")
-                broker_close = close_demo_position(
+                    raise RuntimeError("cTrader cTrader order did not return a valid broker position id for fail-safe close.")
+                broker_close = close_position(
                     symbol=analysis.symbol,
                     position_id=broker_position_id,
                     quantity_lots=float(broker_order.get("quantity_lots") or trade_quantity),
@@ -1684,7 +1693,7 @@ def execute_paper_signal(
                 log_incident(
                     "error",
                     "ctrader_demo_unprotected_failsafe_close_failed",
-                    f"Fail-safe close failed for unprotected cTrader demo position {analysis.symbol}:{analysis.timeframe}",
+                    f"Fail-safe close failed for unprotected cTrader cTrader position {analysis.symbol}:{analysis.timeframe}",
                     {
                         "intent_id": intent.id,
                         "broker_position_id": broker_position_id or None,
@@ -1722,7 +1731,7 @@ def execute_paper_signal(
                 log_incident(
                     "warning",
                     "ctrader_demo_unprotected_failsafe_closed",
-                    f"Closed unprotected cTrader demo position for {analysis.symbol}:{analysis.timeframe}",
+                    f"Closed unprotected cTrader cTrader position for {analysis.symbol}:{analysis.timeframe}",
                     {
                         "intent_id": intent.id,
                         "broker_position_id": broker_position_id,
@@ -1736,7 +1745,7 @@ def execute_paper_signal(
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
                     intent_id=intent.id,
-                    summary="Closed cTrader demo position because broker SL/TP could not be verified.",
+                    summary="Closed cTrader cTrader position because broker SL/TP could not be verified.",
                     details={
                         "broker_position_id": broker_position_id,
                         "protection_error": str(exc),
@@ -1748,7 +1757,7 @@ def execute_paper_signal(
                     intent_id=intent.id,
                     status="failed",
                     summary="Demo position was closed by fail-safe because broker protection could not be verified.",
-                    mode="demo_enabled",
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=broker_position_id,
                     retryable=False,
                 )
@@ -1799,7 +1808,7 @@ def execute_paper_signal(
                 "error": str(exc),
                 "automatic_resubmission": False if broker_order else True,
                 "action_required": (
-                    "Recover the canonical local tracker from the persisted broker-confirmed intent before any new demo order."
+                    "Recover the canonical local tracker from the persisted broker-confirmed intent before any new cTrader order."
                     if broker_order
                     else "Release the SQLite writer lock and retry the paper-only persistence step."
                 ),
@@ -1814,7 +1823,7 @@ def execute_paper_signal(
                 if broker_order
                 else "SQLite persistence is busy; local paper position was not created."
             ),
-            mode="demo_enabled" if broker_order else "paper_only",
+            mode=_ctrader_execution_mode() if broker_order else "paper_only",
             broker_position_id=broker_position_id or None,
             retryable=not bool(broker_order),
         )
@@ -1823,8 +1832,8 @@ def execute_paper_signal(
         close_outcome_state = "close_failed"
         retryable_close = True
         quantity_lots = float((broker_order or {}).get("quantity_lots") or created.quantity)
-        if isinstance(unprotected_close_failure, DemoCloseOutcomeAmbiguous):
-            record_ambiguous_demo_close(
+        if isinstance(unprotected_close_failure, CTraderCloseOutcomeAmbiguous):
+            record_ambiguous_close(
                 created,
                 error=unprotected_close_failure,
                 phase=unprotected_close_phase or "untracked_close_handoff",
@@ -1832,8 +1841,8 @@ def execute_paper_signal(
             )
             close_outcome_state = "ambiguous_post_submit"
             retryable_close = False
-        elif isinstance(unprotected_close_failure, DemoCloseRejected):
-            record_rejected_demo_close(
+        elif isinstance(unprotected_close_failure, CTraderCloseRejected):
+            record_rejected_close(
                 created,
                 error=unprotected_close_failure,
                 phase=unprotected_close_phase or "untracked_close_handoff",
@@ -1863,7 +1872,7 @@ def execute_paper_signal(
             strategy=analysis.strategy,
             intent_id=intent.id,
             position_id=created.id,
-            summary="Retained local tracking for an unprotected demo position after the fail-safe close also failed.",
+            summary="Retained local tracking for an unprotected cTrader position after the fail-safe close also failed.",
             details={
                 "broker_position_id": (broker_order or {}).get("position_id"),
                 "close_error": unprotected_close_error,
@@ -1881,7 +1890,7 @@ def execute_paper_signal(
             ),
             summary="Broker close was not verified; canonical local tracking was retained.",
             position_id=created.id,
-            mode="demo_enabled",
+            mode=_ctrader_execution_mode(),
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=retryable_close,
         )
@@ -1912,7 +1921,7 @@ def execute_paper_signal(
             strategy=analysis.strategy,
             intent_id=intent.id,
             position_id=created.id,
-            summary="Tracked the broker-confirmed demo position after an acknowledgement timeout without resubmitting the order.",
+            summary="Tracked the broker-confirmed cTrader position after an acknowledgement timeout without resubmitting the order.",
             details={
                 "broker_position_id": (broker_order or {}).get("position_id"),
                 "broker_order": broker_order or {},
@@ -1925,10 +1934,10 @@ def execute_paper_signal(
             status="failed",
             summary=(
                 "Order acknowledgement timed out, but broker reconciliation confirmed "
-                "the demo position; local tracking was created and automatic retry stayed blocked."
+                "the cTrader position; local tracking was created and automatic retry stayed blocked."
             ),
             position_id=created.id,
-            mode="demo_enabled",
+            mode=_ctrader_execution_mode(),
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=False,
         )
@@ -1952,7 +1961,7 @@ def execute_paper_signal(
             intent_id=intent.id,
             position_id=created.id,
             summary=(
-                "Executed cTrader demo order and opened the local tracking position."
+                "Executed cTrader cTrader order and opened the local tracking position."
                 if broker_order
                 else "Opened new paper position from accepted signal."
             ),
@@ -1978,7 +1987,7 @@ def execute_paper_signal(
             status="persistence_pending",
             summary="Local tracker is durable; final intent/audit persistence is deferred and no new order is allowed.",
             position_id=created.id,
-            mode="demo_enabled" if broker_order else "paper_only",
+            mode=_ctrader_execution_mode() if broker_order else "paper_only",
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=False,
         )
@@ -1989,6 +1998,6 @@ def execute_paper_signal(
         status="executed",
         summary="position flipped and opened" if flipped else "position opened",
         position_id=created.id,
-        mode="demo_enabled" if broker_order else "paper_only",
+        mode=_ctrader_execution_mode() if broker_order else "paper_only",
         broker_position_id=(broker_order or {}).get("position_id"),
     )
