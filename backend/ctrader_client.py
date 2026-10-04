@@ -589,9 +589,13 @@ def account_list_response_cb(res, source_client=None):
         None,
     )
     if selected is None:
+        global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_ERROR
         ACCOUNT_IS_DEMO = None
         ACCOUNT_VERIFICATION_ERROR = "Configured cTrader account was not returned for the access token."
         AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
+        if ACCOUNT_SWITCH_IN_PROGRESS:
+            ACCOUNT_SWITCH_IN_PROGRESS = False
+            ACCOUNT_SWITCH_ERROR = ACCOUNT_VERIFICATION_ERROR
         print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
         return None
 
@@ -609,6 +613,9 @@ def account_list_response_cb(res, source_client=None):
     _refresh_account_flags()
     if ACCOUNT_VERIFICATION_ERROR:
         AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
+        if ACCOUNT_SWITCH_IN_PROGRESS:
+            ACCOUNT_SWITCH_IN_PROGRESS = False
+            ACCOUNT_SWITCH_ERROR = ACCOUNT_VERIFICATION_ERROR
         print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
         return None
 
@@ -625,10 +632,14 @@ def account_list_response_cb(res, source_client=None):
 
 def account_list_error_cb(failure):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
+    global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_ERROR
     AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = f"Unable to verify cTrader account type: {failure}"
     AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
+    if ACCOUNT_SWITCH_IN_PROGRESS:
+        ACCOUNT_SWITCH_IN_PROGRESS = False
+        ACCOUNT_SWITCH_ERROR = ACCOUNT_VERIFICATION_ERROR
     print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
     return failure
 
@@ -781,10 +792,13 @@ def _format_payload(payload) -> str:
     return txt
 
 
-def init_client():
-    client.setConnectedCallback(_on_connected)
-    client.setDisconnectedCallback(_on_disconnected)
-    def _on_message(_client, message):
+def _configure_client_callbacks(target_client) -> None:
+    target_client.setConnectedCallback(_on_connected)
+    target_client.setDisconnectedCallback(_on_disconnected)
+
+    def _on_message(source_client, message):
+        if source_client is not client:
+            return
         try:
             event = Protobuf.extract(message)
         except Exception as e:
@@ -792,9 +806,165 @@ def init_client():
             return
         _log_event(event)
 
-    client.setMessageReceivedCallback(_on_message)
-    client.startService()
-    reactor.run(installSignalHandlers=False)
+    target_client.setMessageReceivedCallback(_on_message)
+
+
+def _stop_client_service(target_client) -> None:
+    try:
+        if getattr(target_client, "running", False):
+            # ctrader-open-api's Client.stopService() skips disconnected
+            # services. Call the Twisted base implementation so a stale
+            # reconnect loop cannot survive a Demo/Live host switch.
+            ClientService.stopService(target_client)
+    except Exception as exc:
+        print(f"[WARN] Unable to stop previous cTrader client service: {exc}")
+
+
+def configure_target_account(account_id: int, account_type: str) -> None:
+    """Configure the desired account before the transport thread starts."""
+    global ACCOUNT_ID, HOST_TYPE, client, CLIENT_HOST_TYPE
+    global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
+    global ACTIVE_ACCOUNT_ID, ACTIVE_HOST_TYPE
+    target_id = _account_id_int(account_id)
+    if target_id is None:
+        raise ValueError("cTrader account ID must be a positive integer.")
+    target_host = _normalize_host_type(account_type)
+
+    with _transport_lock:
+        if getattr(client, "running", False):
+            raise RuntimeError("cTrader transport is already running.")
+        ACCOUNT_ID = target_id
+        HOST_TYPE = target_host
+        CONNECTED = False
+        AUTHORIZED = False
+        ACCOUNT_IS_DEMO = None
+        ACTIVE_ACCOUNT_ID = None
+        ACTIVE_HOST_TYPE = None
+        AVAILABLE_ACCOUNTS.clear()
+        _clear_asset_cache()
+        _clear_symbol_metadata()
+        if CLIENT_HOST_TYPE != target_host:
+            client = _new_client(target_host)
+            CLIENT_HOST_TYPE = target_host
+
+
+def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
+    global client, CLIENT_HOST_TYPE, ACCOUNT_IS_DEMO
+    target_host = _normalize_host_type(account_type)
+    target_id = int(account_id)
+    current_client = client
+
+    if CLIENT_HOST_TYPE == target_host:
+        if bool(getattr(current_client, "isConnected", False)) or CONNECTED:
+            ACCOUNT_IS_DEMO = target_host == "demo"
+            req = ProtoOAAccountAuthReq(
+                ctidTraderAccountId=target_id,
+                accessToken=ACCESS_TOKEN,
+            )
+            current_client.send(req).addCallbacks(
+                lambda response: account_auth_cb(
+                    response,
+                    current_client,
+                    target_id,
+                ),
+                on_error,
+            )
+        elif not getattr(current_client, "running", False):
+            _configure_client_callbacks(current_client)
+            current_client.startService()
+        # A running but temporarily disconnected ClientService will reconnect
+        # itself; _on_connected() will authenticate the desired account.
+        return
+
+    next_client = _new_client(target_host)
+    _configure_client_callbacks(next_client)
+    client = next_client
+    CLIENT_HOST_TYPE = target_host
+    _stop_client_service(current_client)
+    next_client.startService()
+
+
+def switch_account(account_id: int, account_type: str) -> dict[str, object]:
+    """Begin a fail-closed account switch without restarting Twisted's reactor."""
+    global ACCOUNT_ID, HOST_TYPE, AUTHORIZED, AUTH_ERROR, ACCOUNT_IS_DEMO
+    global ACTIVE_ACCOUNT_ID, ACTIVE_HOST_TYPE
+    global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
+    global ACCOUNT_VERIFICATION_ERROR, CONNECTED
+
+    target_id = _account_id_int(account_id)
+    if target_id is None:
+        raise ValueError("cTrader account ID must be a positive integer.")
+    target_host = _normalize_host_type(account_type)
+
+    with _transport_lock:
+        if ACCOUNT_SWITCH_IN_PROGRESS:
+            if ACCOUNT_SWITCH_TARGET_ID == target_id:
+                return {
+                    "switch_started": False,
+                    "already_switching": True,
+                    "target_account_id": target_id,
+                    "target_host_type": target_host,
+                }
+            raise RuntimeError("Another cTrader account switch is already in progress.")
+
+        if (
+            AUTHORIZED
+            and ACTIVE_ACCOUNT_ID == target_id
+            and ACTIVE_HOST_TYPE == target_host
+        ):
+            ACCOUNT_ID = target_id
+            HOST_TYPE = target_host
+            _refresh_account_flags()
+            return {
+                "switch_started": False,
+                "already_active": True,
+                "target_account_id": target_id,
+                "target_host_type": target_host,
+            }
+
+        cross_host = CLIENT_HOST_TYPE != target_host
+        ACCOUNT_ID = target_id
+        HOST_TYPE = target_host
+        AUTHORIZED = False
+        AUTH_ERROR = "cTrader account switch in progress."
+        ACCOUNT_IS_DEMO = None
+        ACCOUNT_VERIFICATION_ERROR = "cTrader account switch in progress."
+        ACTIVE_ACCOUNT_ID = None
+        ACTIVE_HOST_TYPE = None
+        ACCOUNT_SWITCH_IN_PROGRESS = True
+        ACCOUNT_SWITCH_TARGET_ID = target_id
+        ACCOUNT_SWITCH_ERROR = None
+        if cross_host:
+            CONNECTED = False
+        _clear_asset_cache()
+        _clear_symbol_metadata()
+        _refresh_account_flags()
+
+        if getattr(reactor, "running", False):
+            reactor.callFromThread(
+                _switch_account_on_reactor,
+                target_id,
+                target_host,
+            )
+        else:
+            _switch_account_on_reactor(target_id, target_host)
+
+    return {
+        "switch_started": True,
+        "already_active": False,
+        "cross_host": cross_host,
+        "target_account_id": target_id,
+        "target_host_type": target_host,
+    }
+
+
+def init_client():
+    current_client = client
+    _configure_client_callbacks(current_client)
+    current_client.startService()
+    if not getattr(reactor, "running", False):
+        reactor.run(installSignalHandlers=False)
+
 
 def is_connected() -> bool:
     return CONNECTED
@@ -817,13 +987,34 @@ def is_demo_account_confirmed() -> bool:
     return bool(
         CONNECTED
         and AUTHORIZED
-        and HOST_TYPE == "demo"
+        and ACTIVE_HOST_TYPE == "demo"
+        and ACTIVE_ACCOUNT_ID == _account_id_int(ACCOUNT_ID)
         and ACCOUNT_IS_DEMO is True
     )
 
 
 def get_account_verification_error() -> str | None:
     return ACCOUNT_VERIFICATION_ERROR
+
+
+def get_active_account_id() -> int | None:
+    return _account_id_int(ACTIVE_ACCOUNT_ID)
+
+
+def get_active_host_type() -> str:
+    return ACTIVE_HOST_TYPE if ACTIVE_HOST_TYPE in {"demo", "live"} else "unknown"
+
+
+def is_account_switch_in_progress() -> bool:
+    return bool(ACCOUNT_SWITCH_IN_PROGRESS)
+
+
+def get_account_switch_target_id() -> int | None:
+    return _account_id_int(ACCOUNT_SWITCH_TARGET_ID)
+
+
+def get_account_switch_error() -> str | None:
+    return ACCOUNT_SWITCH_ERROR
 
 
 def get_available_accounts() -> list[dict[str, object]]:
