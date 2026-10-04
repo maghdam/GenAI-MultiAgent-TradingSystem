@@ -1211,7 +1211,7 @@ Add one row after every completed task.
 ## 14. Phase 10 — cTrader multi-account architecture
 
 ### 10.1 Authorized account discovery foundation
-**Priority:** P0  
+**Priority:** P0
 **Status:** 🧪
 
 **Target behavior**
