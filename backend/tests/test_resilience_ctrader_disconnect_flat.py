@@ -159,7 +159,7 @@ def test_flat_demo_execution_defers_before_order_submission_when_disconnected(mo
     assert list_order_intents(10) == []
 
     incidents = list_incidents(10)
-    assert incidents[0].code == "ctrader_demo_symbol_not_ready"
+    assert incidents[0].code == "ctrader_symbol_not_ready"
     assert incidents[0].details["reason"] == "cTrader transport is not connected."
     assert incidents[0].details["retryable"] is True
 
