@@ -75,6 +75,11 @@ def _ctrader_execution_mode() -> str:
     return "live_enabled" if _ctrader_account_type() == "live" else "demo_enabled"
 
 
+def _ctrader_execution_tag() -> str:
+    account_type = _ctrader_account_type()
+    return f"ctrader_{account_type}" if account_type in {"demo", "live"} else "ctrader_unknown"
+
+
 def _canonical_broker_row_for_position(position: PaperPosition) -> dict[str, object]:
     match = match_broker_position(position, list_positions())
     if match.status in {"id_mismatch", "legacy_ambiguous"} or not match.matched:
@@ -464,7 +469,7 @@ def _refresh_open_position(
             message = f"Could not safely identify broker position for {position.symbol}:{position.timeframe}."
             log_incident(
                 "error",
-                "ctrader_demo_position_identity_ambiguous",
+                "ctrader_position_identity_ambiguous",
                 message,
                 {
                     "position_id": position.id,
@@ -490,7 +495,7 @@ def _refresh_open_position(
         ledger_sync = reconcile_open_position_ledger(position, match.row)
         if ledger_sync.get("status") == "partial_close_synced":
             add_trade_audit(
-                event_type="ctrader_demo_partial_close_synced",
+                event_type="ctrader_partial_close_synced",
                 symbol=position.symbol,
                 timeframe=position.timeframe,
                 strategy=position.strategy,
@@ -501,7 +506,7 @@ def _refresh_open_position(
         elif ledger_sync.get("status") == "pending_deal_history":
             log_incident(
                 "warning",
-                "ctrader_demo_partial_close_history_pending",
+                "ctrader_partial_close_history_pending",
                 f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                 {"position_id": position.id, **ledger_sync},
             )
@@ -509,7 +514,7 @@ def _refresh_open_position(
             message = f"Could not safely reconcile broker volume for {position.symbol}:{position.timeframe}."
             log_incident(
                 "error",
-                "ctrader_demo_volume_reconciliation_failed",
+                "ctrader_volume_reconciliation_failed",
                 message,
                 {"position_id": position.id, **ledger_sync},
             )
@@ -571,7 +576,7 @@ def execute_paper_signal(
                 if close_result.get("closed"):
                     closed = close_result["position"]
                     add_trade_audit(
-                        event_type="ctrader_demo_protective_exit",
+                        event_type="ctrader_protective_exit",
                         symbol=position.symbol,
                         timeframe=position.timeframe,
                         strategy=position.strategy,
@@ -601,7 +606,7 @@ def execute_paper_signal(
                 )
             if protection.get("status") == "synced":
                 add_trade_audit(
-                    event_type="ctrader_demo_protection_repaired",
+                    event_type="ctrader_protection_repaired",
                     symbol=position.symbol,
                     timeframe=position.timeframe,
                     strategy=position.strategy,
@@ -622,7 +627,7 @@ def execute_paper_signal(
             except Exception as failsafe_exc:
                 log_incident(
                     "error",
-                    "ctrader_demo_protection_failsafe_unresolved",
+                    "ctrader_protection_failsafe_unresolved",
                     f"Protection failure could not be safely resolved for {position.symbol}:{position.timeframe}.",
                     {
                         "position_id": position.id,
@@ -667,12 +672,12 @@ def execute_paper_signal(
         except Exception as exc:
             log_incident(
                 "error",
-                "ctrader_demo_protection_sync_failed",
+                "ctrader_protection_sync_failed",
                 f"Could not synchronize broker protection for {position.symbol}:{position.timeframe}",
                 {"position_id": position.id, "error": str(exc)},
             )
             add_trade_audit(
-                event_type="ctrader_demo_protection_sync_failed",
+                event_type="ctrader_protection_sync_failed",
                 symbol=position.symbol,
                 timeframe=position.timeframe,
                 strategy=position.strategy,
@@ -699,12 +704,12 @@ def execute_paper_signal(
         if not broker_ready:
             log_incident(
                 "warning",
-                "ctrader_demo_symbol_not_ready",
+                "ctrader_symbol_not_ready",
                 f"Deferred cTrader execution for {analysis.symbol}:{analysis.timeframe}",
                 {"reason": broker_reason, "retryable": True},
             )
             add_trade_audit(
-                event_type="ctrader_demo_order_deferred",
+                event_type="ctrader_order_deferred",
                 symbol=analysis.symbol,
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
@@ -732,12 +737,12 @@ def execute_paper_signal(
             reason = monetary_basis.reason or "cTrader account monetary snapshot is unavailable."
             log_incident(
                 "warning",
-                "ctrader_demo_account_snapshot_not_ready",
+                "ctrader_account_snapshot_not_ready",
                 f"Deferred cTrader execution for {analysis.symbol}:{analysis.timeframe}",
                 {"reason": reason, **monetary_basis.as_details(), "retryable": True},
             )
             add_trade_audit(
-                event_type="ctrader_demo_order_deferred",
+                event_type="ctrader_order_deferred",
                 symbol=analysis.symbol,
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
@@ -1036,17 +1041,17 @@ def execute_paper_signal(
         update_order_intent_status(
             intent.id,
             "failed",
-            {"reason": "demo_signal_flip_requires_reconciliation"},
-            reason="demo_signal_flip_blocked",
+            {"reason": "ctrader_signal_flip_requires_reconciliation"},
+            reason="ctrader_signal_flip_blocked",
         )
         log_incident(
             "warning",
-            "demo_signal_flip_blocked",
-            f"Blocked cTrader demo signal flip for {analysis.symbol}:{analysis.timeframe}",
+            "ctrader_signal_flip_blocked",
+            f"Blocked cTrader signal flip for {analysis.symbol}:{analysis.timeframe}",
             {"intent_id": intent.id, "position_id": position.id},
         )
         add_trade_audit(
-            event_type="ctrader_demo_order_blocked",
+            event_type="ctrader_order_blocked",
             symbol=analysis.symbol,
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
@@ -1059,7 +1064,7 @@ def execute_paper_signal(
             action_taken=False,
             intent_id=intent.id,
             status="failed",
-            summary="Demo signal flip blocked pending broker reconciliation.",
+            summary="cTrader signal flip blocked pending broker reconciliation.",
             position_id=position.id,
             mode=_ctrader_execution_mode(),
         )
@@ -1123,7 +1128,7 @@ def execute_paper_signal(
                             reason="protective_exit_before_target_update",
                         )
                         add_trade_audit(
-                            event_type="ctrader_demo_protective_exit",
+                            event_type="ctrader_protective_exit",
                             symbol=analysis.symbol,
                             timeframe=analysis.timeframe,
                             strategy=analysis.strategy,
@@ -1193,19 +1198,19 @@ def execute_paper_signal(
                     "failed",
                     details,
                     reason=(
-                        "ctrader_demo_target_update_failsafe_closed"
+                        "ctrader_target_update_failsafe_closed"
                         if failsafe.get("closed")
-                        else "ctrader_demo_target_update_failsafe_pending"
+                        else "ctrader_target_update_failsafe_pending"
                     ),
                 )
                 log_incident(
                     "error" if not failsafe.get("closed") else "warning",
-                    "ctrader_demo_target_update_rejected",
+                    "ctrader_target_update_rejected",
                     f"Broker target update failed for {analysis.symbol}:{analysis.timeframe}; fail-safe policy applied.",
                     {"intent_id": intent.id, "position_id": position.id, **details},
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_target_update_rejected",
+                    event_type="ctrader_target_update_rejected",
                     symbol=analysis.symbol,
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
@@ -1235,16 +1240,16 @@ def execute_paper_signal(
                     intent.id,
                     "failed",
                     {"broker": "ctrader", "error": str(exc)},
-                    reason="ctrader_demo_target_update_failed",
+                    reason="ctrader_target_update_failed",
                 )
                 log_incident(
                     "error",
-                    "ctrader_demo_target_update_failed",
+                    "ctrader_target_update_failed",
                     f"Could not update broker targets for {analysis.symbol}:{analysis.timeframe}",
                     {"intent_id": intent.id, "position_id": position.id, "error": str(exc)},
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_target_update_failed",
+                    event_type="ctrader_target_update_failed",
                     symbol=analysis.symbol,
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
@@ -1320,7 +1325,7 @@ def execute_paper_signal(
                     "baseline_snapshot_error": baseline_error,
                     "baseline_position_ids": sorted(baseline_ids),
                 },
-                reason="ctrader_demo_order_submission_reserved",
+                reason="ctrader_order_submission_reserved",
             )
         except SQLiteBusyError as exc:
             log_incident(
@@ -1381,7 +1386,7 @@ def execute_paper_signal(
                 ack_timeout_reconciled = True
                 log_incident(
                     "warning",
-                    "ctrader_demo_order_ack_timeout_reconciled",
+                    "ctrader_order_ack_timeout_reconciled",
                     f"cTrader order acknowledgement timed out for {analysis.symbol}:{analysis.timeframe}, but broker reconciliation confirmed one new position.",
                     {
                         "intent_id": intent.id,
@@ -1392,7 +1397,7 @@ def execute_paper_signal(
                     },
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_order_ack_timeout_reconciled",
+                    event_type="ctrader_order_ack_timeout_reconciled",
                     symbol=analysis.symbol,
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
@@ -1426,16 +1431,16 @@ def execute_paper_signal(
                     intent.id,
                     "failed",
                     details,
-                    reason="ctrader_demo_order_ack_timeout_ambiguous",
+                    reason="ctrader_order_ack_timeout_ambiguous",
                 )
                 log_incident(
                     "error",
-                    "ctrader_demo_order_ack_timeout_ambiguous",
+                    "ctrader_order_ack_timeout_ambiguous",
                     f"cTrader order acknowledgement timed out after submission for {analysis.symbol}:{analysis.timeframe}; automatic resubmission is blocked.",
                     {"intent_id": intent.id, **details},
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_order_ack_timeout_ambiguous",
+                    event_type="ctrader_order_ack_timeout_ambiguous",
                     symbol=analysis.symbol,
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
@@ -1468,16 +1473,16 @@ def execute_paper_signal(
                     "automatic_retry": False,
                     "retryable": True,
                 },
-                reason="ctrader_demo_order_failed",
+                reason="ctrader_order_failed",
             )
             log_incident(
                 "error",
-                "ctrader_demo_order_failed",
+                "ctrader_order_failed",
                 f"cTrader order failed for {analysis.symbol}:{analysis.timeframe}",
                 {"intent_id": intent.id, "error": str(exc)},
             )
             add_trade_audit(
-                event_type="ctrader_demo_order_failed",
+                event_type="ctrader_order_failed",
                 symbol=analysis.symbol,
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
@@ -1510,7 +1515,7 @@ def execute_paper_signal(
                     "retryable": False,
                     "acknowledgement_timeout": ack_timeout_reconciled,
                 },
-                reason="ctrader_demo_broker_confirmed_tracking_pending",
+                reason="ctrader_broker_confirmed_tracking_pending",
             )
         except SQLiteBusyError as exc:
             failsafe_close: dict[str, object] = {
@@ -1623,13 +1628,13 @@ def execute_paper_signal(
                             "tracking_retained": False,
                         },
                         reason=(
-                            "ctrader_demo_order_ack_timeout_reconciled_protective_exit"
+                            "ctrader_order_ack_timeout_reconciled_protective_exit"
                             if ack_timeout_reconciled
-                            else "ctrader_demo_immediate_protective_exit"
+                            else "ctrader_immediate_protective_exit"
                         ),
                     )
                     add_trade_audit(
-                        event_type="ctrader_demo_protective_exit",
+                        event_type="ctrader_protective_exit",
                         symbol=analysis.symbol,
                         timeframe=analysis.timeframe,
                         strategy=analysis.strategy,
@@ -1654,7 +1659,7 @@ def execute_paper_signal(
             broker_position_id = int(broker_order.get("position_id") or 0)
             log_incident(
                 "error",
-                "ctrader_demo_order_unprotected",
+                "ctrader_order_unprotected",
                 f"cTrader order opened but broker SL/TP could not be verified for {analysis.symbol}:{analysis.timeframe}",
                 {
                     "intent_id": intent.id,
@@ -1663,7 +1668,7 @@ def execute_paper_signal(
                 },
             )
             add_trade_audit(
-                event_type="ctrader_demo_order_unprotected",
+                event_type="ctrader_order_unprotected",
                 symbol=analysis.symbol,
                 timeframe=analysis.timeframe,
                 strategy=analysis.strategy,
@@ -1692,7 +1697,7 @@ def execute_paper_signal(
                 broker_order["failsafe_close_error"] = unprotected_close_error
                 log_incident(
                     "error",
-                    "ctrader_demo_unprotected_failsafe_close_failed",
+                    "ctrader_unprotected_failsafe_close_failed",
                     f"Fail-safe close failed for unprotected cTrader position {analysis.symbol}:{analysis.timeframe}",
                     {
                         "intent_id": intent.id,
@@ -1702,7 +1707,7 @@ def execute_paper_signal(
                     },
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_unprotected_failsafe_close_failed",
+                    event_type="ctrader_unprotected_failsafe_close_failed",
                     symbol=analysis.symbol,
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
@@ -1726,11 +1731,11 @@ def execute_paper_signal(
                         "failsafe_closed": True,
                         "failsafe_close": broker_close,
                     },
-                    reason="ctrader_demo_unprotected_failsafe_closed",
+                    reason="ctrader_unprotected_failsafe_closed",
                 )
                 log_incident(
                     "warning",
-                    "ctrader_demo_unprotected_failsafe_closed",
+                    "ctrader_unprotected_failsafe_closed",
                     f"Closed unprotected cTrader position for {analysis.symbol}:{analysis.timeframe}",
                     {
                         "intent_id": intent.id,
@@ -1740,7 +1745,7 @@ def execute_paper_signal(
                     },
                 )
                 add_trade_audit(
-                    event_type="ctrader_demo_unprotected_failsafe_closed",
+                    event_type="ctrader_unprotected_failsafe_closed",
                     symbol=analysis.symbol,
                     timeframe=analysis.timeframe,
                     strategy=analysis.strategy,
@@ -1856,17 +1861,17 @@ def execute_paper_signal(
             "failed",
             {
                 "opened_position_id": created.id,
-                "execution_mode": "ctrader_demo",
+                "execution_mode": _ctrader_execution_tag(),
                 "broker_order": broker_order,
                 "failsafe_close_error": unprotected_close_error,
                 "close_outcome_state": close_outcome_state,
                 "close_retryable": retryable_close,
                 "tracking_retained": True,
             },
-            reason="ctrader_demo_unprotected_failsafe_close_failed",
+            reason="ctrader_unprotected_failsafe_close_failed",
         )
         add_trade_audit(
-            event_type="ctrader_demo_unprotected_tracking_retained",
+            event_type="ctrader_unprotected_tracking_retained",
             symbol=analysis.symbol,
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
@@ -1901,7 +1906,7 @@ def execute_paper_signal(
             "failed",
             {
                 "opened_position_id": created.id,
-                "execution_mode": "ctrader_demo",
+                "execution_mode": _ctrader_execution_tag(),
                 "broker_order": broker_order or {},
                 "outcome_state": "ack_timeout_reconciled_broker_position",
                 "acknowledgement_timeout": True,
@@ -1912,10 +1917,10 @@ def execute_paper_signal(
                 "automatic_retry": False,
                 "tracking_retained": True,
             },
-            reason="ctrader_demo_order_ack_timeout_reconciled",
+            reason="ctrader_order_ack_timeout_reconciled",
         )
         add_trade_audit(
-            event_type="ctrader_demo_order_ack_timeout_tracking_retained",
+            event_type="ctrader_order_ack_timeout_tracking_retained",
             symbol=analysis.symbol,
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
@@ -1948,13 +1953,13 @@ def execute_paper_signal(
             "executed",
             {
                 "opened_position_id": created.id,
-                "execution_mode": "ctrader_demo" if broker_order else "paper",
+                "execution_mode": _ctrader_execution_tag() if broker_order else "paper",
                 "broker_order": broker_order or {},
             },
-            reason="ctrader_demo_order_executed" if broker_order else "paper_position_opened",
+            reason="ctrader_order_executed" if broker_order else "paper_position_opened",
         )
         add_trade_audit(
-            event_type="ctrader_demo_order_executed" if broker_order else "paper_signal_open",
+            event_type="ctrader_order_executed" if broker_order else "paper_signal_open",
             symbol=analysis.symbol,
             timeframe=analysis.timeframe,
             strategy=analysis.strategy,
