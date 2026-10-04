@@ -1205,6 +1205,7 @@ Add one row after every completed task.
 | 2026-10-04 | Phase 5.3 threshold sample-sufficiency re-check | Re-run the existing read-only per-cell screening against current persisted automatic-trade evidence without selecting or mutating a threshold | 🟨 7 focused tests + full backend suite passed locally on `601f776`; runtime threshold stayed 0.60; 0/3 cells qualified (27 NAS100 breakout, 26 US30 breakout, 41 XAUUSD SMA baseline trades); PR CI #255 passed | PR #87 / `601f776` | Keep Phase 5.3 pending until more closed automatic trades accumulate; proceed to the next safely actionable field check |
 | 2026-10-04 | Phase 7 Ollama/model unavailable field verification | Force a real Windows Ollama outage by stopping both the server and app supervisor; verify truthful degraded state, deterministic-trading independence, zero exposure side effects, and full recovery | ✅ Real outage/recovery passed; 16 focused tests passed; timing-sensitive monitor test passed 3/3 on retry; full backend suite passed locally on `e14068c`; PR CI #258 passed backend + frontend | PR #88 / `e14068c` | Deployment-ready baseline reached; remaining broker-position/sample-dependent checks move to post-deployment evidence and must not block normal demo use |
 | 2026-10-04 | Final deployment documentation consistency | Re-confirm the documentation-consistency acceptance evidence against the merged deployment-ready baseline after PRs #86–#88 | ✅ Local docs-only validation passed on `15b5706`: exactly one changed file (`docs/TRADEAGENT_ROADMAP.md`), `git diff --check` clean, all final acceptance wording present, and working tree clean; PR CI #261 passed backend tests + frontend restart/Journal acceptance + production build | PR #89 / `15b5706` | Baseline documentation closure verified; merge and return local `main` to a clean synchronized state |
+| 2026-10-04 | Phase 10.1 cTrader account discovery foundation | Retain and expose every authorized cTrader account with broker-reported Demo/Live type and selected-account identity, without yet changing account switching or order routing | ✅ Local focused suite 20/20 + full backend regression + frontend build passed on `419ab23`; final local head `46fdf75` clean under `git status --short` and `git diff --check`; PR CI #264/#265 passed | PR #90 / `46fdf75` | Proceed to Phase 10.2 dashboard account selector and persisted active account |
 
 ---
 
@@ -1212,7 +1213,7 @@ Add one row after every completed task.
 
 ### 10.1 Authorized account discovery foundation
 **Priority:** P0
-**Status:** 🧪
+**Status:** ✅
 
 **Target behavior**
 - [x] Retain every cTrader account returned for the configured access token instead of discarding all but the fixed account ID.
@@ -1221,10 +1222,15 @@ Add one row after every completed task.
 - [x] Expose the authorized account directory through `GET /api/broker/accounts`.
 - [x] Add the typed frontend API contract needed by the upcoming account selector.
 - [x] Add focused regression coverage for mixed Demo/Live account discovery.
-- [ ] Local focused tests.
-- [ ] Full backend regression suite.
-- [ ] Frontend production build.
-- [ ] GitHub CI.
+- [x] Local focused tests: 20 passed.
+- [x] Full backend regression suite passed.
+- [x] Frontend production build passed (701 modules).
+- [x] GitHub CI #264 and final functional-head CI #265 passed.
+
+**Verification**
+- Local functional validation on `419ab23`: focused account-directory + account-safety suite 20/20, full backend suite, and frontend production build all passed with a clean working tree.
+- `git diff --check` exposed one roadmap-only trailing-space issue; docs-only commit `46fdf75` corrected it, after which local `git status --short` and `git diff --check origin/main...HEAD` were both clean.
+- PR #90 CI #264 passed the implementation head and CI #265 passed the corrected final functional head.
 
 **Scope boundary**
 This item does not yet change the active account, reconnect transports, or route orders differently. It establishes broker-truth account discovery so account selection can be implemented without environment-variable assumptions.
@@ -1253,4 +1259,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.1 is ready for local validation. Do not begin account selection or execution changes until the account-directory foundation passes focused tests, the full backend suite, frontend production build, and GitHub CI. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.1 is verified. Proceed to Phase 10.2: add a cTrader-style dashboard account selector backed by the authorized account directory and persist the explicitly selected account ID. Do not mix transport switching or execution-path changes into 10.2; those remain separate Phase 10.3/10.4 items. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
