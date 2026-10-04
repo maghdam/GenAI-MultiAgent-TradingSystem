@@ -308,7 +308,7 @@ def _resolve_reserved_ctrader_submission(intent) -> ExecutionResult:
                 intent_id=intent.id,
                 status="persistence_pending",
                 summary="Broker position is confirmed but SQLite persistence is still busy; automatic resubmission remains blocked.",
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 broker_position_id=broker_position_id,
                 retryable=False,
             )
@@ -330,7 +330,7 @@ def _resolve_reserved_ctrader_submission(intent) -> ExecutionResult:
             intent_id=intent.id,
             status="blocked",
             summary="Broker position confirmed after persistence recovery; tracker recovery is required before any new order.",
-            mode=_ctrader_execution_mode(broker_order),
+            mode=_ctrader_execution_mode(),
             broker_position_id=broker_position_id,
             retryable=False,
         )
@@ -371,7 +371,7 @@ def _resolve_reserved_ctrader_submission(intent) -> ExecutionResult:
                 intent_id=intent.id,
                 status="persistence_pending",
                 summary="SQLite persistence is still busy; automatic resubmission remains blocked.",
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 retryable=False,
             )
 
@@ -391,7 +391,7 @@ def _resolve_reserved_ctrader_submission(intent) -> ExecutionResult:
             intent_id=intent.id,
             status="deferred",
             summary="Interrupted submission resolved with no broker position; a later cycle may evaluate a fresh order.",
-            mode=_ctrader_execution_mode(broker_order),
+            mode=_ctrader_execution_mode(),
             retryable=True,
         )
 
@@ -411,7 +411,7 @@ def _resolve_reserved_ctrader_submission(intent) -> ExecutionResult:
         intent_id=intent.id,
         status="blocked",
         summary="Prior cTrader submission remains unresolved; automatic resubmission is blocked.",
-        mode=_ctrader_execution_mode(broker_order),
+        mode=_ctrader_execution_mode(),
         retryable=False,
     )
 
@@ -551,7 +551,7 @@ def execute_paper_signal(
             intent_id=None,
             status="failed",
             summary=str(exc),
-            mode=_ctrader_execution_mode(broker_order),
+            mode=_ctrader_execution_mode(),
             retryable=True,
         )
 
@@ -598,7 +598,7 @@ def execute_paper_signal(
                         status="executed",
                         summary=reason,
                         position_id=closed.id,
-                        mode=_ctrader_execution_mode(broker_order),
+                        mode=_ctrader_execution_mode(),
                         broker_position_id=position.broker_position_id,
                         retryable=False,
                     )
@@ -608,7 +608,7 @@ def execute_paper_signal(
                     status=str(close_result.get("status") or "failed"),
                     summary="Broker close was not verified; local tracker remains open.",
                     position_id=position.id,
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=bool(close_result.get("retryable")),
                 )
@@ -651,7 +651,7 @@ def execute_paper_signal(
                     status="protection_failsafe_pending",
                     summary=str(failsafe_exc),
                     position_id=position.id,
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=False,
                 )
@@ -663,7 +663,7 @@ def execute_paper_signal(
                     status="failed",
                     summary="cTrader position was closed by fail-safe because broker protection could not be verified.",
                     position_id=int(failsafe.get("closed_position_id") or position.id),
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=False,
                 )
@@ -673,7 +673,7 @@ def execute_paper_signal(
                 status="protection_failsafe_pending",
                 summary="Broker protection failed and the fail-safe close failed; canonical tracking was retained.",
                 position_id=position.id,
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 broker_position_id=position.broker_position_id,
                 retryable=False,
             )
@@ -699,7 +699,7 @@ def execute_paper_signal(
                 status="failed",
                 summary=str(exc),
                 position_id=position.id,
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
@@ -729,7 +729,7 @@ def execute_paper_signal(
                 intent_id=None,
                 status="deferred",
                 summary=broker_reason,
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
@@ -762,7 +762,7 @@ def execute_paper_signal(
                 intent_id=None,
                 status="deferred",
                 summary=reason,
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
@@ -949,7 +949,7 @@ def execute_paper_signal(
                     "outcome or broker-confirmed tracking handoff is unresolved. "
                     "Reconcile broker truth before any new order is allowed."
                 ),
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 broker_position_id=(
                     int((unresolved_details.get("broker_order") or {}).get("position_id") or 0)
                     or None
@@ -1074,7 +1074,7 @@ def execute_paper_signal(
             status="failed",
             summary="cTrader signal flip blocked pending broker reconciliation.",
             position_id=position.id,
-            mode=_ctrader_execution_mode(broker_order),
+            mode=_ctrader_execution_mode(),
         )
 
     if position and position.direction != analysis.signal:
@@ -1151,7 +1151,7 @@ def execute_paper_signal(
                             status="executed",
                             summary=reason,
                             position_id=closed.id,
-                            mode=_ctrader_execution_mode(broker_order),
+                            mode=_ctrader_execution_mode(),
                             broker_position_id=position.broker_position_id,
                             retryable=False,
                         )
@@ -1172,7 +1172,7 @@ def execute_paper_signal(
                         status=str(close_result.get("status") or "failed"),
                         summary="Broker close was not verified; local tracker remains open.",
                         position_id=position.id,
-                        mode=_ctrader_execution_mode(broker_order),
+                        mode=_ctrader_execution_mode(),
                         broker_position_id=position.broker_position_id,
                         retryable=bool(close_result.get("retryable")),
                     )
@@ -1239,7 +1239,7 @@ def execute_paper_signal(
                         else "Broker protection failed and the fail-safe close failed; canonical tracking was retained."
                     ),
                     position_id=int(failsafe.get("closed_position_id") or position.id),
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=position.broker_position_id,
                     retryable=False,
                 )
@@ -1272,7 +1272,7 @@ def execute_paper_signal(
                     status="failed",
                     summary=str(exc),
                     position_id=position.id,
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                 )
 
         update_paper_position_targets(position.id, analysis.stop_loss, analysis.take_profit)
@@ -1355,7 +1355,7 @@ def execute_paper_signal(
                 intent_id=intent.id,
                 status="deferred",
                 summary="SQLite persistence is busy; cTrader order submission was blocked before routing.",
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 retryable=True,
             )
 
@@ -1464,7 +1464,7 @@ def execute_paper_signal(
                         "cTrader order acknowledgement timed out after submission; "
                         "broker outcome is ambiguous and automatic retry is blocked."
                     ),
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                     retryable=False,
                 )
         except Exception as exc:
@@ -1503,7 +1503,7 @@ def execute_paper_signal(
                 intent_id=intent.id,
                 status="failed",
                 summary=str(exc),
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
             )
 
     if broker_order:
@@ -1588,7 +1588,7 @@ def execute_paper_signal(
                     "Broker submission occurred but SQLite could not persist the canonical handoff; "
                     "fail-safe close was attempted and automatic resubmission is blocked."
                 ),
-                mode=_ctrader_execution_mode(broker_order),
+                mode=_ctrader_execution_mode(),
                 broker_position_id=broker_position_id or None,
                 retryable=False,
             )
@@ -1655,7 +1655,7 @@ def execute_paper_signal(
                         intent_id=intent.id,
                         status="failed" if ack_timeout_reconciled else "executed",
                         summary=broker_protection.get("status") or "protective exit",
-                        mode=_ctrader_execution_mode(broker_order),
+                        mode=_ctrader_execution_mode(),
                         broker_position_id=int(broker_order.get("position_id") or 0) or None,
                         retryable=False,
                     )
@@ -1770,7 +1770,7 @@ def execute_paper_signal(
                     intent_id=intent.id,
                     status="failed",
                     summary="cTrader position was closed by fail-safe because broker protection could not be verified.",
-                    mode=_ctrader_execution_mode(broker_order),
+                    mode=_ctrader_execution_mode(),
                     broker_position_id=broker_position_id,
                     retryable=False,
                 )
@@ -1836,7 +1836,7 @@ def execute_paper_signal(
                 if broker_order
                 else "SQLite persistence is busy; local paper position was not created."
             ),
-            mode=_ctrader_execution_mode(broker_order) if broker_order else "paper_only",
+            mode=_ctrader_execution_mode() if broker_order else "paper_only",
             broker_position_id=broker_position_id or None,
             retryable=not bool(broker_order),
         )
@@ -1903,7 +1903,7 @@ def execute_paper_signal(
             ),
             summary="Broker close was not verified; canonical local tracking was retained.",
             position_id=created.id,
-            mode=_ctrader_execution_mode(broker_order),
+            mode=_ctrader_execution_mode(),
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=retryable_close,
         )
@@ -1950,7 +1950,7 @@ def execute_paper_signal(
                 "the cTrader position; local tracking was created and automatic retry stayed blocked."
             ),
             position_id=created.id,
-            mode=_ctrader_execution_mode(broker_order),
+            mode=_ctrader_execution_mode(),
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=False,
         )
@@ -2000,7 +2000,7 @@ def execute_paper_signal(
             status="persistence_pending",
             summary="Local tracker is durable; final intent/audit persistence is deferred and no new order is allowed.",
             position_id=created.id,
-            mode=_ctrader_execution_mode(broker_order) if broker_order else "paper_only",
+            mode=_ctrader_execution_mode() if broker_order else "paper_only",
             broker_position_id=(broker_order or {}).get("position_id"),
             retryable=False,
         )
@@ -2011,6 +2011,6 @@ def execute_paper_signal(
         status="executed",
         summary="position flipped and opened" if flipped else "position opened",
         position_id=created.id,
-        mode=_ctrader_execution_mode(broker_order) if broker_order else "paper_only",
+        mode=_ctrader_execution_mode() if broker_order else "paper_only",
         broker_position_id=(broker_order or {}).get("position_id"),
     )
