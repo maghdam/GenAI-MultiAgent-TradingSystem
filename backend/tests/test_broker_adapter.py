@@ -103,7 +103,7 @@ def test_get_status_reports_degraded_reads_without_crashing(monkeypatch) -> None
 def test_execution_ready_requires_verified_monetary_snapshot(monkeypatch) -> None:
     monkeypatch.setattr("backend.adapters.ctrader.ctd.is_connected", lambda: True)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.is_authorized", lambda: True)
-    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_account_confirmed", lambda: True)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_account_verification_error", lambda: None)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_auth_error", lambda: None)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_last_auth_attempt", lambda: None)
@@ -137,7 +137,7 @@ def test_execution_ready_requires_verified_monetary_snapshot(monkeypatch) -> Non
 def test_execution_ready_is_true_with_verified_currency_and_positive_equity(monkeypatch) -> None:
     monkeypatch.setattr("backend.adapters.ctrader.ctd.is_connected", lambda: True)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.is_authorized", lambda: True)
-    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr("backend.adapters.ctrader.ctd.is_account_confirmed", lambda: True)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_account_verification_error", lambda: None)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_auth_error", lambda: None)
     monkeypatch.setattr("backend.adapters.ctrader.ctd.get_last_auth_attempt", lambda: None)
@@ -332,7 +332,7 @@ def test_demo_symbol_execution_readiness_waits_for_full_contract(monkeypatch) ->
     monkeypatch.setattr(ctd, "is_connected", lambda: True)
     monkeypatch.setattr(ctd, "is_authorized", lambda: True)
     monkeypatch.setattr(ctd, "get_auth_error", lambda: None)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "get_account_verification_error", lambda: None)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_lot_size_map", {})
