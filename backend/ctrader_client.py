@@ -371,11 +371,12 @@ def pips_to_relative(pips: int, digits: int) -> int:
     return pips * 10 ** (6 - digits)
 
 def on_error(failure):
-    global AUTH_ERROR, ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_ERROR
+    global AUTH_ERROR, ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
     err_msg = str(failure)
     AUTH_ERROR = err_msg
     if ACCOUNT_SWITCH_IN_PROGRESS:
         ACCOUNT_SWITCH_IN_PROGRESS = False
+        ACCOUNT_SWITCH_TARGET_ID = None
         ACCOUNT_SWITCH_ERROR = err_msg
     print("[ERROR]", err_msg)
 
@@ -502,12 +503,15 @@ def symbol_details_response_cb(res, source_client=None, expected_account_id: int
 def account_auth_cb(_, source_client=None, expected_account_id: int | None = None):
     global AUTHORIZED, AUTH_ERROR, ACTIVE_ACCOUNT_ID, ACTIVE_HOST_TYPE
     global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
+    global ACCOUNT_VERIFICATION_ERROR, LAST_AUTH_ATTEMPT_AT
     if not _is_current_session(source_client, expected_account_id):
         return None
     active_client = source_client or client
     active_account_id = _account_id_int(expected_account_id or ACCOUNT_ID)
     AUTHORIZED = True
     AUTH_ERROR = None
+    ACCOUNT_VERIFICATION_ERROR = None
+    LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
     ACTIVE_ACCOUNT_ID = active_account_id
     ACTIVE_HOST_TYPE = HOST_TYPE
     ACCOUNT_SWITCH_IN_PROGRESS = False
@@ -595,6 +599,7 @@ def account_list_response_cb(res, source_client=None):
         AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
         if ACCOUNT_SWITCH_IN_PROGRESS:
             ACCOUNT_SWITCH_IN_PROGRESS = False
+            ACCOUNT_SWITCH_TARGET_ID = None
             ACCOUNT_SWITCH_ERROR = ACCOUNT_VERIFICATION_ERROR
         print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
         return None
@@ -615,6 +620,7 @@ def account_list_response_cb(res, source_client=None):
         AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
         if ACCOUNT_SWITCH_IN_PROGRESS:
             ACCOUNT_SWITCH_IN_PROGRESS = False
+            ACCOUNT_SWITCH_TARGET_ID = None
             ACCOUNT_SWITCH_ERROR = ACCOUNT_VERIFICATION_ERROR
         print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
         return None
@@ -632,13 +638,14 @@ def account_list_response_cb(res, source_client=None):
 
 def account_list_error_cb(failure):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
-    global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_ERROR
+    global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
     AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = f"Unable to verify cTrader account type: {failure}"
     AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
     if ACCOUNT_SWITCH_IN_PROGRESS:
         ACCOUNT_SWITCH_IN_PROGRESS = False
+        ACCOUNT_SWITCH_TARGET_ID = None
         ACCOUNT_SWITCH_ERROR = ACCOUNT_VERIFICATION_ERROR
     print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
     return failure
@@ -825,6 +832,7 @@ def configure_target_account(account_id: int, account_type: str) -> None:
     global ACCOUNT_ID, HOST_TYPE, client, CLIENT_HOST_TYPE
     global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
     global ACTIVE_ACCOUNT_ID, ACTIVE_HOST_TYPE
+    global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
     target_id = _account_id_int(account_id)
     if target_id is None:
         raise ValueError("cTrader account ID must be a positive integer.")
@@ -840,6 +848,9 @@ def configure_target_account(account_id: int, account_type: str) -> None:
         ACCOUNT_IS_DEMO = None
         ACTIVE_ACCOUNT_ID = None
         ACTIVE_HOST_TYPE = None
+        ACCOUNT_SWITCH_IN_PROGRESS = False
+        ACCOUNT_SWITCH_TARGET_ID = None
+        ACCOUNT_SWITCH_ERROR = None
         AVAILABLE_ACCOUNTS.clear()
         _clear_asset_cache()
         _clear_symbol_metadata()
