@@ -399,7 +399,10 @@ def _install_fallback_symbols(reason: str | None = None):
     if symbol_map:
         print(f"[INFO] Loaded {len(symbol_map)} fallback symbols: {', '.join(symbol_map.values())}")
 
-def symbols_response_cb(res):
+def symbols_response_cb(res, source_client=None, expected_account_id: int | None = None):
+    if not _is_current_session(source_client, expected_account_id):
+        return None
+    active_client = source_client or client
     _clear_symbol_metadata()
 
     symbols = Protobuf.extract(res)
@@ -441,11 +444,20 @@ def symbols_response_cb(res):
             ctidTraderAccountId=ACCOUNT_ID,
             symbolId=list(symbol_map.keys()),
         )
-        client.send(req).addCallbacks(symbol_details_response_cb, on_error)
+        active_client.send(req).addCallbacks(
+            lambda response: symbol_details_response_cb(
+                response,
+                active_client,
+                expected_account_id,
+            ),
+            on_error,
+        )
 
 
-def symbol_details_response_cb(res):
+def symbol_details_response_cb(res, source_client=None, expected_account_id: int | None = None):
     global SYMBOL_METADATA_READY
+    if not _is_current_session(source_client, expected_account_id):
+        return None
     payload = Protobuf.extract(res)
     if hasattr(payload, "errorCode") or payload.__class__.__name__ == "ProtoOAErrorRes":
         SYMBOL_METADATA_READY = False
@@ -487,28 +499,62 @@ def symbol_details_response_cb(res):
     SYMBOL_METADATA_READY = expected > 0 and detailed == expected
     print(f"[DEBUG] Loaded complete contract metadata for {detailed}/{expected} symbols.")
 
-def account_auth_cb(_):
-    global AUTHORIZED, AUTH_ERROR
+def account_auth_cb(_, source_client=None, expected_account_id: int | None = None):
+    global AUTHORIZED, AUTH_ERROR, ACTIVE_ACCOUNT_ID, ACTIVE_HOST_TYPE
+    global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
+    if not _is_current_session(source_client, expected_account_id):
+        return None
+    active_client = source_client or client
+    active_account_id = _account_id_int(expected_account_id or ACCOUNT_ID)
     AUTHORIZED = True
     AUTH_ERROR = None
+    ACTIVE_ACCOUNT_ID = active_account_id
+    ACTIVE_HOST_TYPE = HOST_TYPE
+    ACCOUNT_SWITCH_IN_PROGRESS = False
+    ACCOUNT_SWITCH_TARGET_ID = None
+    ACCOUNT_SWITCH_ERROR = None
+    _refresh_account_flags()
+
     # Phase 1: Fetch asset classes
     req = ProtoOAAssetClassListReq(
-        ctidTraderAccountId=ACCOUNT_ID,
+        ctidTraderAccountId=active_account_id,
     )
-    client.send(req).addCallbacks(asset_class_response_cb, on_error)
+    active_client.send(req).addCallbacks(
+        lambda response: asset_class_response_cb(
+            response,
+            active_client,
+            active_account_id,
+        ),
+        on_error,
+    )
 
-def asset_class_response_cb(res):
+
+def asset_class_response_cb(res, source_client=None, expected_account_id: int | None = None):
+    if not _is_current_session(source_client, expected_account_id):
+        return None
+    active_client = source_client or client
+    account_id = _account_id_int(expected_account_id or ACCOUNT_ID)
     # We could log or filter here, but for now we just move to Phase 2: Symbols
     # Some brokers require specific symbols list requests, but global is usually fine.
     # By fetching assets first, we ensure the account session is synchronized.
     req = ProtoOASymbolsListReq(
-        ctidTraderAccountId=ACCOUNT_ID,
+        ctidTraderAccountId=account_id,
         includeArchivedSymbols=True, # Attempting maximum coverage
     )
-    client.send(req).addCallbacks(symbols_response_cb, on_error)
+    active_client.send(req).addCallbacks(
+        lambda response: symbols_response_cb(
+            response,
+            active_client,
+            account_id,
+        ),
+        on_error,
+    )
 
-def account_list_response_cb(res):
+def account_list_response_cb(res, source_client=None):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
+    if source_client is not None and source_client is not client:
+        return None
+    active_client = source_client or client
     payload = Protobuf.extract(res)
     accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
 
@@ -518,7 +564,7 @@ def account_list_response_cb(res):
         if account_id <= 0:
             continue
         is_live = bool(getattr(account, "isLive", False))
-        is_active = account_id == int(ACCOUNT_ID)
+        is_active = ACTIVE_ACCOUNT_ID is not None and account_id == int(ACTIVE_ACCOUNT_ID)
         trader_login_raw = getattr(account, "traderLogin", None)
         trader_login = int(trader_login_raw) if trader_login_raw is not None else None
         broker_title = str(getattr(account, "brokerTitleShort", "") or "").strip() or None
@@ -551,23 +597,30 @@ def account_list_response_cb(res):
 
     is_live = bool(getattr(selected, "isLive", True))
     ACCOUNT_IS_DEMO = not is_live
-    if HOST_TYPE != "demo":
-        ACCOUNT_VERIFICATION_ERROR = "cTrader execution host is not configured for demo."
-    elif is_live:
-        ACCOUNT_VERIFICATION_ERROR = "Connected cTrader account is live; authorization and execution are blocked."
+    expected_host = "live" if is_live else "demo"
+    if HOST_TYPE != expected_host:
+        ACCOUNT_VERIFICATION_ERROR = (
+            f"Selected cTrader account requires the {expected_host} host; "
+            f"current transport host is {HOST_TYPE}."
+        )
     else:
         ACCOUNT_VERIFICATION_ERROR = None
 
+    _refresh_account_flags()
     if ACCOUNT_VERIFICATION_ERROR:
         AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
         print(f"[SAFETY] {ACCOUNT_VERIFICATION_ERROR}")
         return None
 
+    account_id = int(ACCOUNT_ID)
     req = ProtoOAAccountAuthReq(
-        ctidTraderAccountId=ACCOUNT_ID,
+        ctidTraderAccountId=account_id,
         accessToken=ACCESS_TOKEN,
     )
-    return client.send(req).addCallbacks(account_auth_cb, on_error)
+    return active_client.send(req).addCallbacks(
+        lambda response: account_auth_cb(response, active_client, account_id),
+        on_error,
+    )
 
 
 def account_list_error_cb(failure):
@@ -580,8 +633,11 @@ def account_list_error_cb(failure):
     return failure
 
 
-def app_auth_cb(_):
+def app_auth_cb(_, source_client=None):
     global LAST_AUTH_ATTEMPT_AT, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
+    if source_client is not None and source_client is not client:
+        return None
+    active_client = source_client or client
     LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
     AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
@@ -589,10 +645,16 @@ def app_auth_cb(_):
     req = ProtoOAGetAccountListByAccessTokenReq(
         accessToken=ACCESS_TOKEN,
     )
-    client.send(req).addCallbacks(account_list_response_cb, account_list_error_cb)
+    active_client.send(req).addCallbacks(
+        lambda response: account_list_response_cb(response, active_client),
+        account_list_error_cb,
+    )
 
-def _on_connected(_):
+
+def _on_connected(connected_client):
     global CONNECTED, AUTHORIZED, AUTH_ERROR, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
+    if connected_client is not client:
+        return
     _clear_asset_cache()
     _clear_symbol_metadata()
     CONNECTED = True
@@ -601,16 +663,24 @@ def _on_connected(_):
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = None
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
-    client.send(req).addCallbacks(app_auth_cb, on_error)
+    connected_client.send(req).addCallbacks(
+        lambda response: app_auth_cb(response, connected_client),
+        on_error,
+    )
 
-def _on_disconnected(c, reason):
-    global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO
+
+def _on_disconnected(disconnected_client, reason):
+    global CONNECTED, AUTHORIZED, ACCOUNT_IS_DEMO, ACTIVE_ACCOUNT_ID, ACTIVE_HOST_TYPE
+    if disconnected_client is not client:
+        return
     _clear_asset_cache()
     _clear_symbol_metadata()
     AVAILABLE_ACCOUNTS.clear()
     CONNECTED = False
     AUTHORIZED = False
     ACCOUNT_IS_DEMO = None
+    ACTIVE_ACCOUNT_ID = None
+    ACTIVE_HOST_TYPE = None
     print("[INFO] Disconnected:", reason)
 
 
