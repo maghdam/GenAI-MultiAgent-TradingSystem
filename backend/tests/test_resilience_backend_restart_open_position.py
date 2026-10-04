@@ -236,7 +236,7 @@ def test_startup_recovery_rejects_broker_id_with_wrong_tradeagent_identity(
     assert list_paper_positions("open") == []
 
     incidents = list_incidents(10)
-    assert incidents[0].code == "ctrader_demo_untracked_broker_position"
+    assert incidents[0].code == "ctrader_untracked_broker_position"
     assert incidents[0].details["automatic_adoption"] is False
     assert (
         incidents[0].details["required_identity"]
