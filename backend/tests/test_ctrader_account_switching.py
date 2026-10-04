@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from backend import ctrader_client as ctd
 from backend.adapters.ctrader import CTraderBrokerAdapter
+from backend.domain.models import EngineConfig
 
 
 class _Deferred:
@@ -168,3 +169,83 @@ def test_adapter_start_transport_applies_persisted_target_before_thread_start(mo
     assert did_start is True
     assert configured == [(555, "live")]
     assert started == [(ctd.init_client, True)]
+
+
+def test_broker_status_exposes_account_switch_transition(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "is_connected", lambda: False)
+    monkeypatch.setattr(ctd, "is_authorized", lambda: False)
+    monkeypatch.setattr(ctd, "get_auth_error", lambda: "cTrader account switch in progress.")
+    monkeypatch.setattr(ctd, "get_last_auth_attempt", lambda: None)
+    monkeypatch.setattr(ctd, "is_symbol_metadata_ready", lambda: False)
+    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: False)
+    monkeypatch.setattr(ctd, "get_account_verification_error", lambda: "cTrader account switch in progress.")
+    monkeypatch.setattr(ctd, "get_active_account_id", lambda: None)
+    monkeypatch.setattr(ctd, "get_active_host_type", lambda: "unknown")
+    monkeypatch.setattr(ctd, "is_account_switch_in_progress", lambda: True)
+    monkeypatch.setattr(ctd, "get_account_switch_target_id", lambda: 333)
+    monkeypatch.setattr(ctd, "get_account_switch_error", lambda: None)
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
+
+    status = CTraderBrokerAdapter().get_status()
+
+    assert status.account_id is None
+    assert status.account_switch_in_progress is True
+    assert status.account_switch_target_id == 333
+    assert status.account_switch_error is None
+    assert status.broker_mode == "live"
+    assert status.execution_ready is False
+    assert any("switch is in progress" in note for note in status.notes)
+
+
+def test_app_bootstrap_uses_persisted_account_before_transport_start(monkeypatch) -> None:
+    from backend import app_bootstrap
+
+    calls = {}
+    config = EngineConfig(
+        selected_ctrader_account_id=333,
+        selected_ctrader_account_type="live",
+    )
+
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "1")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_EVENT_INTELLIGENCE_ON_BOOT", "0")
+    monkeypatch.setattr(app_bootstrap, "load_engine_config", lambda defaults: config)
+    monkeypatch.setattr(app_bootstrap, "configured_feed_urls", lambda: [])
+    monkeypatch.setattr(
+        app_bootstrap.broker_adapter,
+        "start_transport",
+        lambda **kwargs: calls.setdefault("transport", kwargs) is not None,
+    )
+
+    async def _engine_start():
+        calls["engine_start"] = True
+
+    async def _engine_stop():
+        calls["engine_stop"] = True
+
+    async def _sleep(_seconds):
+        return None
+
+    async def _market_loop(*_args):
+        import asyncio
+
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(app_bootstrap.tradeagent_engine, "start", _engine_start)
+    monkeypatch.setattr(app_bootstrap.tradeagent_engine, "stop", _engine_stop)
+    monkeypatch.setattr(app_bootstrap.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(app_bootstrap, "market_data_probe_loop", _market_loop)
+
+    async def _run():
+        async with app_bootstrap.app_lifespan(object()):
+            assert calls["transport"] == {
+                "account_id": 333,
+                "account_type": "live",
+            }
+            assert calls["engine_start"] is True
+
+    import asyncio
+
+    asyncio.run(_run())
+
+    assert calls["engine_stop"] is True
