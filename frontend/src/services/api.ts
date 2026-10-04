@@ -23,6 +23,8 @@ export interface V2CTraderAccount {
   account_id: number;
   account_type: 'demo' | 'live';
   is_live: boolean;
+  trader_login?: number | null;
+  broker_title?: string | null;
   selected: boolean;
   active: boolean;
 }
