@@ -12,12 +12,12 @@ Work **one item at a time**:
 2. Make the smallest coherent change.
 3. Run focused tests.
 4. Run full regression tests where appropriate.
-5. Validate against the real cTrader **demo** account or UI when relevant.
+5. Validate against the real cTrader account or UI when relevant; do not manufacture broker exposure solely for testing.
 6. Record evidence below.
 7. Mark the item ✅ only after verification.
 8. Move to the next item.
 
-Live-account routing remains intentionally blocked.
+Phase 10 supersedes the former permanent demo-only product boundary. The target architecture is account-type neutral: cTrader reports whether each authorized account is Demo or Live, the operator selects the active account, and the same guarded execution/reconciliation pipeline serves either type.
 
 ---
 
@@ -1208,6 +1208,49 @@ Add one row after every completed task.
 
 ---
 
-## 14. Next item
+## 14. Phase 10 — cTrader multi-account architecture
 
-**Deployment-ready baseline reached. The fourteen-item acceptance-definition sweep is complete except for two real-broker acceptance checks that require a naturally occurring TradeAgent-managed open demo position: post-hardening protection/fail-closed evidence and restart/recovery with open positions. Phase 7 forced Ollama/model-down field verification is complete. Remaining Phase 1.4 partial-close, Phase 2.3 broker-truth UI, Phase 3.1/open-position restart, protected-position disconnect/recovery, protection/fail-closed, and Phase 5.3 calibration evidence are now post-deployment validation items rather than blockers for normal demo use. Do not manufacture exposure solely to close them. Keep the global 60% threshold unchanged until Phase 5.3 evidence qualifies. cTrader execution remains demo-only and live-account routing remains blocked.**
+### 10.1 Authorized account discovery foundation
+**Priority:** P0  
+**Status:** 🧪
+
+**Target behavior**
+- [x] Retain every cTrader account returned for the configured access token instead of discarding all but the fixed account ID.
+- [x] Normalize broker-reported account type as `demo` or `live`.
+- [x] Identify which account is currently selected.
+- [x] Expose the authorized account directory through `GET /api/broker/accounts`.
+- [x] Add the typed frontend API contract needed by the upcoming account selector.
+- [x] Add focused regression coverage for mixed Demo/Live account discovery.
+- [ ] Local focused tests.
+- [ ] Full backend regression suite.
+- [ ] Frontend production build.
+- [ ] GitHub CI.
+
+**Scope boundary**
+This item does not yet change the active account, reconnect transports, or route orders differently. It establishes broker-truth account discovery so account selection can be implemented without environment-variable assumptions.
+
+### 10.2 Dashboard account selector and persisted active account
+**Status:** ⬜
+
+Target a cTrader-like selector that lists authorized accounts with broker-reported Demo/Live labels, persists the operator-selected account ID, and changes broker context only through an explicit account-switch operation.
+
+### 10.3 Account-aware transport switching
+**Status:** ⬜
+
+Select the correct cTrader Demo/Live Open API host automatically from the chosen account, re-authenticate safely, clear stale symbol/account caches, and fail closed while the transition is incomplete.
+
+### 10.4 Account-neutral execution path
+**Status:** ⬜
+
+Replace demo-specific execution configuration/function names with generic cTrader execution semantics, remove the live-account hard rejection, and run the same risk, protection, reconciliation, recovery, and audit controls for a user-selected Demo or Live account.
+
+### 10.5 Documentation and operator disclaimer
+**Status:** ⬜
+
+After implementation and validation, update README, architecture, environment examples, operations documentation, generated-strategy security wording, and screenshots as needed. Recommend Demo accounts for development/testing and clearly disclose trading risk without presenting Demo/Live as separate product architectures.
+
+---
+
+## 15. Next item
+
+**Phase 10.1 is ready for local validation. Do not begin account selection or execution changes until the account-directory foundation passes focused tests, the full backend suite, frontend production build, and GitHub CI. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
