@@ -33,6 +33,7 @@ export interface V2CTraderAccountSelectionResponse {
   selected_account: V2CTraderAccount;
   active_account_id?: number | null;
   transport_switch_required: boolean;
+  switch_started: boolean;
 }
 
 export interface V2BrokerStatus {
@@ -49,6 +50,10 @@ export interface V2BrokerStatus {
   broker_mode: string;
   account_id?: number | null;
   account_type: 'demo' | 'live' | 'unknown';
+  active_host_type: 'demo' | 'live' | 'unknown';
+  account_switch_in_progress: boolean;
+  account_switch_target_id?: number | null;
+  account_switch_error?: string | null;
   demo_account_confirmed: boolean;
   execution_ready: boolean;
   notes: string[];
@@ -67,6 +72,7 @@ export interface V2WatchlistItem {
 export interface V2Config {
   enabled: boolean;
   selected_ctrader_account_id?: number | null;
+  selected_ctrader_account_type?: 'demo' | 'live' | null;
   paper_autotrade: boolean;
   demo_autotrade: boolean;
   allow_live: boolean;

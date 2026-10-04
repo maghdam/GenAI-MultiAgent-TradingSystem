@@ -48,7 +48,7 @@ from backend.domain.models import (
     StatementComparisonResponse,
     WatchlistItem,
 )
-from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_accounts, list_positions, list_symbols
+from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_accounts, list_positions, list_symbols, switch_account
 from backend.services.engine import engine
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.confluence_shadow import record_confluence_shadow
@@ -521,15 +521,55 @@ async def v2_select_broker_account(
         )
 
     config = _current_config()
-    save_engine_config(
-        config.model_copy(update={"selected_ctrader_account_id": request.account_id})
-    )
+    transport_switch_required = not target.active
+    if transport_switch_required and config.enabled and not config.kill_switch:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the engine or activate the kill switch before changing the cTrader account.",
+        )
+
+    managed_open_positions = [
+        position
+        for position in list_paper_positions("open")
+        if position.broker_position_id is not None
+    ]
+    if transport_switch_required and managed_open_positions:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "cTrader account switching is blocked while TradeAgent has an open "
+                "broker-backed position. Close or reconcile that position first."
+            ),
+        )
+
     active = next((account for account in accounts if account.active), None)
+    updated_config = config.model_copy(
+        update={
+            "selected_ctrader_account_id": request.account_id,
+            "selected_ctrader_account_type": target.account_type,
+        }
+    )
+    save_engine_config(updated_config)
+
+    switch_started = False
+    if transport_switch_required:
+        try:
+            switch_result = await asyncio.to_thread(
+                switch_account,
+                request.account_id,
+                target.account_type,
+            )
+            switch_started = bool(switch_result.get("switch_started"))
+        except (RuntimeError, ValueError) as exc:
+            save_engine_config(config)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     selected = target.model_copy(update={"selected": True})
     return CTraderAccountSelectionResponse(
         selected_account=selected,
         active_account_id=active.account_id if active is not None else None,
-        transport_switch_required=not target.active,
+        transport_switch_required=transport_switch_required,
+        switch_started=switch_started,
     )
 
 
