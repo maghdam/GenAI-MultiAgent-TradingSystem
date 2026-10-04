@@ -1243,7 +1243,7 @@ This item does not yet change the active account, reconnect transports, or route
 - [x] Keep broker truth explicit by distinguishing the saved `selected` account from the currently authenticated `active` transport account.
 - [x] Validate account selection against the authorized account directory before saving it.
 - [x] Expose an explicit `POST /api/broker/accounts/select` operation without reconnecting or mutating broker execution state.
-- [x] Add a cTrader-style account selector to the System dashboard with automatic Demo/Live labels.
+- [x] Add a cTrader-style account selector to the System dashboard with broker title, automatic Demo/Live label, and the trader login/account number shown in cTrader.
 - [x] Show the active authenticated account separately and disclose when a saved selection is pending a transport switch.
 - [x] Persist the selected account through the existing config serializer without a database schema migration.
 - [ ] Local focused backend tests.
