@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 import backend.ctrader_client as ctd
 import pandas as pd
 
-from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, InstrumentSpec, SymbolLimits
+from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, CTraderAccount, InstrumentSpec, SymbolLimits
 from backend.services.runtime_state import external_dependency_state, market_data_dependency_state
 from backend.services.market_bar_validation import assess_market_frame
 
@@ -119,6 +119,9 @@ class CTraderBrokerAdapter:
 
     def transport_started(self) -> bool:
         return self._thread_started
+
+    def list_accounts(self) -> List[CTraderAccount]:
+        return [CTraderAccount(**row) for row in ctd.get_available_accounts()]
 
     def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
         """Return whether broker state and metadata are ready to safely submit a demo order."""
