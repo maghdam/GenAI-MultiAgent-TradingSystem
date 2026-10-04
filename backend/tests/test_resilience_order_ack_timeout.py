@@ -130,7 +130,7 @@ def _healthy_broker() -> BrokerStatus:
 def test_adapter_classifies_post_submit_ack_timeout(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "is_connected", lambda: True)
     monkeypatch.setattr(ctd, "is_authorized", lambda: True)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: True)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: True)
     monkeypatch.setattr(ctd, "is_symbol_metadata_ready", lambda: True)
     monkeypatch.setattr(ctd, "symbol_name_to_id", {"XAUUSD": 7})
     monkeypatch.setattr(ctd, "symbol_lot_size_map", {7: 100.0})
@@ -365,11 +365,11 @@ def test_reconciliation_refuses_symbol_only_adoption_without_baseline(monkeypatc
 def test_live_account_remains_blocked_before_order_submission(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "is_connected", lambda: True)
     monkeypatch.setattr(ctd, "is_authorized", lambda: True)
-    monkeypatch.setattr(ctd, "is_demo_account_confirmed", lambda: False)
+    monkeypatch.setattr(ctd, "is_account_confirmed", lambda: False)
     monkeypatch.setattr(
         ctd,
         "get_account_verification_error",
-        lambda: "Connected cTrader account is live; demo-only execution is enforced.",
+        lambda: "The selected cTrader account is not the authenticated active account.",
     )
     monkeypatch.setattr(
         ctd,
