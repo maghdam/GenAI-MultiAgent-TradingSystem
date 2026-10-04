@@ -457,7 +457,7 @@ Validate:
 ## 7. Phase 5 — Strategy quality & confidence calibration
 
 ### 5.1 Runtime deterministic strategies
-**Status:** 🟨
+**Status:** ✅
 
 Current runtime strategies include:
 - `sma_cross`
@@ -483,12 +483,21 @@ Current runtime strategies include:
 - [x] Frontend production build: passed locally (699 modules).
 - [x] GitHub CI #79 on implementation head `f4e6038a`: backend + frontend passed.
 - [x] Connected-feed audit attempt correctly failed closed when no cTrader historical feed was available.
-- [ ] Run the real connected cTrader demo historical-feed matrix for enabled targets and record actual backtest/OOS/regime/cost/frequency/drawdown/expectancy/sensitivity evidence.
+- [x] Run the real connected cTrader demo historical-feed matrix for enabled targets and record actual backtest/OOS/regime/cost/frequency/drawdown/expectancy/sensitivity evidence.
+- [x] PR #86 adds a read-only field-verification helper that queries the already-running backend session, requires a positively confirmed demo account, discovers enabled watchlist targets, and never routes or mutates broker orders.
+- [x] Local verification on `7fb61ca`: 14 focused Phase 5.1 tests passed, the full backend suite passed, the working tree remained clean, and the real connected demo matrix completed 9/9 rows. PR CI #252 passed the full backend suite plus frontend restart/Journal acceptance and production build.
 
 **Field-attempt evidence (2026-09-29)**
 - Enabled runtime targets were `NAS100 / M5`, `US30 / M5`, and `XAUUSD / M5`.
 - All three returned `No market data available` because the cTrader feed was not connected.
 - Validation cost assumptions were fee 1 bps + slippage 1 bps per transaction and quoted spread 2 bps; these remain validation assumptions, not broker-verified transaction costs.
+
+**Connected cTrader demo evidence (2026-10-04)**
+- Running backend reported cTrader `account_type=demo`, `demo_account_confirmed=true`, socket connected, and account authorized. The general `market_data_ready` status flag was false at the observation instant, but the read-only historical OHLC requests themselves succeeded for every audited target.
+- Enabled targets were `NAS100 / M5`, `US30 / M5`, and `XAUUSD / M5`; each returned 1,379 broker bars and all three trusted runtime strategies completed, producing 9/9 evidence rows.
+- Cost assumptions remained fee 1 bps + slippage 1 bps per transaction and quoted spread 2 bps, with 100% validation position size. These are validation assumptions, not broker-verified transaction costs.
+- Full-period net returns were negative in all 9 cells: NAS100 SMA -7.5341%, RSI -1.8496%, breakout -2.1417%; US30 SMA -6.5659%, RSI -2.9291%, breakout -1.1970%; XAUUSD SMA -5.6441%, RSI -2.6288%, breakout -0.4054%.
+- OOS returns were also negative except XAUUSD RSI (+0.1760%) and XAUUSD breakout (+0.5236%). This field evidence verifies the audit path and records current strategy quality; it does **not** justify promotion, parameter retuning, or any confidence-threshold change.
 
 ### 5.2 Confidence calibration
 **Status:** ✅
@@ -1174,9 +1183,10 @@ Add one row after every completed task.
 | 2026-10-04 | Acceptance definition: generated-strategy isolation | Close the twelfth acceptance checkbox from sandbox isolation, trusted-registry exclusion, exact-source lifecycle versioning, and central execution gating | ✅ Local focused sandbox/lifecycle suite + canonical validation passed on `354744b`; corrected safety-boundary text check, scope/whitespace, and clean tree passed; PR CI #243 passed backend + frontend | PR #83 / `354744b` | Proceed to acceptance-definition failure-scenario exposure containment |
 | 2026-10-04 | Acceptance definition: failure-scenario exposure containment | Close the thirteenth acceptance checkbox from ambiguous-open, protection, close, persistence, disconnect, and restart containment invariants | ✅ Focused current containment suite + canonical validation passed locally on `2912ae2`; PR CI #246 passed backend + frontend acceptance/build; separate real-field observations remain pending without weakening automated containment | PR #84 / `2912ae2` | Proceed to acceptance-definition documentation/current-implementation consistency |
 | 2026-10-04 | Acceptance definition: documentation consistency | Close the fourteenth acceptance checkbox after auditing current product/runtime/CI/SQLite/generated-strategy documentation against the implementation | ✅ Six-file documentation scope and current wording checks + canonical validation + whitespace/clean-tree checks passed locally on `2ea33d7`; corrected SQLite lookup confirmed active path and legacy-migration wording; PR CI #249 passed backend + frontend restart/Journal acceptance + production build | PR #85 / `2ea33d7` | Acceptance-definition sweep complete; preserve remaining real-field/research checks as pending until qualifying evidence is safely available |
+| 2026-10-04 | Phase 5.1 connected historical-feed evidence | Add a read-only verifier through the running backend and execute the trusted-strategy × enabled-target matrix against the positively confirmed cTrader demo session | ✅ 14 focused tests + full backend suite passed locally on `7fb61ca`; real NAS100/US30/XAUUSD M5 matrix completed 9/9 with 1,379 bars per target; PR CI #252 passed backend + frontend; all 9 full-period net returns were negative, so no strategy/threshold change is authorized | PR #86 / `7fb61ca` | Proceed to Phase 5.3 read-only sample-sufficiency re-check; keep global 60% unchanged |
 
 ---
 
 ## 14. Next item
 
-**The fourteen-item acceptance-definition sweep is complete. Do not manufacture cTrader exposure solely to close evidence gaps. Continue from the remaining explicitly pending roadmap checks only when their qualifying conditions are safely available: Phase 1.4 real cTrader partial-close verification; Phase 2.3 real broker-truth field observation; Phase 3.1 and the acceptance-definition restart/recovery check with an actually open TradeAgent-managed demo position; Phase 5.1 connected historical-feed evidence; Phase 5.3 sample sufficiency and any later leakage-safe threshold comparison (keep the global 60% threshold unchanged until evidence supports a reviewed change); Phase 7 protected-position disconnect/restart, forced Ollama-down, and real partial-close field observations; and the protection/fail-closed acceptance field proof. cTrader execution remains demo-only and live-account routing remains blocked.**
+**The fourteen-item acceptance-definition sweep is complete, and Phase 5.1 connected historical-feed evidence is now verified. The next safely actionable pending check is Phase 5.3: re-run the read-only sample-sufficiency screen against current persisted automatic-trade evidence; only if a cell passes may a leakage-safe threshold comparison proceed, and the global 60% threshold remains unchanged meanwhile. Do not manufacture cTrader exposure solely to close evidence gaps. Phase 1.4 real partial-close verification; Phase 2.3 real broker-truth field observation; Phase 3.1 and the acceptance-definition restart/recovery check with an actually open TradeAgent-managed demo position; Phase 7 protected-position disconnect/restart, forced Ollama-down, and real partial-close field observations; and the protection/fail-closed acceptance field proof remain pending until their qualifying conditions are safely available. cTrader execution remains demo-only and live-account routing remains blocked.**
