@@ -40,8 +40,13 @@ export default function SystemPage() {
   useEffect(() => {
     load(true).catch((err) => setError(err instanceof Error ? err.message : 'System status unavailable.'));
     const interval = window.setInterval(() => {
-      getV2Status().then(setStatus).catch(() => undefined);
-    }, 10_000);
+      Promise.all([getV2Status(), getV2CTraderAccounts()])
+        .then(([payload, accountRows]) => {
+          setStatus(payload);
+          setAccounts(accountRows);
+        })
+        .catch(() => undefined);
+    }, 5_000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -107,7 +112,7 @@ export default function SystemPage() {
           <div className="v2-hero-card">
             <div className="v2-hero-stat"><span>Readiness</span><strong>{readiness.passed}/{readiness.total}</strong></div>
             <div className="v2-hero-stat"><span>Mode</span><strong>{status?.mode || 'paper_only'}</strong></div>
-            <div className="v2-hero-stat"><span>Account</span><strong>{status?.broker.account_id ? `${status.broker.account_type.toUpperCase()} · ${status.broker.account_id}` : 'Not connected'}</strong></div>
+            <div className="v2-hero-stat"><span>Account</span><strong>{activeAccount ? accountLabel(activeAccount) : status?.broker.account_switch_in_progress ? 'Switching…' : 'Not connected'}</strong></div>
             <div className="v2-hero-stat"><span>Market data</span><strong>{status?.broker.market_data_ready ? 'Ready' : 'Waiting'}</strong></div>
             <div className="v2-hero-stat"><span>Kill switch</span><strong>{status?.config.kill_switch ? 'Active' : 'Inactive'}</strong></div>
           </div>
@@ -128,7 +133,7 @@ export default function SystemPage() {
               <select
                 value={selectedAccount?.account_id ?? ''}
                 onChange={selectAccount}
-                disabled={busy !== '' || accounts.length === 0}
+                disabled={busy !== '' || accounts.length === 0 || status?.broker.account_switch_in_progress}
               >
                 {!selectedAccount && <option value="">Select an account</option>}
                 {accounts.map((account) => (
@@ -142,8 +147,14 @@ export default function SystemPage() {
           <div className="v2-notes">
             <div>Selected: {selectedAccount ? accountLabel(selectedAccount) : 'none'}</div>
             <div>Active transport: {activeAccount ? accountLabel(activeAccount) : 'not authenticated'}</div>
-            {selectedAccount && !selectedAccount.active && (
-              <div>Selection saved. The current broker transport has not switched yet, so trading still uses the active authenticated account.</div>
+            {status?.broker.account_switch_in_progress && (
+              <div>Switching transport and re-authenticating account {status.broker.account_switch_target_id ?? selectedAccount?.account_id ?? '—'}…</div>
+            )}
+            {status?.broker.account_switch_error && (
+              <div>Last account switch error: {status.broker.account_switch_error}</div>
+            )}
+            {selectedAccount && !selectedAccount.active && !status?.broker.account_switch_in_progress && (
+              <div>Selection is saved but not active. Retry the selection or restart TradeAgent to re-establish the broker transport.</div>
             )}
             {!accounts.length && <div>No authorized cTrader accounts are currently available from the connected session.</div>}
           </div>
