@@ -607,7 +607,7 @@ def list_confidence_calibration_outcomes(
         WITH opening_audits AS (
             SELECT position_id, MIN(id) AS audit_id
             FROM trade_audit
-            WHERE event_type IN ('paper_signal_open', 'ctrader_demo_order_executed')
+            WHERE event_type IN ('paper_signal_open', 'ctrader_order_executed', 'ctrader_demo_order_executed')
               AND position_id IS NOT NULL
               AND intent_id IS NOT NULL
             GROUP BY position_id
@@ -1599,7 +1599,7 @@ def update_open_paper_position_from_broker_partial(
         db.commit()
 
     add_trade_audit(
-        event_type="ctrader_demo_partial_close_reconciled",
+        event_type="ctrader_partial_close_reconciled",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
@@ -1800,7 +1800,7 @@ def reconcile_closed_paper_position_from_broker(
         db.commit()
 
     add_trade_audit(
-        event_type="ctrader_demo_close_reconciled",
+        event_type="ctrader_close_reconciled",
         symbol=position.symbol,
         timeframe=position.timeframe,
         strategy=position.strategy,
