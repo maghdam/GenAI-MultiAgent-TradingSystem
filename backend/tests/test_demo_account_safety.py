@@ -52,7 +52,7 @@ def test_account_list_confirms_demo_before_account_authorization(monkeypatch) ->
     assert sent[0].ctidTraderAccountId == 123
 
 
-def test_account_list_blocks_live_account_without_authorizing(monkeypatch) -> None:
+def test_account_list_blocks_live_account_on_demo_host(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
     monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
@@ -71,8 +71,44 @@ def test_account_list_blocks_live_account_without_authorizing(monkeypatch) -> No
     ctd.account_list_response_cb(object())
 
     assert ctd.ACCOUNT_IS_DEMO is False
-    assert "live" in (ctd.ACCOUNT_VERIFICATION_ERROR or "").lower()
+    assert "requires the live host" in (ctd.ACCOUNT_VERIFICATION_ERROR or "").lower()
     assert sent == []
+
+
+def test_account_list_allows_live_account_auth_on_live_host_but_demo_execution_stays_blocked(monkeypatch) -> None:
+    sent = []
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "CONNECTED", True)
+    monkeypatch.setattr(ctd, "AUTHORIZED", False)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", None)
+    monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", None)
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: SimpleNamespace(
+            ctidTraderAccount=[SimpleNamespace(ctidTraderAccountId=123, isLive=True)]
+        ),
+    )
+    monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
+    monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", None)
+    monkeypatch.setattr(ctd, "ACCOUNT_VERIFICATION_ERROR", None)
+    monkeypatch.setattr(ctd, "AUTH_ERROR", None)
+
+    deferred = ctd.account_list_response_cb(object())
+
+    assert ctd.ACCOUNT_IS_DEMO is False
+    assert ctd.ACCOUNT_VERIFICATION_ERROR is None
+    assert len(sent) == 1
+    assert sent[0].ctidTraderAccountId == 123
+
+    success, _ = deferred.callbacks
+    success(object())
+
+    assert ctd.AUTHORIZED is True
+    assert ctd.ACTIVE_ACCOUNT_ID == 123
+    assert ctd.ACTIVE_HOST_TYPE == "live"
+    assert ctd.is_demo_account_confirmed() is False
 
 
 def test_account_snapshot_decodes_balance_currency_and_unrealized_pnl(monkeypatch) -> None:
@@ -224,15 +260,21 @@ def test_verified_demo_order_uses_broker_symbol_and_lot_volume(monkeypatch) -> N
     assert result["position_id"] == 456
 
 
-def test_demo_confirmation_requires_connection_authorization_host_and_account_type(monkeypatch) -> None:
+def test_demo_confirmation_requires_connection_authorization_active_host_and_account_type(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "CONNECTED", True)
     monkeypatch.setattr(ctd, "AUTHORIZED", True)
-    monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 123)
+    monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", "demo")
     monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", True)
 
     assert ctd.is_demo_account_confirmed() is True
 
     monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", False)
+    assert ctd.is_demo_account_confirmed() is False
+
+    monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", True)
+    monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", "live")
     assert ctd.is_demo_account_confirmed() is False
 
 
