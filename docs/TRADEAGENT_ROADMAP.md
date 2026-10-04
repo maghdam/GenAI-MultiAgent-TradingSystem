@@ -1115,7 +1115,8 @@ TradeAgent is considered **demo-runtime validated** when all of the following ar
 - [x] Documentation matches current implementation.
   - Verified after the final current-implementation documentation audit: README and architecture text describe local paper execution plus explicitly enabled cTrader demo routing while preserving the live-account block; generated Strategy Studio source remains outside the trusted runtime registry; the active `/build-test/results` route, CI frontend gates, runtime SQLite resolver/legacy migration semantics, current screenshots/assets, and historical-plan warnings are documented consistently.
   - Original documentation-consistency validation on `2ea33d7` passed the six-file documentation-only scope checks, current-route/CI/demo-live/generated-strategy wording checks, canonical backend suite + frontend production build, whitespace/clean-tree checks, and the corrected read-only SQLite documentation lookup confirming `TRADEAGENT_DB_PATH`, `%LOCALAPPDATA%\TradeAgent\data\tradeagent.db`, and the legacy migration-input wording; PR CI #249 passed backend + frontend acceptance/build.
-  - Re-confirmed at the deployment-ready baseline on 2026-10-04 through merged `main` `00d2666` / PR #88: subsequent Phase 5.1 connected-feed evidence, Phase 5.3 sufficiency re-check, and Phase 7 Ollama outage/recovery verification are reflected in the roadmap; remaining broker-position/sample-dependent checks are explicitly classified as post-deployment validation rather than blockers; cTrader remains demo-only, live-account routing remains blocked, and the global 60% threshold remains unchanged. Push-to-main CI #260 passed backend tests plus frontend restart/Journal acceptance and production build.
+  - Re-confirmed at the deployment-ready baseline on 2026-10-04 through merged `main` `00d2666` / PR #88: subsequent Phase 5.1 connected-feed evidence, Phase 5.3 sufficiency re-check, and Phase 7 Ollama outage/recovery verification are reflected in the roadmap; remaining broker-position/sample-dependent checks are explicitly classified as post-deployment validation rather than blockers; at that baseline cTrader was still demo-only and live-account routing remained blocked, while the global 60% threshold remained unchanged. Push-to-main CI #260 passed backend tests plus frontend restart/Journal acceptance and production build.
+  - Re-confirmed after Phase 10.5 / PR #94: current README, architecture, environment example, operations guidance, generated-strategy security wording, and architecture diagram now match the superseding account-neutral cTrader architecture. Demo remains recommended for development/testing, while a selected authenticated Live account can submit real-money orders only through the same guarded execution/risk/protection/reconciliation path. Local documentation consistency, full backend regression, frontend build, and PR CI #323 all passed on `257e90b`.
 
 ---
 
@@ -1209,6 +1210,7 @@ Add one row after every completed task.
 | 2026-10-04 | Phase 10.2 cTrader dashboard account selector | Persist the operator-selected authorized cTrader account and expose a cTrader-style broker/Demo-Live/login selector while keeping active transport truth separate | ✅ Local focused suite 28/28 + full backend regression + frontend build passed on `c3b79ff`; local tree/diff clean; PR CI #274 passed | PR #91 / `c3b79ff` | Proceed to Phase 10.3 account-aware transport switching |
 | 2026-10-04 | Phase 10.3 cTrader account-aware transport switching | Make the persisted account selection drive safe same-host re-authentication or Demo↔Live client replacement without restarting the Twisted reactor | ✅ Local focused suite 59/59 + full backend regression + frontend build passed on `451c5d3`; local tree/diff clean; PR CI #287 passed | PR #92 / `451c5d3` | Proceed to Phase 10.4 account-neutral execution path |
 | 2026-10-04 | Phase 10.4 cTrader account-neutral execution | Generalize the guarded cTrader execution path from Demo-specific semantics to the explicitly selected authenticated Demo or Live account without weakening risk/protection/reconciliation safeguards | ✅ Initial local regression exposed stale demo-only fixtures and a real monetary-snapshot Demo guard; repaired final head `a6941c0` passed focused regression, full backend suite, frontend build, clean tree/diff checks, and PR CI #320 | PR #93 / `a6941c0` | Proceed to Phase 10.5 documentation and operator/risk disclaimer cleanup |
+| 2026-10-04 | Phase 10.5 documentation and operator disclaimer | Align README, architecture, environment bootstrap guidance, operations, generated-strategy security, and architecture diagram with the account-neutral Demo/Live execution model and explicit Live-risk warning | ✅ Local documentation consistency checks + full backend regression + frontend production build passed on `257e90b`; working tree/diff clean; PR CI #323 passed | PR #94 / `257e90b` | Phase 10 implementation complete; require final docs-only CI, merge, sync local main, then gather remaining broker-position/sample evidence naturally |
 
 ---
 
@@ -1321,7 +1323,7 @@ Phase 10.3 changes account/transport activation only. Demo-specific execution AP
 This item changes the execution contract from Demo-specific to account-neutral while preserving all existing safety gates. Historical persisted audit/event identifiers are not rewritten in place. Final operator-facing documentation, environment examples, screenshots, and risk/disclaimer cleanup remain Phase 10.5.
 
 ### 10.5 Documentation and operator disclaimer
-**Status:** 🧪
+**Status:** ✅
 
 **Target behavior**
 - [x] Update README product/runtime wording from Demo-only to the single account-neutral cTrader architecture.
@@ -1333,10 +1335,17 @@ This item changes the execution contract from Demo-specific to account-neutral w
 - [x] Remove current operator-facing claims that Live execution is permanently blocked.
 - [x] Recommend Demo for development/testing and clearly warn that an authenticated selected Live account can place real-money orders when cTrader/per-symbol auto-trade and safety gates permit execution.
 - [x] Review current screenshot captions/UI wording; no separate Demo/Live product architecture is described.
-- [ ] Local documentation consistency checks pass.
-- [ ] Full backend regression suite passes.
-- [ ] Frontend production build passes.
-- [ ] GitHub CI passes on the final implementation head.
+- [x] Local documentation consistency checks pass.
+- [x] Full backend regression suite passes.
+- [x] Frontend production build passes.
+- [x] GitHub CI passes on the final implementation head.
+
+**Verification**
+- Local validation on implementation head `257e90b` used the actual `phase-10/ctrader-account-neutral-docs` branch with a clean working tree and clean `git diff --check origin/main...HEAD`.
+- Documentation consistency checks found no stale current Live-blocked wording and confirmed the required access-token discovery, bootstrap/fallback, Demo recommendation, generated-strategy boundary, and real-money Live warning text.
+- The full backend regression suite passed locally on `257e90b`.
+- The frontend production build passed locally on `257e90b` with Vite transforming 701 modules.
+- PR #94 CI #323 passed backend and frontend validation on the same implementation head.
 
 **Scope boundary**
 This phase changes documentation and operator guidance only. It does not alter runtime execution policy, risk parameters, account selection state, broker credentials, or the global 0.60 signal-strength threshold.
@@ -1345,4 +1354,4 @@ This phase changes documentation and operator guidance only. It does not alter r
 
 ## 15. Next item
 
-**Phase 10.5 documentation implementation is ready for local validation. Validate documentation consistency, the full backend regression suite, and the frontend production build; then require GitHub CI before marking 10.5 verified or merging. Do not move beyond Phase 10.5 yet. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.5 is verified and Phase 10 implementation is complete. Require the final docs-only PR #94 CI to pass, merge PR #94, and return local `main` to a clean synchronized state. After that, do not invent a new implementation phase: the remaining unchecked roadmap items depend on naturally available broker-position or sample-sufficiency evidence (real partial close, open-position restart/disconnect/recovery, and calibration evidence). Gather those checks only when their qualifying conditions occur. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
