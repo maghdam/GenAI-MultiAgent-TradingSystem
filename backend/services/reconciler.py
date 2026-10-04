@@ -150,7 +150,7 @@ def recover_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any
             untracked += 1
             log_incident(
                 "error",
-                "ctrader_demo_broker_position_missing_id",
+                "ctrader_broker_position_missing_id",
                 f"Broker cTrader position for {symbol} has no valid position id.",
                 {"broker_position": row, "automatic_adoption": False},
             )
@@ -171,7 +171,7 @@ def recover_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any
             untracked += 1
             log_incident(
                 "error",
-                "ctrader_demo_untracked_broker_position",
+                "ctrader_untracked_broker_position",
                 f"Broker cTrader position {broker_position_id} for {symbol} has no local tracker.",
                 {
                     "broker_position": row,
@@ -197,7 +197,7 @@ def recover_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any
             local_broker_ids.add(broker_position_id)
             attached += 1
             add_trade_audit(
-                event_type="ctrader_demo_tracker_identity_attached",
+                event_type="ctrader_tracker_identity_attached",
                 symbol=symbol,
                 timeframe=updated.timeframe,
                 strategy=updated.strategy,
@@ -221,7 +221,7 @@ def recover_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any
             untracked += 1
             log_incident(
                 "error",
-                "ctrader_demo_broker_position_identity_conflict",
+                "ctrader_broker_position_identity_conflict",
                 f"Broker cTrader position {broker_position_id} conflicts with an existing local tracker.",
                 {
                     "broker_position": row,
@@ -258,7 +258,7 @@ def recover_broker_trackers(config: EngineConfig | None = None) -> Dict[str, Any
         local_broker_ids.add(broker_position_id)
         recovered += 1
         add_trade_audit(
-            event_type="ctrader_demo_tracker_recovered",
+            event_type="ctrader_tracker_recovered",
             symbol=symbol,
             timeframe=created.timeframe,
             strategy=created.strategy,
@@ -314,7 +314,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
         except Exception as exc:
             log_incident(
                 "error",
-                "ctrader_demo_tracker_recovery_failed",
+                "ctrader_tracker_recovery_failed",
                 "Could not reconcile cTrader positions with local trackers.",
                 {
                     "reason": reason,
@@ -372,7 +372,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 skipped += 1
                 log_incident(
                     "error",
-                    "ctrader_demo_position_identity_ambiguous",
+                    "ctrader_position_identity_ambiguous",
                     f"Could not safely identify broker position for {position.symbol}:{position.timeframe}.",
                     {
                         "reason": reason,
@@ -401,7 +401,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
             if ledger_sync.get("status") == "partial_close_synced":
                 position = get_position_by_id(position.id)
                 add_trade_audit(
-                    event_type="ctrader_demo_partial_close_synced",
+                    event_type="ctrader_partial_close_synced",
                     symbol=position.symbol,
                     timeframe=position.timeframe,
                     strategy=position.strategy,
@@ -412,7 +412,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
             elif ledger_sync.get("status") == "pending_deal_history":
                 log_incident(
                     "warning",
-                    "ctrader_demo_partial_close_history_pending",
+                    "ctrader_partial_close_history_pending",
                     f"Broker volume decreased for {position.symbol}:{position.timeframe}, but close deal history is not complete yet.",
                     {"position_id": position.id, **ledger_sync},
                 )
@@ -420,7 +420,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 skipped += 1
                 log_incident(
                     "error",
-                    "ctrader_demo_volume_reconciliation_failed",
+                    "ctrader_volume_reconciliation_failed",
                     f"Could not reconcile broker volume for {position.symbol}:{position.timeframe}.",
                     {"position_id": position.id, **ledger_sync},
                 )
@@ -451,7 +451,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                     if close_result.get("closed"):
                         closed += 1
                         add_trade_audit(
-                            event_type="ctrader_demo_protective_exit",
+                            event_type="ctrader_protective_exit",
                             symbol=position.symbol,
                             timeframe=position.timeframe,
                             strategy=position.strategy,
@@ -481,7 +481,7 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
                 skipped += 1
                 log_incident(
                     "error",
-                    "ctrader_demo_protection_sync_failed",
+                    "ctrader_protection_sync_failed",
                     f"Could not synchronize broker protection for {position.symbol}:{position.timeframe}",
                     {"reason": reason, "position_id": position.id, "error": str(exc)},
                 )
