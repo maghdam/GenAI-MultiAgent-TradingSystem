@@ -1293,9 +1293,25 @@ This item stores operator intent and presents it truthfully in the dashboard. It
 Phase 10.3 changes account/transport activation only. Demo-specific execution APIs, `demo_autotrade`, `allow_live` rejection, and the final live-order guard remain unchanged until Phase 10.4.
 
 ### 10.4 Account-neutral execution path
-**Status:** ⬜
+**Status:** 🧪
 
-Replace demo-specific execution configuration/function names with generic cTrader execution semantics, remove the live-account hard rejection, and run the same risk, protection, reconciliation, recovery, and audit controls for a user-selected Demo or Live account.
+**Target behavior**
+- [x] Replace the active execution configuration flag with account-neutral `ctrader_autotrade`.
+- [x] Migrate persisted legacy `demo_autotrade` state into `ctrader_autotrade` and discard the obsolete `allow_live` bypass flag.
+- [x] Replace runtime broker operations with generic `symbol_execution_readiness`, `place_market_order`, `sync_position_targets`, and `close_position` semantics.
+- [x] Treat the explicitly selected authenticated Demo or Live account as confirmed broker truth through `account_verified`.
+- [x] Require the same verified account currency/equity, symbol contract metadata, quantity/risk, protective-stop, position-limit, reconciliation, recovery, and audit controls for Demo and Live.
+- [x] Permit the config API and execution engine to use a selected Live account without a second `allow_live` permission switch.
+- [x] Preserve backward-compatible read/wrapper aliases where needed for persisted state and older focused tests without using demo-only names in the active runtime path.
+- [x] Update System/Trade settings to label Live execution explicitly and warn that Live auto-trade can place real-money orders.
+- [x] Add focused regression coverage for legacy config migration, verified Live readiness, generic Live market-order routing, Live status mode, and config acceptance.
+- [ ] Local focused account-neutral execution/safety tests.
+- [ ] Local full backend regression suite.
+- [ ] Local frontend production build.
+- [ ] GitHub CI.
+
+**Scope boundary**
+This item changes the execution contract from Demo-specific to account-neutral while preserving all existing safety gates. Historical persisted audit/event identifiers are not rewritten in place. Final operator-facing documentation, environment examples, screenshots, and risk/disclaimer cleanup remain Phase 10.5.
 
 ### 10.5 Documentation and operator disclaimer
 **Status:** ⬜
@@ -1306,4 +1322,4 @@ After implementation and validation, update README, architecture, environment ex
 
 ## 15. Next item
 
-**Phase 10.3 is verified. Proceed to Phase 10.4: make cTrader execution account-neutral so the same guarded trading, risk, protection, reconciliation, recovery, and audit path can operate on the explicitly selected Demo or Live account. Remove demo-only naming and live hard-rejection only as part of that coherent execution-policy change, while preserving all existing operational safeguards and fail-closed behavior. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.4 is ready for local validation. Validate legacy config migration, generic Demo/Live account confirmation and monetary readiness, generic order/protection/close routing, Live status/config behavior, the full backend regression suite, and the frontend production build. Do not begin the final documentation/operator-disclaimer cleanup until local validation and GitHub CI pass and Phase 10.4 is marked verified. Existing post-deployment broker-field/sample-sufficiency observations remain pending and should be gathered naturally rather than manufactured. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
