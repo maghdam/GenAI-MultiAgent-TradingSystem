@@ -13,7 +13,7 @@ from backend.services.runtime_state import external_dependency_state, market_dat
 from backend.services.market_bar_validation import assess_market_frame
 
 
-class DemoOrderAcknowledgementTimeout(RuntimeError):
+class CTraderOrderAcknowledgementTimeout(RuntimeError):
     """Broker submission was sent, but the acknowledgement outcome is unknown."""
 
     def __init__(self, message: str, *, client_msg_id: str | None = None) -> None:
@@ -22,7 +22,7 @@ class DemoOrderAcknowledgementTimeout(RuntimeError):
         self.submitted = True
 
 
-class DemoProtectionSyncFailure(RuntimeError):
+class CTraderProtectionSyncFailure(RuntimeError):
     """Broker protection amend/verification failed after the target-sync path began."""
 
     def __init__(
@@ -39,8 +39,8 @@ class DemoProtectionSyncFailure(RuntimeError):
         self.ack = dict(ack or {})
 
 
-class DemoCloseRejected(RuntimeError):
-    """Broker explicitly rejected a submitted demo close request."""
+class CTraderCloseRejected(RuntimeError):
+    """Broker explicitly rejected a submitted cTrader close request."""
 
     def __init__(
         self,
@@ -56,8 +56,8 @@ class DemoCloseRejected(RuntimeError):
         self.ambiguous = False
 
 
-class DemoCloseOutcomeAmbiguous(RuntimeError):
-    """A demo close was submitted, but broker truth did not resolve its outcome."""
+class CTraderCloseOutcomeAmbiguous(RuntimeError):
+    """A cTrader close was submitted, but broker truth did not resolve its outcome."""
 
     def __init__(
         self,
@@ -73,6 +73,13 @@ class DemoCloseOutcomeAmbiguous(RuntimeError):
         self.ack = dict(ack or {})
         self.submitted = True
         self.ambiguous = True
+
+
+# Backward-compatible aliases for pre-Phase-10.4 callers/tests.
+DemoOrderAcknowledgementTimeout = CTraderOrderAcknowledgementTimeout
+DemoProtectionSyncFailure = CTraderProtectionSyncFailure
+DemoCloseRejected = CTraderCloseRejected
+DemoCloseOutcomeAmbiguous = CTraderCloseOutcomeAmbiguous
 
 
 def _utc_now() -> datetime:
@@ -138,15 +145,15 @@ class CTraderBrokerAdapter:
         self._symbol_cache_count = 0
         return ctd.switch_account(account_id, account_type)
 
-    def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
-        """Return whether broker state and metadata are ready to safely submit a demo order."""
+    def symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
+        """Return whether broker state and metadata are ready to safely submit a cTrader order."""
         if not self.connected():
             return False, "cTrader transport is not connected."
         if not ctd.is_authorized():
             reason = ctd.get_auth_error() or "cTrader account is not authorized."
             return False, reason
-        if not ctd.is_demo_account_confirmed():
-            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+        if not ctd.is_account_confirmed():
+            reason = ctd.get_account_verification_error() or "The selected cTrader account is not the authenticated active account."
             return False, reason
         if not ctd.is_symbol_metadata_ready():
             return False, "Broker symbol contract metadata is not loaded for the current cTrader session yet."
@@ -212,8 +219,8 @@ class CTraderBrokerAdapter:
         return parsed
 
     def get_account_snapshot(self, *, force: bool = False) -> BrokerAccountSnapshot:
-        if not ctd.is_demo_account_confirmed():
-            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
+        if not ctd.is_account_confirmed():
+            reason = ctd.get_account_verification_error() or "The selected cTrader account is not the authenticated active account."
             return BrokerAccountSnapshot(
                 account_id=self._account_id_value(),
                 source="ctrader",
@@ -303,8 +310,8 @@ class CTraderBrokerAdapter:
             notes.append("Broker symbol contract metadata is not loaded for the current cTrader session.")
         elif symbols_loaded == 0:
             notes.append("No broker symbols are loaded.")
-        demo_confirmed = bool(ctd.is_demo_account_confirmed())
-        account_snapshot = self.get_account_snapshot() if demo_confirmed else None
+        account_verified = bool(ctd.is_account_confirmed())
+        account_snapshot = self.get_account_snapshot() if account_verified else None
         active_account_id = self._account_id_value()
         active_host_type = ctd.get_active_host_type()
         account_type = (
@@ -312,14 +319,15 @@ class CTraderBrokerAdapter:
             if active_account_id is not None and active_host_type in {"demo", "live"}
             else "unknown"
         )
+        demo_confirmed = bool(account_verified and account_type == "demo")
         verification_error = ctd.get_account_verification_error()
         if verification_error and verification_error not in notes:
             notes.append(verification_error)
         if account_snapshot is not None and not account_snapshot.verified:
             snapshot_reason = "; ".join(account_snapshot.notes) or "cTrader monetary account snapshot is unavailable."
             notes.append(f"account_snapshot_unavailable: {snapshot_reason}")
-        if connected and not demo_confirmed:
-            notes.append("Order execution is blocked until the connected account is confirmed as demo.")
+        if connected and not account_verified:
+            notes.append("Order execution is blocked until the selected cTrader account is the authenticated active account.")
         
         notes.extend(external_dependency_state.snapshot_notes())
         auth_note = next((note for note in notes if "not authorized" in note.lower()), "")
@@ -344,8 +352,8 @@ class CTraderBrokerAdapter:
             and account_snapshot.equity is not None
             and float(account_snapshot.equity) > 0
         )
-        execution_ready = bool(ready and demo_confirmed and monetary_snapshot_ready)
-        if demo_confirmed and not monetary_snapshot_ready:
+        execution_ready = bool(ready and account_verified and monetary_snapshot_ready)
+        if account_verified and not monetary_snapshot_ready:
             notes.append(
                 "Execution is blocked until cTrader provides a verified account currency and positive equity."
             )
@@ -368,13 +376,14 @@ class CTraderBrokerAdapter:
             account_switch_in_progress=switch_in_progress,
             account_switch_target_id=switch_target_id,
             account_switch_error=switch_error,
+            account_verified=account_verified,
             demo_account_confirmed=demo_confirmed,
             execution_ready=execution_ready,
             account_snapshot=account_snapshot,
             notes=notes,
         )
 
-    def place_demo_market_order(
+    def place_market_order(
         self,
         *,
         symbol: str,
@@ -385,26 +394,26 @@ class CTraderBrokerAdapter:
         client_msg_id: str | None = None,
     ) -> Dict[str, Any]:
         if not self.connected():
-            raise RuntimeError("Demo order blocked: cTrader transport is not connected.")
+            raise RuntimeError("cTrader order blocked: cTrader transport is not connected.")
         if not ctd.is_authorized():
             reason = ctd.get_auth_error() or "cTrader account is not authorized."
-            raise RuntimeError(f"Demo order blocked: {reason}")
-        if not ctd.is_demo_account_confirmed():
-            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
-            raise RuntimeError(f"Demo order blocked: {reason}")
+            raise RuntimeError(f"cTrader order blocked: {reason}")
+        if not ctd.is_account_confirmed():
+            reason = ctd.get_account_verification_error() or "The selected cTrader account is not the authenticated active account."
+            raise RuntimeError(f"cTrader order blocked: {reason}")
 
         sym = (symbol or "").strip().upper()
-        metadata_ready, metadata_reason = self.demo_symbol_execution_readiness(sym)
+        metadata_ready, metadata_reason = self.symbol_execution_readiness(sym)
         if not metadata_ready:
-            raise RuntimeError(f"Demo order blocked: {metadata_reason}")
+            raise RuntimeError(f"cTrader order blocked: {metadata_reason}")
 
         symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
         if symbol_id is None:
-            raise RuntimeError(f"Demo order blocked: broker symbol {sym!r} is unavailable.")
+            raise RuntimeError(f"cTrader order blocked: broker symbol {sym!r} is unavailable.")
 
         side = "BUY" if direction == "long" else ("SELL" if direction == "short" else "")
         if not side:
-            raise RuntimeError(f"Demo order blocked: unsupported direction {direction!r}.")
+            raise RuntimeError(f"cTrader order blocked: unsupported direction {direction!r}.")
 
         volume = ctd.volume_lots_to_units(symbol_id, quantity_lots)
         deferred = ctd.place_order(
@@ -422,17 +431,17 @@ class CTraderBrokerAdapter:
         if isinstance(result, dict) and result.get("status") in {"failed", "order_rejected"}:
             reason = result.get("error") or result.get("reject_reason") or result["status"]
             if result.get("status") == "failed" and "timeout" in str(reason).lower():
-                raise DemoOrderAcknowledgementTimeout(
-                    "cTrader demo order acknowledgement timed out after submission; broker outcome is ambiguous.",
+                raise CTraderOrderAcknowledgementTimeout(
+                    "cTrader order acknowledgement timed out after submission; broker outcome is ambiguous.",
                     client_msg_id=client_msg_id,
                 )
-            raise RuntimeError(f"cTrader demo order failed: {reason}")
+            raise RuntimeError(f"cTrader order failed: {reason}")
         if not isinstance(result, dict):
-            raise RuntimeError("cTrader demo order returned an unrecognized acknowledgement.")
+            raise RuntimeError("cTrader order returned an unrecognized acknowledgement.")
         return {
             "status": "executed",
             "account_id": self._account_id_value(),
-            "account_type": "demo",
+            "account_type": ctd.get_active_host_type(),
             "symbol": sym,
             "symbol_id": symbol_id,
             "direction": direction,
@@ -442,7 +451,7 @@ class CTraderBrokerAdapter:
             "ack": result.get("ack", {}),
         }
 
-    def sync_demo_position_targets(
+    def sync_position_targets(
         self,
         *,
         symbol: str,
@@ -452,23 +461,23 @@ class CTraderBrokerAdapter:
         position_id: int | None = None,
         reference_price: float | None = None,
     ) -> Dict[str, Any]:
-        """Synchronize protective levels to exactly one cTrader demo position.
+        """Synchronize protective levels to exactly one cTrader position.
 
         This is deliberately synchronous: local targets are considered broker-synced
         only after reconcile confirms the requested SL/TP values.
         """
-        if not ctd.is_demo_account_confirmed():
-            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
-            raise RuntimeError(f"Demo target sync blocked: {reason}")
+        if not ctd.is_account_confirmed():
+            reason = ctd.get_account_verification_error() or "The selected cTrader account is not the authenticated active account."
+            raise RuntimeError(f"cTrader target sync blocked: {reason}")
 
         sym = (symbol or "").strip().upper()
         side = "buy" if direction == "long" else ("sell" if direction == "short" else "")
         if not side:
-            raise RuntimeError(f"Demo target sync blocked: unsupported direction {direction!r}.")
+            raise RuntimeError(f"cTrader target sync blocked: unsupported direction {direction!r}.")
 
         symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
         if symbol_id is None:
-            raise RuntimeError(f"Demo target sync blocked: broker symbol {sym!r} is unavailable.")
+            raise RuntimeError(f"cTrader target sync blocked: broker symbol {sym!r} is unavailable.")
 
         def _matching_position() -> Dict[str, Any] | None:
             rows = ctd.get_open_positions() or []
@@ -485,7 +494,7 @@ class CTraderBrokerAdapter:
             ]
             if len(matches) > 1:
                 raise RuntimeError(
-                    f"Demo target sync is ambiguous: {len(matches)} broker positions match {sym} {side}."
+                    f"cTrader target sync is ambiguous: {len(matches)} broker positions match {sym} {side}."
                 )
             return matches[0] if matches else None
 
@@ -497,11 +506,11 @@ class CTraderBrokerAdapter:
             if attempt < 2:
                 time.sleep(0.4)
         if broker_position is None:
-            raise RuntimeError(f"Demo target sync could not find broker position for {sym} {side}.")
+            raise RuntimeError(f"cTrader target sync could not find broker position for {sym} {side}.")
 
         broker_position_id = int(broker_position.get("position_id") or 0)
         if broker_position_id <= 0:
-            raise RuntimeError(f"Demo target sync found {sym} {side} without a valid position id.")
+            raise RuntimeError(f"cTrader target sync found {sym} {side} without a valid position id.")
 
         # Do not move a stale protective target farther away after the market
         # has already crossed it. Signal the caller to close the broker position
@@ -606,8 +615,8 @@ class CTraderBrokerAdapter:
                     if "timeout" in str(reason).lower()
                     else ("amend_rejected" if ack.get("status") == "order_rejected" else "amend_failed")
                 )
-                raise DemoProtectionSyncFailure(
-                    f"cTrader demo target sync failed: {reason}; ack={ack_payload}",
+                raise CTraderProtectionSyncFailure(
+                    f"cTrader target sync failed: {reason}; ack={ack_payload}",
                     failure_kind=failure_kind,
                     broker_position_id=broker_position_id,
                     ack=ack_payload,
@@ -621,29 +630,29 @@ class CTraderBrokerAdapter:
                 reject_reason = getattr(event, "rejectReason", None)
                 execution_type = getattr(event, "executionType", None)
                 if error_code:
-                    raise DemoProtectionSyncFailure(
-                        f"cTrader demo target sync rejected: errorCode={error_code} "
+                    raise CTraderProtectionSyncFailure(
+                        f"cTrader target sync rejected: errorCode={error_code} "
                         f"description={description or ''}; ack={ack_payload}",
                         failure_kind="amend_rejected",
                         broker_position_id=broker_position_id,
                         ack=ack_payload,
                     )
                 if reject_reason:
-                    raise DemoProtectionSyncFailure(
-                        f"cTrader demo target sync rejected: rejectReason={reject_reason}; ack={ack_payload}",
+                    raise CTraderProtectionSyncFailure(
+                        f"cTrader target sync rejected: rejectReason={reject_reason}; ack={ack_payload}",
                         failure_kind="amend_rejected",
                         broker_position_id=broker_position_id,
                         ack=ack_payload,
                     )
                 # ProtoOAExecutionType.ORDER_REJECTED == 7.
                 if execution_type is not None and int(execution_type) == 7:
-                    raise DemoProtectionSyncFailure(
-                        f"cTrader demo target sync rejected; ack={ack_payload}",
+                    raise CTraderProtectionSyncFailure(
+                        f"cTrader target sync rejected; ack={ack_payload}",
                         failure_kind="amend_rejected",
                         broker_position_id=broker_position_id,
                         ack=ack_payload,
                     )
-            except DemoProtectionSyncFailure:
+            except CTraderProtectionSyncFailure:
                 raise
             except Exception as exc:
                 ack_payload = {"parse_error": str(exc), "raw_type": type(ack).__name__}
@@ -666,8 +675,8 @@ class CTraderBrokerAdapter:
         if verified_row is None:
             observed_sl = (last_observed or {}).get("stop_loss")
             observed_tp = (last_observed or {}).get("take_profit")
-            raise DemoProtectionSyncFailure(
-                "cTrader demo target sync could not verify SL/TP on "
+            raise CTraderProtectionSyncFailure(
+                "cTrader target sync could not verify SL/TP on "
                 f"position {broker_position_id}; requested_sl={stop_loss} requested_tp={take_profit} "
                 f"observed_sl={observed_sl} observed_tp={observed_tp} ack={ack_payload}",
                 failure_kind="verification_failed",
@@ -886,21 +895,21 @@ class CTraderBrokerAdapter:
             "deals": closing,
         }
 
-    def close_demo_position(
+    def close_position(
         self,
         *,
         symbol: str,
         position_id: int,
         quantity_lots: float,
     ) -> Dict[str, Any]:
-        if not ctd.is_demo_account_confirmed():
-            reason = ctd.get_account_verification_error() or "Connected cTrader account is not confirmed as demo."
-            raise RuntimeError(f"Demo close blocked: {reason}")
+        if not ctd.is_account_confirmed():
+            reason = ctd.get_account_verification_error() or "The selected cTrader account is not the authenticated active account."
+            raise RuntimeError(f"cTrader close blocked: {reason}")
 
         sym = (symbol or "").strip().upper()
         symbol_id = (ctd.symbol_name_to_id or {}).get(sym)
         if symbol_id is None:
-            raise RuntimeError(f"Demo close blocked: broker symbol {sym!r} is unavailable.")
+            raise RuntimeError(f"cTrader close blocked: broker symbol {sym!r} is unavailable.")
 
         broker_position_id = int(position_id)
         deferred = ctd.close_position(
@@ -919,8 +928,8 @@ class CTraderBrokerAdapter:
             status = str(ack.get("status") or "").lower()
             if status == "order_rejected":
                 reason = ack.get("reject_reason") or ack.get("error") or status
-                raise DemoCloseRejected(
-                    f"cTrader demo close rejected: {reason}; ack={ack_payload}",
+                raise CTraderCloseRejected(
+                    f"cTrader close rejected: {reason}; ack={ack_payload}",
                     broker_position_id=broker_position_id,
                     ack=ack_payload,
                 )
@@ -935,19 +944,19 @@ class CTraderBrokerAdapter:
                 description = getattr(event, "description", None)
                 reject_reason = getattr(event, "rejectReason", None)
                 if error_code:
-                    raise DemoCloseRejected(
-                        f"cTrader demo close rejected: errorCode={error_code} "
+                    raise CTraderCloseRejected(
+                        f"cTrader close rejected: errorCode={error_code} "
                         f"description={description or ''}; ack={ack_payload}",
                         broker_position_id=broker_position_id,
                         ack=ack_payload,
                     )
                 if reject_reason:
-                    raise DemoCloseRejected(
-                        f"cTrader demo close rejected: rejectReason={reject_reason}; ack={ack_payload}",
+                    raise CTraderCloseRejected(
+                        f"cTrader close rejected: rejectReason={reject_reason}; ack={ack_payload}",
                         broker_position_id=broker_position_id,
                         ack=ack_payload,
                     )
-            except DemoCloseRejected:
+            except CTraderCloseRejected:
                 raise
             except Exception as exc:
                 ack_payload = {"parse_error": str(exc), "raw_type": type(ack).__name__}
@@ -985,15 +994,28 @@ class CTraderBrokerAdapter:
                     "close_summary": close_summary,
                 }
 
-        raise DemoCloseOutcomeAmbiguous(
+        raise CTraderCloseOutcomeAmbiguous(
             (
-                f"cTrader demo close outcome remains ambiguous for position {broker_position_id}; "
+                f"cTrader close outcome remains ambiguous for position {broker_position_id}; "
                 f"broker position is still visible after verification polling; ack={ack_payload}"
             ),
             failure_kind=ambiguous_kind or "verification_failed",
             broker_position_id=broker_position_id,
             ack=ack_payload,
         )
+
+    # Compatibility wrappers; production code uses account-neutral names.
+    def demo_symbol_execution_readiness(self, symbol: str) -> tuple[bool, str]:
+        return self.symbol_execution_readiness(symbol)
+
+    def place_demo_market_order(self, **kwargs) -> Dict[str, Any]:
+        return self.place_market_order(**kwargs)
+
+    def sync_demo_position_targets(self, **kwargs) -> Dict[str, Any]:
+        return self.sync_position_targets(**kwargs)
+
+    def close_demo_position(self, **kwargs) -> Dict[str, Any]:
+        return self.close_position(**kwargs)
 
     def list_positions(self) -> List[Dict[str, Any]]:
         rows = ctd.get_open_positions() or []
