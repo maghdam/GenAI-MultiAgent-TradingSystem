@@ -127,8 +127,8 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
 
     if not broker.execution_ready:
         reason = (
-            "cTrader demo execution truth is unavailable; broker/local reconciliation "
-            "cannot be verified without a ready confirmed demo connection."
+            "cTrader execution truth is unavailable; broker/local reconciliation "
+            "cannot be verified without a ready confirmed cTrader connection."
         )
         return _unavailable_response(broker=broker, local_rows=local_rows, reason=reason)
 
@@ -138,7 +138,7 @@ def build_reconciliation_health() -> ReconciliationHealthResponse:
         return _unavailable_response(
             broker=broker,
             local_rows=local_rows,
-            reason=f"Could not read cTrader demo positions: {exc}",
+            reason=f"Could not read cTrader positions: {exc}",
         )
 
     positive_locals = [
