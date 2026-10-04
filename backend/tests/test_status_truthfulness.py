@@ -123,6 +123,7 @@ def test_intentionally_disabled_broker_startup_is_not_current_incident() -> None
             ready=False,
             market_data_ready=False,
             account_type="unknown",
+            account_verified=False,
             demo_account_confirmed=False,
             execution_ready=False,
             notes=["cTrader: startup disabled by APP_START_CTRADER_ON_BOOT"],
