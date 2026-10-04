@@ -75,6 +75,11 @@ export default function SystemPage() {
   const save = () => draft ? run('save', () => setV2Config(draft)) : Promise.resolve();
   const selectedAccount = accounts.find((account) => account.selected);
   const activeAccount = accounts.find((account) => account.active);
+  const accountLabel = (account: V2CTraderAccount) => {
+    const broker = account.broker_title || 'cTrader';
+    const login = account.trader_login ?? account.account_id;
+    return `${broker} · ${account.account_type === 'live' ? 'Live' : 'Demo'} · ${login}`;
+  };
   const selectAccount = (event: ChangeEvent<HTMLSelectElement>) => {
     const accountId = Number(event.target.value);
     if (!Number.isInteger(accountId) || accountId <= 0) return;
@@ -128,15 +133,15 @@ export default function SystemPage() {
                 {!selectedAccount && <option value="">Select an account</option>}
                 {accounts.map((account) => (
                   <option value={account.account_id} key={account.account_id}>
-                    {account.account_type.toUpperCase()} · {account.account_id}{account.active ? ' · Active' : ''}
+                    {accountLabel(account)}{account.active ? ' · Active' : ''}
                   </option>
                 ))}
               </select>
             </label>
           </div>
           <div className="v2-notes">
-            <div>Selected: {selectedAccount ? `${selectedAccount.account_type.toUpperCase()} · ${selectedAccount.account_id}` : 'none'}</div>
-            <div>Active transport: {activeAccount ? `${activeAccount.account_type.toUpperCase()} · ${activeAccount.account_id}` : 'not authenticated'}</div>
+            <div>Selected: {selectedAccount ? accountLabel(selectedAccount) : 'none'}</div>
+            <div>Active transport: {activeAccount ? accountLabel(activeAccount) : 'not authenticated'}</div>
             {selectedAccount && !selectedAccount.active && (
               <div>Selection saved. The current broker transport has not switched yet, so trading still uses the active authenticated account.</div>
             )}
