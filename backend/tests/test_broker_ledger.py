@@ -116,7 +116,7 @@ def test_closed_demo_history_replaces_estimated_pnl_with_ctrader_deal(monkeypatc
     reconciled_audit = next(
         row
         for row in list_trade_audits(20)
-        if row.event_type == "ctrader_demo_close_reconciled" and row.position_id == position.id
+        if row.event_type == "ctrader_close_reconciled" and row.position_id == position.id
     )
     assert reconciled_audit.details["broker_exit_price"] == pytest.approx(51637.5)
     assert reconciled_audit.details["broker_net_profit"] == pytest.approx(-0.73)
