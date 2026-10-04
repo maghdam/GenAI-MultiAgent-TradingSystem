@@ -287,7 +287,6 @@ class CTraderBrokerAdapter:
         switch_in_progress = bool(ctd.is_account_switch_in_progress())
         switch_target_id = ctd.get_account_switch_target_id()
         switch_error = ctd.get_account_switch_error()
-        active_host_type = ctd.get_active_host_type()
         if switch_in_progress:
             notes.append(
                 f"cTrader account switch is in progress"
@@ -306,10 +305,12 @@ class CTraderBrokerAdapter:
             notes.append("No broker symbols are loaded.")
         demo_confirmed = bool(ctd.is_demo_account_confirmed())
         account_snapshot = self.get_account_snapshot() if demo_confirmed else None
+        active_account_id = self._account_id_value()
+        active_host_type = ctd.get_active_host_type()
         account_type = (
-            "demo"
-            if ctd.ACCOUNT_IS_DEMO is True
-            else ("live" if ctd.ACCOUNT_IS_DEMO is False else "unknown")
+            active_host_type
+            if active_account_id is not None and active_host_type in {"demo", "live"}
+            else "unknown"
         )
         verification_error = ctd.get_account_verification_error()
         if verification_error and verification_error not in notes:
