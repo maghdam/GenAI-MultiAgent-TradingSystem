@@ -464,12 +464,14 @@ def account_list_response_cb(res):
         if account_id <= 0:
             continue
         is_live = bool(getattr(account, "isLive", False))
+        is_active = account_id == int(ACCOUNT_ID)
         AVAILABLE_ACCOUNTS.append(
             {
                 "account_id": account_id,
                 "account_type": "live" if is_live else "demo",
                 "is_live": is_live,
-                "selected": account_id == int(ACCOUNT_ID),
+                "selected": is_active,
+                "active": is_active,
             }
         )
 
