@@ -23,16 +23,31 @@ class _Deferred:
 
 def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     sent = []
-    monkeypatch.setattr(ctd, "ACCOUNT_ID", 1105460)
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
     monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
     monkeypatch.setattr(
         ctd.Protobuf,
         "extract",
         lambda _: SimpleNamespace(
             ctidTraderAccount=[
-                SimpleNamespace(ctidTraderAccountId=2123962, isLive=True),
-                SimpleNamespace(ctidTraderAccountId=1105460, isLive=False),
-                SimpleNamespace(ctidTraderAccountId=1105462, isLive=False),
+                SimpleNamespace(
+                    ctidTraderAccountId=47139918,
+                    isLive=True,
+                    traderLogin=2123962,
+                    brokerTitleShort="FP Trading",
+                ),
+                SimpleNamespace(
+                    ctidTraderAccountId=47140414,
+                    isLive=False,
+                    traderLogin=1105460,
+                    brokerTitleShort="FP Trading",
+                ),
+                SimpleNamespace(
+                    ctidTraderAccountId=47140449,
+                    isLive=False,
+                    traderLogin=1105462,
+                    brokerTitleShort="FP Trading",
+                ),
             ]
         ),
     )
@@ -43,29 +58,35 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
 
     assert ctd.get_available_accounts() == [
         {
-            "account_id": 2123962,
+            "account_id": 47139918,
             "account_type": "live",
             "is_live": True,
+            "trader_login": 2123962,
+            "broker_title": "FP Trading",
             "selected": False,
             "active": False,
         },
         {
-            "account_id": 1105460,
+            "account_id": 47140414,
             "account_type": "demo",
             "is_live": False,
+            "trader_login": 1105460,
+            "broker_title": "FP Trading",
             "selected": True,
             "active": True,
         },
         {
-            "account_id": 1105462,
+            "account_id": 47140449,
             "account_type": "demo",
             "is_live": False,
+            "trader_login": 1105462,
+            "broker_title": "FP Trading",
             "selected": False,
             "active": False,
         },
     ]
     assert len(sent) == 1
-    assert sent[0].ctidTraderAccountId == 1105460
+    assert sent[0].ctidTraderAccountId == 47140414
 
 
 def test_broker_accounts_endpoint_overlays_persisted_selection(monkeypatch) -> None:
