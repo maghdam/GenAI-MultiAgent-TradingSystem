@@ -122,7 +122,7 @@ def test_demo_order_guard_never_submits_when_transport_is_disconnected(monkeypat
     )
 
     with pytest.raises(RuntimeError, match="transport is not connected"):
-        CTraderBrokerAdapter().place_demo_market_order(
+        CTraderBrokerAdapter().place_market_order(
             symbol="XAUUSD",
             direction="long",
             quantity_lots=0.10,
@@ -134,11 +134,11 @@ def test_demo_order_guard_never_submits_when_transport_is_disconnected(monkeypat
 
 def test_flat_demo_execution_defers_before_order_submission_when_disconnected(monkeypatch) -> None:
     monkeypatch.setattr(
-        "backend.services.execution_engine.get_demo_symbol_execution_readiness",
+        "backend.services.execution_engine.get_symbol_execution_readiness",
         lambda symbol: (False, "cTrader transport is not connected."),
     )
     monkeypatch.setattr(
-        "backend.services.execution_engine.place_demo_market_order",
+        "backend.services.execution_engine.place_market_order",
         lambda **kwargs: pytest.fail("preflight disconnect must block broker order submission"),
     )
 
