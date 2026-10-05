@@ -1350,8 +1350,29 @@ This item changes the execution contract from Demo-specific to account-neutral w
 **Scope boundary**
 This phase changes documentation and operator guidance only. It does not alter runtime execution policy, risk parameters, account selection state, broker credentials, or the global 0.60 signal-strength threshold.
 
+### 10.6 Trade-dashboard cTrader account selector
+**Status:** 🧪
+
+**Trigger**
+A real operator review of the merged Phase 10 UI on 2026-10-05 confirmed that account selection was available on the System page but not on the main Trade dashboard. This additive UX item closes that visibility/usability gap without changing the verified broker/account architecture.
+
+**Target behavior**
+- [x] Reuse the existing authorized cTrader account directory on the Trade dashboard.
+- [x] Show broker title, broker-reported Demo/Live type, and trader login/account number in the Trade toolbar.
+- [x] Mark the currently authenticated account as Active.
+- [x] Use the existing `POST /api/broker/accounts/select` path and existing transport-switching/safety guards rather than creating a second account-selection mechanism.
+- [x] Disable the selector while an account switch is in progress and surface account-directory/selection failures on the Trade page.
+- [x] Show an explicit LIVE MONEY warning when the selected account is Live.
+- [ ] Local frontend production build passes.
+- [ ] Local browser verification confirms the selector is visible on the Trade dashboard and reflects the authorized account directory.
+- [ ] Local Demo/Live selection smoke check confirms selected-versus-active truth and existing switching guards remain intact.
+- [ ] GitHub CI passes on the final implementation head.
+
+**Scope boundary**
+Frontend UX only. This item does not change account discovery, persistence, transport replacement, execution eligibility, broker credentials, risk controls, or the global 0.60 signal-strength threshold.
+
 ---
 
 ## 15. Next item
 
-**Phase 10.5 is verified, PR #94 is merged, post-merge CI #325 passed, and local `main` has been confirmed clean and synchronized at `853b13b`. Phase 10 implementation is complete. Do not invent a new implementation phase: the remaining unchecked roadmap items depend on naturally available broker-position or sample-sufficiency evidence (real partial close, open-position restart/disconnect/recovery, and calibration evidence). Gather those checks only when their qualifying conditions occur. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
+**Phase 10.6 is the current item after a real operator UI review found that the verified account selector was only exposed on System, not on the main Trade dashboard. Validate the frontend build plus the real Trade-page account selector/switching behavior before marking 10.6 verified or merging. Do not proceed to unrelated work while 10.6 is open. Existing broker-position/sample-sufficiency evidence remains pending and must still be gathered naturally. Keep the global 60% signal-strength threshold unchanged until Phase 5.3 evidence qualifies.**
