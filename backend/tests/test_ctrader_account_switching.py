@@ -346,3 +346,37 @@ def test_app_bootstrap_legacy_id_only_selection_fails_closed_then_switches(monke
     asyncio.run(_run())
 
     assert calls["engine_stop"] is True
+
+def test_live_application_auth_failure_is_stage_labeled(monkeypatch) -> None:
+    replacement = _FakeClient(connected=False, running=False)
+    _prime_state(monkeypatch, replacement, account_id=333)
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_IN_PROGRESS", True)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_TARGET_ID", 333)
+
+    replacement.isConnected = True
+    ctd._on_connected(replacement)
+
+    _, deferred = replacement.sent[0]
+    _, failure = deferred.callbacks
+    failure("timeout")
+
+    assert "cTrader live application auth" in (ctd.ACCOUNT_SWITCH_ERROR or "")
+    assert "timeout" in (ctd.ACCOUNT_SWITCH_ERROR or "")
+
+
+def test_sensitive_broker_payload_redaction() -> None:
+    payload = {
+        "accessToken": "secret-access",
+        "refresh_token": "secret-refresh",
+        "nested": {"clientSecret": "secret-client", "safe": "value"},
+    }
+
+    redacted = ctd._redact_sensitive_payload(payload)
+
+    assert redacted["accessToken"] == "<redacted>"
+    assert redacted["refresh_token"] == "<redacted>"
+    assert redacted["nested"]["clientSecret"] == "<redacted>"
+    assert redacted["nested"]["safe"] == "value"
+
