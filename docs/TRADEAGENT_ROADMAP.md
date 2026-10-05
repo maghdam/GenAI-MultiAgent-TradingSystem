@@ -1354,12 +1354,14 @@ This phase changes documentation and operator guidance only. It does not alter r
 **Status:** 🧪
 
 **Trigger**
-A real operator review of the merged Phase 10 UI on 2026-10-05 first confirmed that account selection was available on the System page but not on the main Trade dashboard. After the selector was exposed on Trade, live browser evidence showed a second correctness gap: the active Demo-host connection returned only Demo-side accounts while the cTrader platform showed additional Demo accounts plus an FP Trading Live account. cTrader documents Demo and Live as separate Open API environments, so a complete account directory requires discovery from both endpoints.
+A real operator review of the merged Phase 10 UI on 2026-10-05 first confirmed that account selection was available on the System page but not on the main Trade dashboard. After the selector was exposed on Trade, live browser evidence showed a second correctness gap: the active Demo-host connection returned only four Demo accounts while the cTrader platform showed additional FP Trading Demo accounts plus an FP Trading Live account. cTrader documents both that Demo/Live Open API environments are separate and that an access token only exposes accounts explicitly granted during authorization. Therefore TradeAgent must discover both environments while truthfully listing only accounts granted to the current access token.
 
 **Target behavior**
 - [x] Reuse the existing authorized cTrader account directory on the Trade dashboard.
-- [x] Discover and merge authorized account lists from both cTrader Demo and Live endpoints without changing the active trading transport.
+- [x] Discover and merge token-granted account lists from both cTrader Demo and Live endpoints without changing the active trading transport.
+- [x] Preserve the authorization boundary: accounts visible in the cTrader platform but not granted to the current access token are not invented or exposed by TradeAgent.
 - [x] Use a short-lived opposite-environment discovery connection and keep the existing selected account transport as the only active trading client.
+- [x] Prevent redundant discovery connections during Demo↔Live account switching and do not start a probe before the Twisted reactor is running.
 - [x] Add focused regression coverage for merged Demo/Live host discovery and preservation of the active-host account list.
 - [x] Show broker title, broker-reported Demo/Live type, and trader login/account number in the Trade toolbar.
 - [x] Show saved selection and currently authenticated active-account truth distinctly on the Trade toolbar.
