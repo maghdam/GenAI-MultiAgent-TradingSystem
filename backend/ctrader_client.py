@@ -33,6 +33,7 @@ import asyncio
 import os
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone, timedelta
 import calendar, time, threading, os, json, math
 
@@ -51,13 +52,29 @@ if HOST_TYPE not in {"demo", "live"}:
     HOST_TYPE = "demo"
 
 
+class _TradeAgentTcpProtocol(TcpProtocol):
+    """Isolate OpenApiPy transport state per connection.
+
+    Upstream TcpProtocol keeps its outbound queue/task/timestamp as class
+    attributes. With simultaneous Live + Demo clients that makes different
+    sockets share the same send queue, so a Demo probe request can be emitted
+    by the Live protocol. Shadow those fields on each protocol instance.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._send_queue = deque([])
+        self._send_task = None
+        self._lastSendMessageTime = None
+
+
 def _new_client(host_type: str):
     host = (
         EndPoints.PROTOBUF_LIVE_HOST
         if str(host_type).lower() == "live"
         else EndPoints.PROTOBUF_DEMO_HOST
     )
-    return Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
+    return Client(host, EndPoints.PROTOBUF_PORT, _TradeAgentTcpProtocol)
 
 
 client = _new_client(HOST_TYPE)
@@ -1128,29 +1145,6 @@ def _format_payload(payload) -> str:
     return txt
 
 
-def _route_main_message_to_demo_directory_probe(message) -> bool:
-    """Forward a probe-correlated broker response that arrived on the main client."""
-    probe_client = _DEMO_DIRECTORY_PROBE_CLIENT
-    if probe_client is None or not _demo_directory_probe_is_current(probe_client):
-        return False
-    client_msg_id = str(getattr(message, "clientMsgId", None) or "")
-    expected_msg_id = str(
-        getattr(probe_client, "_tradeagent_directory_client_msg_id", "") or ""
-    )
-    if not client_msg_id or not expected_msg_id or client_msg_id != expected_msg_id:
-        return False
-    print(
-        f"[CTRADER DIRECTORY ROUTE] forwarding client_msg_id={client_msg_id} "
-        "from active client to Demo directory probe."
-    )
-    _demo_directory_probe_message_received(
-        probe_client,
-        message,
-        probe_client,
-    )
-    return True
-
-
 def _configure_client_callbacks(target_client) -> None:
     target_client.setConnectedCallback(_on_connected)
     target_client.setDisconnectedCallback(_on_disconnected)
@@ -1167,11 +1161,6 @@ def _configure_client_callbacks(target_client) -> None:
         if event.__class__.__name__ == "ProtoOAErrorRes":
             client_msg_id = getattr(message, "clientMsgId", None) or "<none>"
             print(f"[CTRADER ERROR CONTEXT] client_msg_id={client_msg_id}")
-
-        # The cTrader SDK can deliver a response for the short-lived Demo
-        # directory probe through the active client callback. Correlate on the
-        # explicit client message ID and hand that response back to the probe.
-        _route_main_message_to_demo_directory_probe(message)
 
         # Spotware's official OpenApiPy samples treat successful account auth
         # as a broker event. Do not require the SDK request Deferred to resolve:
