@@ -61,6 +61,17 @@ class CTraderAccountSelectionResponse(BaseModel):
     switch_started: bool = False
 
 
+class LiveTradingArmRequest(BaseModel):
+    armed: bool
+
+
+class LiveTradingArmResponse(BaseModel):
+    armed: bool
+    armed_account_id: Optional[int] = None
+    active_account_id: Optional[int] = None
+    account_type: Literal["demo", "live", "unknown"] = "unknown"
+
+
 class BrokerStatus(BaseModel):
     connected: bool
     socket_connected: bool = False
@@ -754,6 +765,8 @@ class EngineStatus(BaseModel):
     mode: Literal["paper_only", "demo_enabled", "live_enabled"]
     broker: BrokerStatus
     config: EngineConfig
+    live_trading_armed: bool = False
+    live_trading_armed_account_id: Optional[int] = None
     runtime: EngineRuntime
     readiness: List[ReadinessCheck] = Field(default_factory=list)
     status_truth: List[ReadinessCheck] = Field(default_factory=list)
