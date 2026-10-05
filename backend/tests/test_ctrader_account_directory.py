@@ -428,3 +428,47 @@ def test_demo_directory_probe_matching_error_fails_probe(monkeypatch) -> None:
 
     assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is None
     assert stopped == [probe]
+
+def test_main_client_routes_matching_probe_error_to_demo_directory_probe(monkeypatch) -> None:
+    sent = []
+    stopped = []
+    request_id = "tradeagent:demo-directory-app-auth:none:1"
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        _tradeagent_directory_client_msg_id=request_id,
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+
+    class ProtoOAErrorRes:
+        errorCode = "ALREADY_LOGGED_IN"
+        description = "Open API application is already authorized"
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: ProtoOAErrorRes())
+
+    matching = SimpleNamespace(clientMsgId=request_id)
+
+    assert ctd._route_main_message_to_demo_directory_probe(matching) is True
+    assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is probe
+    assert stopped == []
+    assert len(sent) == 1
+    request, kwargs = sent[0]
+    assert request.__class__.__name__ == "ProtoOAGetAccountListByAccessTokenReq"
+    assert kwargs["clientMsgId"].startswith(
+        "tradeagent:demo-directory-account-list:none:"
+    )
+    assert probe._tradeagent_directory_stage == "account_list"
+
+
+def test_main_client_does_not_route_unrelated_message_to_demo_directory_probe(monkeypatch) -> None:
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        _tradeagent_directory_client_msg_id="tradeagent:demo-directory-app-auth:none:1",
+    )
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+
+    unrelated = SimpleNamespace(clientMsgId="different-request")
+
+    assert ctd._route_main_message_to_demo_directory_probe(unrelated) is False
+
