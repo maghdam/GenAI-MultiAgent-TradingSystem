@@ -144,7 +144,7 @@ Configure one cTrader Open API application/access token, not one environment ent
 
 `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` remain bootstrap/fallback values for initial discovery or migration. They are not a manual account directory and normally do not need to be changed when switching between authorized accounts in the UI.
 
-> **Trading risk:** use a Demo account for development, testing, and strategy validation. If a Live account is selected and authenticated, enabling cTrader auto-trade plus per-symbol auto-trade with the kill switch off can submit real-money orders. Broker execution still requires account verification, broker monetary/symbol metadata, risk and sizing checks, protective-stop policy, position limits, daily-loss controls, reconciliation, and audit safeguards.
+> **Trading risk:** use a Demo account for development, testing, and strategy validation. A selected/authenticated Live account is **disarmed for new real-money entries by default**. Live entry submission requires cTrader auto-trade, per-symbol auto-trade, the kill switch off, **and an explicit runtime-only Live Trading arm for the currently active Live account**. That arm resets on account changes, engine restart, and backend restart. Existing broker-backed positions remain eligible for protection, reconciliation, and verified-close handling even while new Live entries are disarmed.
 
 ### Manual startup
 
