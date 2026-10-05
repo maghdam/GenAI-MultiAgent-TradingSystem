@@ -1354,10 +1354,13 @@ This phase changes documentation and operator guidance only. It does not alter r
 **Status:** 🧪
 
 **Trigger**
-A real operator review of the merged Phase 10 UI on 2026-10-05 confirmed that account selection was available on the System page but not on the main Trade dashboard. This additive UX item closes that visibility/usability gap without changing the verified broker/account architecture.
+A real operator review of the merged Phase 10 UI on 2026-10-05 first confirmed that account selection was available on the System page but not on the main Trade dashboard. After the selector was exposed on Trade, live browser evidence showed a second correctness gap: the active Demo-host connection returned only Demo-side accounts while the cTrader platform showed additional Demo accounts plus an FP Trading Live account. cTrader documents Demo and Live as separate Open API environments, so a complete account directory requires discovery from both endpoints.
 
 **Target behavior**
 - [x] Reuse the existing authorized cTrader account directory on the Trade dashboard.
+- [x] Discover and merge authorized account lists from both cTrader Demo and Live endpoints without changing the active trading transport.
+- [x] Use a short-lived opposite-environment discovery connection and keep the existing selected account transport as the only active trading client.
+- [x] Add focused regression coverage for merged Demo/Live host discovery and preservation of the active-host account list.
 - [x] Show broker title, broker-reported Demo/Live type, and trader login/account number in the Trade toolbar.
 - [x] Show saved selection and currently authenticated active-account truth distinctly on the Trade toolbar.
 - [x] Mark the currently authenticated account as Active.
@@ -1370,7 +1373,7 @@ A real operator review of the merged Phase 10 UI on 2026-10-05 confirmed that ac
 - [ ] GitHub CI passes on the final implementation head.
 
 **Scope boundary**
-Frontend UX only. This item does not change account discovery, persistence, transport replacement, execution eligibility, broker credentials, risk controls, or the global 0.60 signal-strength threshold.
+This item changes account-directory discovery plus Trade-page UX only. It does not change persisted account selection, the selected account's trading transport, Demo↔Live transport replacement, execution eligibility, broker credentials, risk controls, or the global 0.60 signal-strength threshold. The secondary connection is discovery-only and is stopped after the opposite environment's authorized account list is received.
 
 ---
 
