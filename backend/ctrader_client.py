@@ -103,6 +103,7 @@ _asset_cache_lock = threading.Lock()
 
 _PRICE_FACTOR = 100_000
 _PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurement units.
+_AUTH_RESPONSE_TIMEOUT_SECONDS = 15   # Cross-host auth can exceed the library's 5s default.
 
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
@@ -660,7 +661,10 @@ def account_list_response_cb(res, source_client=None):
         ctidTraderAccountId=account_id,
         accessToken=ACCESS_TOKEN,
     )
-    return active_client.send(req).addCallbacks(
+    return active_client.send(
+        req,
+        responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+    ).addCallbacks(
         lambda response: account_auth_cb(response, active_client, account_id),
         lambda failure: _session_error(
             failure,
@@ -869,7 +873,10 @@ def app_auth_cb(_, source_client=None):
             ctidTraderAccountId=account_id,
             accessToken=ACCESS_TOKEN,
         )
-        return active_client.send(req).addCallbacks(
+        return active_client.send(
+            req,
+            responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+        ).addCallbacks(
             lambda response: account_auth_cb(response, active_client, account_id),
             lambda failure: _session_error(
                 failure,
@@ -901,7 +908,10 @@ def _on_connected(connected_client):
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = None
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
-    connected_client.send(req).addCallbacks(
+    connected_client.send(
+        req,
+        responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+    ).addCallbacks(
         lambda response: app_auth_cb(response, connected_client),
         lambda failure: _session_error(failure, connected_client),
     )
@@ -1092,7 +1102,10 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
                 ctidTraderAccountId=target_id,
                 accessToken=ACCESS_TOKEN,
             )
-            current_client.send(req).addCallbacks(
+            current_client.send(
+                req,
+                responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+            ).addCallbacks(
                 lambda response: account_auth_cb(
                     response,
                     current_client,
