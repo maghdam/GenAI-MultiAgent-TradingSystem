@@ -428,4 +428,3 @@ def test_demo_directory_probe_matching_error_fails_probe(monkeypatch) -> None:
 
     assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is None
     assert stopped == [probe]
-
