@@ -379,3 +379,53 @@ def test_sensitive_broker_payload_redaction() -> None:
     assert redacted["refresh_token"] == "<redacted>"
     assert redacted["nested"]["clientSecret"] == "<redacted>"
     assert redacted["nested"]["safe"] == "value"
+
+def test_account_auth_event_completes_live_switch_without_deferred_correlation(monkeypatch) -> None:
+    current = _FakeClient(connected=True, running=True)
+    replacement = _FakeClient(connected=False, running=False)
+    _prime_state(monkeypatch, current)
+
+    stopped = []
+    monkeypatch.setattr(ctd, "_new_client", lambda host_type: replacement)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+    monkeypatch.setattr(ctd, "_start_demo_directory_probe", lambda: True)
+    monkeypatch.setattr(ctd, "ACCESS_TOKEN", "test-token")
+
+    result = ctd.switch_account(333, "live")
+    assert result["switch_started"] is True
+
+    replacement.isConnected = True
+    replacement.connected_callback(replacement)
+
+    _, app_auth_deferred = replacement.sent[0]
+    app_auth_success, _ = app_auth_deferred.callbacks
+    app_auth_success(object())
+
+    assert len(replacement.sent) == 2
+    _, account_auth_deferred = replacement.sent[1]
+    assert account_auth_deferred.callbacks is not None
+    assert ctd.AUTHORIZED is False
+    assert ctd.ACCOUNT_SWITCH_IN_PROGRESS is True
+
+    event = type(
+        "ProtoOAAccountAuthRes",
+        (),
+        {"ctidTraderAccountId": 333},
+    )()
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: event)
+
+    replacement.message_callback(replacement, object())
+
+    assert ctd.AUTHORIZED is True
+    assert ctd.ACTIVE_ACCOUNT_ID == 333
+    assert ctd.ACTIVE_HOST_TYPE == "live"
+    assert ctd.ACCOUNT_SWITCH_IN_PROGRESS is False
+    assert ctd.ACCOUNT_SWITCH_ERROR is None
+
+    # If the SDK Deferred resolves afterwards, the idempotent handler must not
+    # duplicate the post-auth bootstrap requests.
+    sent_after_event = len(replacement.sent)
+    account_auth_success, _ = account_auth_deferred.callbacks
+    account_auth_success(object())
+    assert len(replacement.sent) == sent_after_event
+
