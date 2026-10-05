@@ -174,6 +174,33 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     assert ctd.ACTIVE_HOST_TYPE == "demo"
 
 
+def test_broker_accounts_endpoint_does_not_invent_selection_from_active_account(monkeypatch) -> None:
+    rows = [
+        CTraderAccount(
+            account_id=1105460,
+            account_type="demo",
+            is_live=False,
+            selected=True,
+            active=True,
+        ),
+        CTraderAccount(
+            account_id=2123962,
+            account_type="live",
+            is_live=True,
+            selected=False,
+            active=False,
+        ),
+    ]
+    monkeypatch.setattr(router_module, "list_accounts", lambda: rows)
+    monkeypatch.setattr(router_module, "_current_config", lambda: EngineConfig())
+
+    result = asyncio.run(router_module.v2_broker_accounts())
+
+    assert [row.account_id for row in result] == [1105460, 2123962]
+    assert [row.active for row in result] == [True, False]
+    assert [row.selected for row in result] == [False, False]
+
+
 def test_broker_accounts_endpoint_overlays_persisted_selection(monkeypatch) -> None:
     rows = [
         CTraderAccount(
