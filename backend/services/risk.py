@@ -7,6 +7,7 @@ from backend.services.broker import get_broker_status
 from backend.services.runtime_state import market_data_dependency_state
 from backend.storage.repositories import daily_realized_pnl
 from backend.services.financial_units import daily_loss_budget, resolve_monetary_basis
+from backend.services.live_trading_guard import is_live_trading_armed
 
 
 def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
@@ -33,6 +34,14 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
         account_snapshot=broker.account_snapshot,
     )
     loss_budget = daily_loss_budget(config, realized_today, monetary_basis) if monetary_basis.verified else None
+    live_arm_required = bool(config.ctrader_autotrade and broker.account_type == "live")
+    live_arm_ok = (
+        not live_arm_required
+        or (
+            broker.account_id is not None
+            and is_live_trading_armed(broker.account_id)
+        )
+    )
     checks = [
         ReadinessCheck(
             name="engine_enabled",
@@ -63,6 +72,19 @@ def build_readiness(config: EngineConfig) -> List[ReadinessCheck]:
                         if not broker.account_verified
                         else "cTrader execution is blocked until cTrader provides a verified account currency and positive equity."
                     )
+                )
+            ),
+        ),
+        ReadinessCheck(
+            name="live_trading_arm",
+            ok=live_arm_ok,
+            detail=(
+                f"Live Trading is armed for account {broker.account_id}."
+                if live_arm_required and live_arm_ok
+                else (
+                    "Live Trading is disarmed; new Live entries are blocked."
+                    if live_arm_required
+                    else "Live Trading arming is not required for the active Demo account."
                 )
             ),
         ),
