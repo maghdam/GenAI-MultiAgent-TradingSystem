@@ -381,3 +381,51 @@ def test_select_broker_account_rejects_account_not_in_authorized_directory(monke
         )
 
     assert exc.value.status_code == 404
+
+def test_demo_directory_probe_ignores_uncorrelated_error(monkeypatch) -> None:
+    sent = []
+    stopped = []
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        _tradeagent_directory_client_msg_id="tradeagent:demo-directory-app-auth:none:1",
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+
+    class ProtoOAErrorRes:
+        errorCode = "INVALID_REQUEST"
+        description = "Trading account is not authorized"
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: ProtoOAErrorRes())
+
+    unrelated = SimpleNamespace(clientMsgId="2113629339616")
+    ctd._demo_directory_probe_message_received(probe, unrelated, probe)
+
+    assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is probe
+    assert stopped == []
+    assert sent == []
+
+
+def test_demo_directory_probe_matching_error_fails_probe(monkeypatch) -> None:
+    stopped = []
+    request_id = "tradeagent:demo-directory-app-auth:none:1"
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        _tradeagent_directory_client_msg_id=request_id,
+    )
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+
+    class ProtoOAErrorRes:
+        errorCode = "INVALID_REQUEST"
+        description = "Bad request"
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: ProtoOAErrorRes())
+
+    matching = SimpleNamespace(clientMsgId=request_id)
+    ctd._demo_directory_probe_message_received(probe, matching, probe)
+
+    assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is None
+    assert stopped == [probe]
+
