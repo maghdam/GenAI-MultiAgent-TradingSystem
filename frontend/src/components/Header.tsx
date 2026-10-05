@@ -1,4 +1,5 @@
 import AppNav from './AppNav';
+import type { V2CTraderAccount } from '../services/api';
 
 interface StatusChip {
   status: 'ok' | 'bad' | 'wait' | 'warn';
@@ -38,6 +39,10 @@ interface HeaderProps {
   onToggleEngine?: () => void;
   onOpenSettings?: () => void;
   onRefreshStrategies?: () => void;
+  ctraderAccounts?: V2CTraderAccount[];
+  ctraderAccountBusy?: boolean;
+  ctraderAccountSwitchInProgress?: boolean;
+  onCTraderAccountChange?: (accountId: number) => void;
   /* new props for the toolbar */
   symbol?: string;
   timeframe?: string;
@@ -67,10 +72,20 @@ export default function Header({
   onToggleEngine,
   onOpenSettings,
   onRefreshStrategies,
+  ctraderAccounts = [],
+  ctraderAccountBusy = false,
+  ctraderAccountSwitchInProgress = false,
+  onCTraderAccountChange,
   timeframe,
   onTimeframeChange,
 }: HeaderProps) {
   const resolvedStrategyOptions = Array.from(new Set([...(strategyOptions || []), strategy]));
+  const selectedCTraderAccount = ctraderAccounts.find((account) => account.selected);
+  const accountLabel = (account: V2CTraderAccount) => {
+    const broker = account.broker_title || 'cTrader';
+    const login = account.trader_login ?? account.account_id;
+    return `${broker} · ${account.account_type === 'live' ? 'Live' : 'Demo'} · ${login}`;
+  };
 
   const engineLabel = engineStatus
     ? engineStatus.enabled
@@ -167,6 +182,45 @@ export default function Header({
             />
           </label>
         </div>
+
+        {onCTraderAccountChange && (
+          <>
+            <div className="ta-toolbar__divider" />
+            <div className="ta-toolbar__group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--ta-text-secondary)' }}>
+                Account
+                <select
+                  className="ta-select ta-select--sm"
+                  aria-label="cTrader account"
+                  title="cTrader account"
+                  value={selectedCTraderAccount?.account_id ?? ''}
+                  onChange={(event) => onCTraderAccountChange(Number(event.target.value))}
+                  disabled={ctraderAccountBusy || ctraderAccountSwitchInProgress || ctraderAccounts.length === 0}
+                  style={{ minWidth: '210px' }}
+                >
+                  {!selectedCTraderAccount && <option value="">Select cTrader account</option>}
+                  {ctraderAccounts.map((account) => (
+                    <option key={account.account_id} value={account.account_id}>
+                      {accountLabel(account)}{account.active ? ' · Active' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedCTraderAccount?.account_type === 'live' && (
+                <span className="ta-status" title="Live account: eligible cTrader orders use real funds when execution gates permit.">
+                  <span className="ta-status__dot ta-status__dot--bad" />
+                  LIVE MONEY
+                </span>
+              )}
+              {ctraderAccountSwitchInProgress && (
+                <span className="ta-status">
+                  <span className="ta-status__dot ta-status__dot--wait" />
+                  Switching account…
+                </span>
+              )}
+            </div>
+          </>
+        )}
 
         <div className="ta-toolbar__spacer" />
 
