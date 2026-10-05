@@ -428,4 +428,3 @@ def test_account_auth_event_completes_live_switch_without_deferred_correlation(m
     account_auth_success, _ = account_auth_deferred.callbacks
     account_auth_success(object())
     assert len(replacement.sent) == sent_after_event
-
