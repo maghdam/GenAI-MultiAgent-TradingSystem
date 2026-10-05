@@ -29,7 +29,6 @@ from google.protobuf.json_format import MessageToDict
 
 from twisted.application.internet import ClientService
 from twisted.internet import reactor
-from twisted.internet.defer import TimeoutError as DeferredTimeoutError
 import asyncio
 import os
 import threading
@@ -89,16 +88,8 @@ LAST_AUTH_ATTEMPT_AT = None
 ACCOUNT_IS_DEMO: bool | None = None
 ACCOUNT_VERIFICATION_ERROR: str | None = None
 AVAILABLE_ACCOUNTS: list[dict[str, object]] = []
-_ACCOUNT_DIRECTORY_BY_HOST: dict[str, list[dict[str, object]]] = {
-    "demo": [],
-    "live": [],
-}
-_ACCOUNT_DIRECTORY_PROBE_CLIENTS: dict[str, object] = {}
-_ACCOUNT_DIRECTORY_PROBE_ERRORS: dict[str, str | None] = {
-    "demo": None,
-    "live": None,
-}
-_account_directory_lock = threading.Lock()
+_DEMO_DIRECTORY_PROBE_CLIENT = None
+_demo_directory_probe_lock = threading.Lock()
 ACTIVE_ACCOUNT_ID: int | None = None
 ACTIVE_HOST_TYPE: str | None = None
 ACCOUNT_SWITCH_IN_PROGRESS: bool = False
@@ -139,82 +130,6 @@ def _refresh_account_flags() -> None:
         row_id = _account_id_int(row.get("account_id"))
         row["selected"] = bool(desired is not None and row_id == desired)
         row["active"] = bool(active is not None and row_id == active)
-
-
-def _normalize_account_rows(accounts) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for account in accounts:
-        account_id = int(getattr(account, "ctidTraderAccountId", 0) or 0)
-        if account_id <= 0:
-            continue
-        is_live = bool(getattr(account, "isLive", False))
-        trader_login_raw = getattr(account, "traderLogin", None)
-        trader_login = int(trader_login_raw) if trader_login_raw is not None else None
-        broker_title = str(getattr(account, "brokerTitleShort", "") or "").strip() or None
-        rows.append(
-            {
-                "account_id": account_id,
-                "account_type": "live" if is_live else "demo",
-                "is_live": is_live,
-                "trader_login": trader_login,
-                "broker_title": broker_title,
-                "selected": False,
-                "active": False,
-            }
-        )
-    return rows
-
-
-def _rebuild_available_accounts() -> None:
-    merged: dict[int, dict[str, object]] = {}
-    with _account_directory_lock:
-        snapshots = [
-            dict(row)
-            for host_type in ("demo", "live")
-            for row in _ACCOUNT_DIRECTORY_BY_HOST.get(host_type, [])
-        ]
-    for row in snapshots:
-        account_id = _account_id_int(row.get("account_id"))
-        if account_id is not None:
-            merged[account_id] = row
-    AVAILABLE_ACCOUNTS[:] = sorted(
-        merged.values(),
-        key=lambda row: (
-            str(row.get("broker_title") or "").lower(),
-            str(row.get("account_type") or ""),
-            int(row.get("trader_login") or row.get("account_id") or 0),
-        ),
-    )
-    _refresh_account_flags()
-
-
-def _replace_account_directory_host(host_type: str, accounts) -> None:
-    host = _normalize_host_type(host_type)
-    rows = _normalize_account_rows(accounts)
-    with _account_directory_lock:
-        _ACCOUNT_DIRECTORY_BY_HOST[host] = rows
-        _ACCOUNT_DIRECTORY_PROBE_ERRORS[host] = None
-    _rebuild_available_accounts()
-
-
-def _clear_account_directory_host(host_type: str) -> None:
-    host = _normalize_host_type(host_type)
-    with _account_directory_lock:
-        _ACCOUNT_DIRECTORY_BY_HOST[host] = []
-    _rebuild_available_accounts()
-
-
-def _clear_account_directory() -> None:
-    with _account_directory_lock:
-        probes = list(_ACCOUNT_DIRECTORY_PROBE_CLIENTS.values())
-        _ACCOUNT_DIRECTORY_PROBE_CLIENTS.clear()
-        _ACCOUNT_DIRECTORY_BY_HOST["demo"] = []
-        _ACCOUNT_DIRECTORY_BY_HOST["live"] = []
-        _ACCOUNT_DIRECTORY_PROBE_ERRORS["demo"] = None
-        _ACCOUNT_DIRECTORY_PROBE_ERRORS["live"] = None
-    AVAILABLE_ACCOUNTS.clear()
-    for probe_client in probes:
-        _stop_client_service(probe_client)
 
 
 def _is_current_session(source_client=None, expected_account_id: int | None = None) -> bool:
@@ -665,6 +580,30 @@ def asset_class_response_cb(res, source_client=None, expected_account_id: int | 
         ),
     )
 
+def _apply_account_directory(accounts) -> None:
+    AVAILABLE_ACCOUNTS.clear()
+    for account in accounts:
+        account_id = int(getattr(account, "ctidTraderAccountId", 0) or 0)
+        if account_id <= 0:
+            continue
+        is_live = bool(getattr(account, "isLive", False))
+        trader_login_raw = getattr(account, "traderLogin", None)
+        trader_login = int(trader_login_raw) if trader_login_raw is not None else None
+        broker_title = str(getattr(account, "brokerTitleShort", "") or "").strip() or None
+        AVAILABLE_ACCOUNTS.append(
+            {
+                "account_id": account_id,
+                "account_type": "live" if is_live else "demo",
+                "is_live": is_live,
+                "trader_login": trader_login,
+                "broker_title": broker_title,
+                "selected": False,
+                "active": False,
+            }
+        )
+    _refresh_account_flags()
+
+
 def account_list_response_cb(res, source_client=None):
     global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
     if source_client is not None and source_client is not client:
@@ -672,12 +611,8 @@ def account_list_response_cb(res, source_client=None):
     active_client = source_client or client
     payload = Protobuf.extract(res)
     accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
-
-    _replace_account_directory_host(CLIENT_HOST_TYPE, accounts)
-    print(
-        f"[CTRADER DIRECTORY] {CLIENT_HOST_TYPE} host returned {len(accounts)} account(s)."
-    )
-    _start_account_directory_probe("live" if CLIENT_HOST_TYPE == "demo" else "demo")
+    _apply_account_directory(accounts)
+    print(f"[CTRADER DIRECTORY] demo host returned {len(accounts)} token-granted account(s).")
 
     selected = next(
         (
@@ -740,7 +675,7 @@ def account_list_error_cb(failure, source_client=None):
     global ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
     if source_client is not None and source_client is not client:
         return failure
-    _clear_account_directory_host(CLIENT_HOST_TYPE)
+    AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = f"Unable to verify cTrader account type: {failure}"
     AUTH_ERROR = ACCOUNT_VERIFICATION_ERROR
@@ -752,244 +687,165 @@ def account_list_error_cb(failure, source_client=None):
     return failure
 
 
-def _cancel_account_directory_probe(host_type: str) -> bool:
-    host = _normalize_host_type(host_type)
-    with _account_directory_lock:
-        probe_client = _ACCOUNT_DIRECTORY_PROBE_CLIENTS.pop(host, None)
+
+def _demo_directory_probe_is_current(probe_client) -> bool:
+    with _demo_directory_probe_lock:
+        return _DEMO_DIRECTORY_PROBE_CLIENT is probe_client
+
+
+def _finish_demo_directory_probe(probe_client, *, error: str | None = None) -> None:
+    global _DEMO_DIRECTORY_PROBE_CLIENT
+    with _demo_directory_probe_lock:
+        if _DEMO_DIRECTORY_PROBE_CLIENT is not probe_client:
+            return
+        _DEMO_DIRECTORY_PROBE_CLIENT = None
+    _stop_client_service(probe_client)
+    if error:
+        print(f"[WARN] cTrader demo account-directory probe failed: {error}")
+
+
+def _cancel_demo_directory_probe() -> bool:
+    global _DEMO_DIRECTORY_PROBE_CLIENT
+    with _demo_directory_probe_lock:
+        probe_client = _DEMO_DIRECTORY_PROBE_CLIENT
+        _DEMO_DIRECTORY_PROBE_CLIENT = None
     if probe_client is None:
         return False
     _stop_client_service(probe_client)
     return True
 
 
-def _account_directory_probe_is_current(host_type: str, probe_client) -> bool:
-    host = _normalize_host_type(host_type)
-    with _account_directory_lock:
-        return _ACCOUNT_DIRECTORY_PROBE_CLIENTS.get(host) is probe_client
-
-
-def _finish_account_directory_probe(
-    host_type: str,
-    probe_client,
-    *,
-    error: str | None = None,
-) -> None:
-    host = _normalize_host_type(host_type)
-    with _account_directory_lock:
-        if _ACCOUNT_DIRECTORY_PROBE_CLIENTS.get(host) is not probe_client:
-            return
-        _ACCOUNT_DIRECTORY_PROBE_CLIENTS.pop(host, None)
-        _ACCOUNT_DIRECTORY_PROBE_ERRORS[host] = error
-    _stop_client_service(probe_client)
-    if error:
-        print(f"[WARN] cTrader {host} account-directory probe failed: {error}")
-
-
-def _account_directory_probe_list_cb(res, host_type: str, probe_client):
-    payload = Protobuf.extract(res)
-    accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
-    _replace_account_directory_host(host_type, accounts)
-    merged_count = len(get_available_accounts())
-    print(
-        f"[CTRADER DIRECTORY] {host_type} probe returned {len(accounts)} account(s); "
-        f"merged token-granted directory has {merged_count} account(s)."
-    )
-    _finish_account_directory_probe(host_type, probe_client)
-    return None
-
-
-def _account_directory_probe_error_cb(
-    failure,
-    host_type: str,
-    probe_client,
-    *,
-    stage: str,
-):
-    if not _account_directory_probe_is_current(host_type, probe_client):
+def _demo_directory_probe_error(failure, probe_client, *, stage: str):
+    if not _demo_directory_probe_is_current(probe_client):
         return None
     current_stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
-    if stage == "app_auth" and current_stage != "app_auth":
-        # A prior already-authorized signal or timeout fallback already advanced
-        # the probe; consume the stale auth Deferred failure.
+    if current_stage != stage:
         return None
-    if stage == "app_auth":
-        is_timeout = False
-        try:
-            is_timeout = bool(failure.check(DeferredTimeoutError))
-        except Exception:
-            is_timeout = isinstance(failure, DeferredTimeoutError)
-        if is_timeout:
-            print(
-                f"[CTRADER DIRECTORY] {host_type} probe app-auth response timed out; "
-                "testing authorization with account discovery."
-            )
-            _account_directory_probe_send_list(host_type, probe_client)
-            return None
-    _finish_account_directory_probe(
-        host_type,
-        probe_client,
-        error=f"{stage}: {failure}",
-    )
+    _finish_demo_directory_probe(probe_client, error=f"{stage}: {failure}")
     return None
 
 
-def _account_directory_probe_send_list(host_type: str, probe_client):
-    if not _account_directory_probe_is_current(host_type, probe_client):
+def _demo_directory_probe_send_account_list(probe_client):
+    if not _demo_directory_probe_is_current(probe_client):
         return None
     if getattr(probe_client, "_tradeagent_directory_stage", None) == "account_list":
         return None
     probe_client._tradeagent_directory_stage = "account_list"
-    print(f"[CTRADER DIRECTORY] {host_type} probe app authorized; requesting token accounts.")
+    print("[CTRADER DIRECTORY] demo directory probe authorized; requesting token accounts.")
     req = ProtoOAGetAccountListByAccessTokenReq(accessToken=ACCESS_TOKEN)
-    # cTrader's Python sample treats protocol replies as incoming messages.
-    # Do not depend on the Deferred success callback because a server reply can
-    # arrive without echoing the SDK-generated clientMsgId.
     return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
         lambda _: None,
-        lambda failure: _account_directory_probe_error_cb(
+        lambda failure: _demo_directory_probe_error(
             failure,
-            host_type,
             probe_client,
             stage="account_list",
         ),
     )
 
 
-def _account_directory_probe_message_received(
-    source_client,
-    message,
-    host_type: str,
-    probe_client,
-) -> None:
-    if source_client is not probe_client:
-        return
-    if not _account_directory_probe_is_current(host_type, probe_client):
+def _demo_directory_probe_message_received(source_client, message, probe_client) -> None:
+    if source_client is not probe_client or not _demo_directory_probe_is_current(probe_client):
         return
     try:
         payload = Protobuf.extract(message)
     except Exception:
         return
+
     message_name = payload.__class__.__name__
     stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
 
     if message_name == "ProtoOAApplicationAuthRes":
         if stage == "app_auth":
-            print(f"[CTRADER DIRECTORY] {host_type} probe application-auth response received.")
-            _account_directory_probe_send_list(host_type, probe_client)
+            _demo_directory_probe_send_account_list(probe_client)
         return
 
     if message_name == "ProtoOAGetAccountListByAccessTokenRes":
         if stage == "account_list":
-            _account_directory_probe_list_cb(message, host_type, probe_client)
+            accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
+            _apply_account_directory(accounts)
+            print(
+                f"[CTRADER DIRECTORY] demo directory probe returned {len(accounts)} "
+                "token-granted account(s)."
+            )
+            _finish_demo_directory_probe(probe_client)
         return
 
     if message_name != "ProtoOAErrorRes":
         return
 
-    raw_error_code = getattr(payload, "errorCode", -1)
-    try:
-        error_code = int(raw_error_code)
-    except (TypeError, ValueError):
-        error_code = str(raw_error_code or "").strip().upper()
+    error_code = str(getattr(payload, "errorCode", "") or "").strip().upper()
     description = str(getattr(payload, "description", "") or "").strip()
-    if stage == "app_auth" and error_code in {14, 103, "ALREADY_LOGGED_IN", "CH_CLIENT_ALREADY_AUTHENTICATED"}:
-        # cTrader: ALREADY_LOGGED_IN / CH_CLIENT_ALREADY_AUTHENTICATED.
-        # Both mean this connection is already application-authorized, so the
-        # account-list request is the correct next step.
-        print(
-            f"[CTRADER DIRECTORY] {host_type} probe reported already-authorized "
-            f"application ({error_code}); continuing with account discovery."
-        )
-        _account_directory_probe_send_list(host_type, probe_client)
+    if stage == "app_auth" and error_code in {
+        "ALREADY_LOGGED_IN",
+        "CH_CLIENT_ALREADY_AUTHENTICATED",
+    }:
+        _demo_directory_probe_send_account_list(probe_client)
         return
-    _finish_account_directory_probe(
-        host_type,
+    _finish_demo_directory_probe(
         probe_client,
         error=f"{stage or 'unknown'}: cTrader error {error_code} {description}".strip(),
     )
 
 
-def _account_directory_probe_connected(connected_client, host_type: str, probe_client):
-    if connected_client is not probe_client:
-        return None
-    if not _account_directory_probe_is_current(host_type, probe_client):
-        return None
-    if getattr(probe_client, "_tradeagent_directory_stage", None) == "app_auth":
+def _demo_directory_probe_connected(connected_client, probe_client):
+    if connected_client is not probe_client or not _demo_directory_probe_is_current(probe_client):
         return None
     probe_client._tradeagent_directory_stage = "app_auth"
-    print(f"[CTRADER DIRECTORY] {host_type} probe connected; authorizing application.")
+    print("[CTRADER DIRECTORY] demo directory probe connected; authorizing application.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
-    # Advance from ProtoOAApplicationAuthRes in the incoming message callback,
-    # matching Spotware's official Python sample instead of relying on the
-    # Deferred response correlation.
     return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
         lambda _: None,
-        lambda failure: _account_directory_probe_error_cb(
+        lambda failure: _demo_directory_probe_error(
             failure,
-            host_type,
             probe_client,
             stage="app_auth",
         ),
     )
 
 
-def _account_directory_probe_disconnected(
-    disconnected_client,
-    reason,
-    host_type: str,
-    probe_client,
-) -> None:
-    if disconnected_client is not probe_client:
-        return
-    with _account_directory_lock:
-        is_current_probe = _ACCOUNT_DIRECTORY_PROBE_CLIENTS.get(host_type) is probe_client
-    if is_current_probe:
-        _finish_account_directory_probe(
-            host_type,
+def _demo_directory_probe_disconnected(disconnected_client, reason, probe_client) -> None:
+    if disconnected_client is probe_client and _demo_directory_probe_is_current(probe_client):
+        _finish_demo_directory_probe(
             probe_client,
             error=f"disconnected before account discovery completed: {reason}",
         )
 
 
-def _start_account_directory_probe(host_type: str) -> bool:
-    """Discover accounts from the opposite cTrader environment without changing the active trading client."""
-    host = _normalize_host_type(host_type)
-    if host == CLIENT_HOST_TYPE or not getattr(reactor, "running", False):
+def _start_demo_directory_probe() -> bool:
+    """Refresh the token-granted account directory through cTrader's Demo endpoint."""
+    global _DEMO_DIRECTORY_PROBE_CLIENT
+    if CLIENT_HOST_TYPE != "live" or not getattr(reactor, "running", False):
         return False
-    with _account_directory_lock:
-        if host in _ACCOUNT_DIRECTORY_PROBE_CLIENTS:
+    with _demo_directory_probe_lock:
+        if _DEMO_DIRECTORY_PROBE_CLIENT is not None:
             return False
-        probe_client = _new_client(host)
-        _ACCOUNT_DIRECTORY_PROBE_CLIENTS[host] = probe_client
-        _ACCOUNT_DIRECTORY_PROBE_ERRORS[host] = None
+        probe_client = _new_client("demo")
+        _DEMO_DIRECTORY_PROBE_CLIENT = probe_client
 
     probe_client.setConnectedCallback(
-        lambda connected_client: _account_directory_probe_connected(
+        lambda connected_client: _demo_directory_probe_connected(
             connected_client,
-            host,
             probe_client,
         )
     )
     probe_client.setDisconnectedCallback(
-        lambda disconnected_client, reason: _account_directory_probe_disconnected(
+        lambda disconnected_client, reason: _demo_directory_probe_disconnected(
             disconnected_client,
             reason,
-            host,
             probe_client,
         )
     )
     probe_client.setMessageReceivedCallback(
-        lambda source_client, message: _account_directory_probe_message_received(
+        lambda source_client, message: _demo_directory_probe_message_received(
             source_client,
             message,
-            host,
             probe_client,
         )
     )
     try:
         probe_client.startService()
     except Exception as exc:
-        _finish_account_directory_probe(host, probe_client, error=str(exc))
+        _finish_demo_directory_probe(probe_client, error=str(exc))
         return False
     return True
 
@@ -1000,13 +856,34 @@ def app_auth_cb(_, source_client=None):
         return None
     active_client = source_client or client
     LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
-    _clear_account_directory_host(CLIENT_HOST_TYPE)
-    ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = None
+
+    if CLIENT_HOST_TYPE == "live":
+        # Spotware's own multi-environment sample obtains the token account
+        # directory through the Demo client. The Live client only authenticates
+        # and operates the selected Live account.
+        _start_demo_directory_probe()
+        ACCOUNT_IS_DEMO = False
+        account_id = int(ACCOUNT_ID)
+        req = ProtoOAAccountAuthReq(
+            ctidTraderAccountId=account_id,
+            accessToken=ACCESS_TOKEN,
+        )
+        return active_client.send(req).addCallbacks(
+            lambda response: account_auth_cb(response, active_client, account_id),
+            lambda failure: _session_error(
+                failure,
+                active_client,
+                account_id,
+            ),
+        )
+
+    AVAILABLE_ACCOUNTS.clear()
+    ACCOUNT_IS_DEMO = None
     req = ProtoOAGetAccountListByAccessTokenReq(
         accessToken=ACCESS_TOKEN,
     )
-    active_client.send(req).addCallbacks(
+    return active_client.send(req).addCallbacks(
         lambda response: account_list_response_cb(response, active_client),
         lambda failure: account_list_error_cb(failure, active_client),
     )
@@ -1036,7 +913,7 @@ def _on_disconnected(disconnected_client, reason):
         return
     _clear_asset_cache()
     _clear_symbol_metadata()
-    _clear_account_directory_host(CLIENT_HOST_TYPE)
+    AVAILABLE_ACCOUNTS.clear()
     CONNECTED = False
     AUTHORIZED = False
     ACCOUNT_IS_DEMO = None
@@ -1194,7 +1071,7 @@ def configure_target_account(account_id: int, account_type: str) -> None:
         ACCOUNT_SWITCH_IN_PROGRESS = False
         ACCOUNT_SWITCH_TARGET_ID = None
         ACCOUNT_SWITCH_ERROR = None
-        _clear_account_directory()
+        AVAILABLE_ACCOUNTS.clear()
         _clear_asset_cache()
         _clear_symbol_metadata()
         if CLIENT_HOST_TYPE != target_host:
@@ -1234,7 +1111,8 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
         # itself; _on_connected() will authenticate the desired account.
         return
 
-    _cancel_account_directory_probe(target_host)
+    if target_host == "demo":
+        _cancel_demo_directory_probe()
     next_client = _new_client(target_host)
     _configure_client_callbacks(next_client)
     client = next_client
