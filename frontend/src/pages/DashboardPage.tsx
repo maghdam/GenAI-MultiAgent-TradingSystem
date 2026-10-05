@@ -280,6 +280,7 @@ export default function DashboardPage() {
         ctraderAccounts={ctraderAccounts}
         ctraderAccountBusy={accountBusy}
         ctraderAccountSwitchInProgress={status?.broker.account_switch_in_progress ?? false}
+        liveTradingArmed={status?.live_trading_armed ?? false}
         onCTraderAccountChange={handleCTraderAccountChange}
       />
 
