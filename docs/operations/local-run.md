@@ -84,7 +84,7 @@ Account switching is deliberately guarded:
 - account switching is blocked while TradeAgent tracks an open broker-backed position
 - when the engine is active, stop it or activate the kill switch before switching accounts
 
-> **Live-account warning:** use Demo for development/testing. Once a Live account is selected and authenticated, enabling `cTrader auto-trade` plus per-symbol `Auto-trade` with the kill switch off can place real-money orders. Live uses the same verified monetary snapshot, symbol-contract metadata, risk sizing, protective-stop, position-limit, daily-loss, reconciliation, recovery, and audit controls as Demo; those safeguards reduce risk but do not make live trading risk-free.
+> **Live-account warning:** use Demo for development/testing. A Live account can be selected for broker truth without arming real-money entries. New Live orders require `cTrader auto-trade`, per-symbol `Auto-trade`, kill switch off, and the runtime-only **Arm Live Trading** control in System for the currently selected/active Live account. Arming requires the engine to be stopped and resets on account changes, engine restart, and backend restart. Existing broker-backed positions continue through protection/reconciliation/verified-close handling even when Live entry arming is off.
 
 ## Runtime SQLite Database
 
