@@ -1372,6 +1372,7 @@ A real operator review on 2026-10-05 confirmed that the verified cTrader account
 - [x] Preserve the authorization boundary: accounts visible in the cTrader platform but not granted to the current access token are not invented or exposed by TradeAgent.
 - [x] Add focused regression coverage for mixed Demo/Live rows returned from the Demo directory source and for Live transport + Demo directory separation.
 - [x] Require an explicitly selected cTrader account before cTrader auto-trade can be enabled.
+- [x] Keep bootstrap-active transport truth distinct from persisted operator selection; if no account is explicitly selected, the UI must show no selected account rather than silently treating the active fallback account as selected.
 - [x] Keep Live accounts visible/selectable for broker truth, but default new real-money entry submission to disarmed.
 - [x] Add a runtime-only, account-bound Live Trading arm; it is not persisted across backend restart.
 - [x] Automatically disarm Live Trading on account changes and engine restart.
