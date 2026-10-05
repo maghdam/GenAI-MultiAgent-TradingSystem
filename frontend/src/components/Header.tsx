@@ -81,6 +81,7 @@ export default function Header({
 }: HeaderProps) {
   const resolvedStrategyOptions = Array.from(new Set([...(strategyOptions || []), strategy]));
   const selectedCTraderAccount = ctraderAccounts.find((account) => account.selected);
+  const activeCTraderAccount = ctraderAccounts.find((account) => account.active);
   const accountLabel = (account: V2CTraderAccount) => {
     const broker = account.broker_title || 'cTrader';
     const login = account.trader_login ?? account.account_id;
@@ -206,8 +207,12 @@ export default function Header({
                   ))}
                 </select>
               </label>
+              <span className="ta-status" title="Currently authenticated cTrader transport account.">
+                <span className={`ta-status__dot ${activeCTraderAccount ? 'ta-status__dot--ok' : 'ta-status__dot--wait'}`} />
+                {activeCTraderAccount ? `Active: ${accountLabel(activeCTraderAccount)}` : 'Active: none'}
+              </span>
               {selectedCTraderAccount?.account_type === 'live' && (
-                <span className="ta-status" title="Live account: eligible cTrader orders use real funds when execution gates permit.">
+                <span className="ta-status" title="Selected Live account: eligible cTrader orders use real funds after the account becomes active and execution gates permit.">
                   <span className="ta-status__dot ta-status__dot--bad" />
                   LIVE MONEY
                 </span>
