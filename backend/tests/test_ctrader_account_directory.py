@@ -21,6 +21,75 @@ class _Deferred:
         return self
 
 
+def test_probe_already_logged_in_event_advances_to_account_list(monkeypatch) -> None:
+    sent = []
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
+    monkeypatch.setattr(
+        ctd,
+        "_ACCOUNT_DIRECTORY_PROBE_CLIENTS",
+        {"live": probe},
+    )
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: SimpleNamespace(
+            __class__=SimpleNamespace(__name__="ProtoOAErrorRes"),
+            errorCode=14,
+            description="Open API application is already authorized",
+        ),
+    )
+
+    class _ErrorPayload:
+        errorCode = 14
+        description = "Open API application is already authorized"
+
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: _ErrorPayload(),
+    )
+    _ErrorPayload.__name__ = "ProtoOAErrorRes"
+
+    ctd._account_directory_probe_message_received(
+        probe,
+        object(),
+        "live",
+        probe,
+    )
+
+    assert probe._tradeagent_directory_stage == "account_list"
+    assert len(sent) == 1
+    assert sent[0][1]["responseTimeoutInSeconds"] == 15
+
+
+def test_stale_probe_auth_timeout_is_consumed_after_account_list_started(monkeypatch) -> None:
+    probe = SimpleNamespace(_tradeagent_directory_stage="account_list")
+    monkeypatch.setattr(
+        ctd,
+        "_ACCOUNT_DIRECTORY_PROBE_CLIENTS",
+        {"live": probe},
+    )
+    finished = []
+    monkeypatch.setattr(
+        ctd,
+        "_finish_account_directory_probe",
+        lambda *args, **kwargs: finished.append((args, kwargs)),
+    )
+
+    result = ctd._account_directory_probe_error_cb(
+        RuntimeError("late auth timeout"),
+        "live",
+        probe,
+        stage="app_auth",
+    )
+
+    assert result is None
+    assert finished == []
+
+
 def test_account_directory_probe_waits_for_running_reactor(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
     monkeypatch.setattr(ctd.reactor, "running", False, raising=False)
