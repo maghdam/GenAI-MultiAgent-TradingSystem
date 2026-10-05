@@ -1354,31 +1354,33 @@ This phase changes documentation and operator guidance only. It does not alter r
 **Status:** 🧪
 
 **Trigger**
-A real operator review of the merged Phase 10 UI on 2026-10-05 first confirmed that account selection was available on the System page but not on the main Trade dashboard. After the selector was exposed on Trade, live browser evidence showed a second correctness gap: the active Demo-host connection returned only four Demo accounts while the cTrader platform showed additional FP Trading Demo accounts plus an FP Trading Live account. cTrader documents both that Demo/Live Open API environments are separate and that an access token only exposes accounts explicitly granted during authorization. Therefore TradeAgent must discover both environments while truthfully listing only accounts granted to the current access token.
+A real operator review on 2026-10-05 confirmed that the verified cTrader account selector was only exposed on System, not on the main Trade dashboard. After the selector was added to Trade, the cTrader platform showed more accounts than the current Open API token returned. Field testing and Spotware's official multi-environment sample clarified the correct boundary: the token-granted account directory is obtained through the Demo client, each returned account carries its broker-reported `isLive` flag, and that flag determines whether Demo or Live must be used later for account authorization/trading. The current token presently returns four Demo accounts; the additional FP Trading accounts shown in cTrader must be explicitly granted through OAuth before TradeAgent can expose them.
 
 **Target behavior**
 - [x] Reuse the existing authorized cTrader account directory on the Trade dashboard.
-- [x] Discover and merge token-granted account lists from both cTrader Demo and Live endpoints without changing the active trading transport.
-- [x] Preserve the authorization boundary: accounts visible in the cTrader platform but not granted to the current access token are not invented or exposed by TradeAgent.
-- [x] Use a short-lived opposite-environment discovery connection and keep the existing selected account transport as the only active trading client.
-- [x] Prevent redundant discovery connections during Demo↔Live account switching and do not start a probe before the Twisted reactor is running.
-- [x] Handle real-broker already-authorized probe responses and stale SDK Deferred timeouts without discarding the opposite-environment account directory.
-- [x] If application-auth response times out, perform one account-directory request as the authoritative authorization check; succeed only if cTrader returns the token-granted account list.
-- [x] Process application-auth and account-directory responses from the incoming protocol message stream, matching Spotware's official Python SDK sample instead of depending on Deferred success correlation.
-- [x] Add focused regression coverage for merged Demo/Live host discovery and preservation of the active-host account list.
 - [x] Show broker title, broker-reported Demo/Live type, and trader login/account number in the Trade toolbar.
 - [x] Show saved selection and currently authenticated active-account truth distinctly on the Trade toolbar.
 - [x] Mark the currently authenticated account as Active.
 - [x] Use the existing `POST /api/broker/accounts/select` path and existing transport-switching/safety guards rather than creating a second account-selection mechanism.
 - [x] Disable the selector while an account switch is in progress and surface account-directory/selection failures on the Trade page.
 - [x] Show an explicit LIVE MONEY warning when the selected account is Live.
-- [ ] Local frontend production build passes.
-- [ ] Local browser verification confirms the selector is visible on the Trade dashboard and reflects the authorized account directory.
+- [x] Treat the Demo endpoint as the authoritative source for the token-granted account directory, matching Spotware's multi-environment sample.
+- [x] Preserve each broker-reported `isLive` value and use it to route later account authorization/trading to the correct Demo or Live host.
+- [x] Reuse the active Demo trading connection for directory discovery when Demo is selected.
+- [x] When Live is selected, authenticate/trade on the Live connection while refreshing the directory through a short-lived Demo-only discovery connection.
+- [x] Do not query the Live endpoint for `ProtoOAGetAccountListByAccessTokenReq`.
+- [x] Preserve the authorization boundary: accounts visible in the cTrader platform but not granted to the current access token are not invented or exposed by TradeAgent.
+- [x] Add focused regression coverage for mixed Demo/Live rows returned from the Demo directory source and for Live transport + Demo directory separation.
+- [x] Local frontend production build passed on the Phase 10.6 frontend implementation (701 modules).
+- [x] Local browser verification confirmed the selector is visible directly on the Trade dashboard.
+- [x] GitHub CI #338 passed on the pre-simplification implementation head; final-head CI remains required.
+- [ ] Re-authorize the cTrader Open API token with the intended FP Trading Demo/Live accounts and confirm the Demo-sourced directory returns them.
 - [ ] Local Demo/Live selection smoke check confirms selected-versus-active truth and existing switching guards remain intact.
-- [ ] GitHub CI passes on the final implementation head.
+- [ ] Full backend regression passes on the final simplified implementation head.
+- [ ] GitHub CI passes on the final simplified implementation head.
 
 **Scope boundary**
-This item changes account-directory discovery plus Trade-page UX only. It does not change persisted account selection, the selected account's trading transport, Demo↔Live transport replacement, execution eligibility, broker credentials, risk controls, or the global 0.60 signal-strength threshold. The secondary connection is discovery-only and is stopped after the opposite environment's authorized account list is received.
+This item changes account-directory refresh behavior plus Trade-page UX only. It does not change persisted account selection, Demo↔Live transport replacement, execution eligibility, broker credentials, risk controls, or the global 0.60 signal-strength threshold. The account directory reflects only accounts granted to the current cTrader Open API access token.
 
 ---
 
