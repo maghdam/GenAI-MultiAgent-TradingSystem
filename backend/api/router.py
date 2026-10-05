@@ -821,12 +821,35 @@ async def v2_set_config(config: EngineConfig) -> EngineConfig:
             detail="Select a cTrader account before enabling cTrader auto-trade.",
         )
 
-    if (
-        not config.ctrader_autotrade
-        or config.selected_ctrader_account_id != current.selected_ctrader_account_id
+    selection_changed = (
+        config.selected_ctrader_account_id != current.selected_ctrader_account_id
         or config.selected_ctrader_account_type != current.selected_ctrader_account_type
-    ):
+    )
+    if not config.ctrader_autotrade or selection_changed:
         disarm_live_trading()
+
+    if config.enabled and config.ctrader_autotrade:
+        broker = await asyncio.to_thread(get_broker_status)
+        if (
+            not broker.account_verified
+            or broker.account_id != config.selected_ctrader_account_id
+            or broker.account_type != config.selected_ctrader_account_type
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The selected cTrader account must be the authenticated active "
+                    "account before saving an enabled cTrader auto-trade configuration."
+                ),
+            )
+        if broker.account_type == "live" and not is_live_trading_armed(broker.account_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Live Trading is disarmed. Arm the active Live account explicitly "
+                    "before saving an enabled cTrader auto-trade configuration."
+                ),
+            )
 
     saved = save_engine_config(config)
     engine.wake()
