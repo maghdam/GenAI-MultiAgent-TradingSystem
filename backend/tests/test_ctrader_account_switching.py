@@ -397,12 +397,19 @@ def test_account_auth_event_completes_live_switch_without_deferred_correlation(m
     replacement.isConnected = True
     replacement.connected_callback(replacement)
 
-    _, app_auth_deferred = replacement.sent[0]
+    app_auth_request, app_auth_deferred = replacement.sent[0]
+    assert app_auth_request.__class__.__name__ == "ProtoOAApplicationAuthReq"
+    assert replacement.sent_kwargs[0]["clientMsgId"].startswith(
+        "tradeagent:live-application-auth:none:"
+    )
     app_auth_success, _ = app_auth_deferred.callbacks
     app_auth_success(object())
 
     assert len(replacement.sent) == 2
     _, account_auth_deferred = replacement.sent[1]
+    assert replacement.sent_kwargs[1]["clientMsgId"].startswith(
+        "tradeagent:live-account-auth:333:"
+    )
     assert account_auth_deferred.callbacks is not None
     assert ctd.AUTHORIZED is False
     assert ctd.ACCOUNT_SWITCH_IN_PROGRESS is True
