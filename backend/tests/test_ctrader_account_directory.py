@@ -30,6 +30,7 @@ def test_live_app_auth_uses_live_account_and_starts_demo_directory_probe(monkeyp
     monkeypatch.setattr(ctd, "client", active_client)
     monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 47139918)
+    monkeypatch.setattr(ctd, "ACCESS_TOKEN", "test-token")
     monkeypatch.setattr(ctd, "_start_demo_directory_probe", lambda: probes.append(True) or True)
 
     deferred = ctd.app_auth_cb(object(), active_client)
