@@ -769,9 +769,11 @@ def _demo_directory_probe_send_account_list(probe_client):
     probe_client._tradeagent_directory_stage = "account_list"
     print("[CTRADER DIRECTORY] demo directory probe authorized; requesting token accounts.")
     req = ProtoOAGetAccountListByAccessTokenReq(accessToken=ACCESS_TOKEN)
+    request_id = _request_client_msg_id("demo-directory-account-list")
+    probe_client._tradeagent_directory_client_msg_id = request_id
     return probe_client.send(
         req,
-        clientMsgId=_request_client_msg_id("demo-directory-account-list"),
+        clientMsgId=request_id,
         responseTimeoutInSeconds=15,
     ).addCallbacks(
         lambda _: None,
@@ -813,11 +815,26 @@ def _demo_directory_probe_message_received(source_client, message, probe_client)
     if message_name != "ProtoOAErrorRes":
         return
 
-    client_msg_id = getattr(message, "clientMsgId", None) or "<none>"
-    print(
-        f"[CTRADER DIRECTORY ERROR CONTEXT] client_msg_id={client_msg_id} "
-        f"stage={stage or 'unknown'}"
+    client_msg_id = str(getattr(message, "clientMsgId", None) or "")
+    expected_msg_id = str(
+        getattr(probe_client, "_tradeagent_directory_client_msg_id", "") or ""
     )
+    matches_request = bool(
+        client_msg_id
+        and expected_msg_id
+        and client_msg_id == expected_msg_id
+    )
+    print(
+        f"[CTRADER DIRECTORY ERROR CONTEXT] "
+        f"client_msg_id={client_msg_id or '<none>'} "
+        f"expected_client_msg_id={expected_msg_id or '<none>'} "
+        f"stage={stage or 'unknown'} matched={matches_request}"
+    )
+    if not matches_request:
+        # cTrader can emit connection-level errors that are not responses to
+        # the probe's current request. Do not tear down account discovery
+        # unless the error is correlated to the outstanding probe request.
+        return
     error_code = str(getattr(payload, "errorCode", "") or "").strip().upper()
     description = str(getattr(payload, "description", "") or "").strip()
     if stage == "app_auth" and error_code in {
@@ -838,9 +855,11 @@ def _demo_directory_probe_connected(connected_client, probe_client):
     probe_client._tradeagent_directory_stage = "app_auth"
     print("[CTRADER DIRECTORY] demo directory probe connected; authorizing application.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
+    request_id = _request_client_msg_id("demo-directory-app-auth")
+    probe_client._tradeagent_directory_client_msg_id = request_id
     return probe_client.send(
         req,
-        clientMsgId=_request_client_msg_id("demo-directory-app-auth"),
+        clientMsgId=request_id,
         responseTimeoutInSeconds=15,
     ).addCallbacks(
         lambda _: None,
