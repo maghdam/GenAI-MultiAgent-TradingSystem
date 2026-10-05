@@ -530,6 +530,16 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
         return None
     active_client = source_client or client
     active_account_id = _account_id_int(expected_account_id or ACCOUNT_ID)
+    if (
+        AUTHORIZED
+        and active_account_id is not None
+        and ACTIVE_ACCOUNT_ID == active_account_id
+        and ACTIVE_HOST_TYPE == CLIENT_HOST_TYPE
+    ):
+        # Spotware's Python sample handles ProtoOAAccountAuthRes from the
+        # message stream. The SDK may also resolve the request Deferred for
+        # the same response, so keep this handler idempotent.
+        return None
     AUTHORIZED = True
     AUTH_ERROR = None
     ACCOUNT_VERIFICATION_ERROR = None
@@ -1083,6 +1093,21 @@ def _configure_client_callbacks(target_client) -> None:
             print(f"[CTRADER EVENT] decode_error: {e}")
             return
         _log_event(event)
+
+        # Spotware's official OpenApiPy samples treat successful account auth
+        # as a broker event. Do not require the SDK request Deferred to resolve:
+        # some Live sessions deliver ProtoOAAccountAuthRes without satisfying
+        # that correlation path.
+        if event.__class__.__name__ == "ProtoOAAccountAuthRes":
+            event_account_id = _account_id_int(
+                getattr(event, "ctidTraderAccountId", None)
+            )
+            if event_account_id == _account_id_int(ACCOUNT_ID):
+                account_auth_cb(
+                    event,
+                    source_client,
+                    event_account_id,
+                )
 
     target_client.setMessageReceivedCallback(_on_message)
 
