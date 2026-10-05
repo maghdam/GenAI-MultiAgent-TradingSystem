@@ -21,6 +21,18 @@ class _Deferred:
         return self
 
 
+def test_account_directory_probe_waits_for_running_reactor(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd.reactor, "running", False, raising=False)
+    monkeypatch.setattr(
+        ctd,
+        "_new_client",
+        lambda host_type: pytest.fail(f"unexpected probe client for {host_type}"),
+    )
+
+    assert ctd._start_account_directory_probe("live") is False
+
+
 def test_account_directory_merges_demo_and_live_host_results(monkeypatch) -> None:
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
     monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 47140414)
