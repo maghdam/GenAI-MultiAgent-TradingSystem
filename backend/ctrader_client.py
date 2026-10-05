@@ -1128,6 +1128,29 @@ def _format_payload(payload) -> str:
     return txt
 
 
+def _route_main_message_to_demo_directory_probe(message) -> bool:
+    """Forward a probe-correlated broker response that arrived on the main client."""
+    probe_client = _DEMO_DIRECTORY_PROBE_CLIENT
+    if probe_client is None or not _demo_directory_probe_is_current(probe_client):
+        return False
+    client_msg_id = str(getattr(message, "clientMsgId", None) or "")
+    expected_msg_id = str(
+        getattr(probe_client, "_tradeagent_directory_client_msg_id", "") or ""
+    )
+    if not client_msg_id or not expected_msg_id or client_msg_id != expected_msg_id:
+        return False
+    print(
+        f"[CTRADER DIRECTORY ROUTE] forwarding client_msg_id={client_msg_id} "
+        "from active client to Demo directory probe."
+    )
+    _demo_directory_probe_message_received(
+        probe_client,
+        message,
+        probe_client,
+    )
+    return True
+
+
 def _configure_client_callbacks(target_client) -> None:
     target_client.setConnectedCallback(_on_connected)
     target_client.setDisconnectedCallback(_on_disconnected)
@@ -1144,6 +1167,11 @@ def _configure_client_callbacks(target_client) -> None:
         if event.__class__.__name__ == "ProtoOAErrorRes":
             client_msg_id = getattr(message, "clientMsgId", None) or "<none>"
             print(f"[CTRADER ERROR CONTEXT] client_msg_id={client_msg_id}")
+
+        # The cTrader SDK can deliver a response for the short-lived Demo
+        # directory probe through the active client callback. Correlate on the
+        # explicit client message ID and hand that response back to the probe.
+        _route_main_message_to_demo_directory_probe(message)
 
         # Spotware's official OpenApiPy samples treat successful account auth
         # as a broker event. Do not require the SDK request Deferred to resolve:
