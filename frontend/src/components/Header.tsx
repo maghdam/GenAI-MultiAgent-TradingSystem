@@ -42,6 +42,7 @@ interface HeaderProps {
   ctraderAccounts?: V2CTraderAccount[];
   ctraderAccountBusy?: boolean;
   ctraderAccountSwitchInProgress?: boolean;
+  liveTradingArmed?: boolean;
   onCTraderAccountChange?: (accountId: number) => void;
   /* new props for the toolbar */
   symbol?: string;
@@ -75,6 +76,7 @@ export default function Header({
   ctraderAccounts = [],
   ctraderAccountBusy = false,
   ctraderAccountSwitchInProgress = false,
+  liveTradingArmed = false,
   onCTraderAccountChange,
   timeframe,
   onTimeframeChange,
@@ -212,9 +214,16 @@ export default function Header({
                 {activeCTraderAccount ? `Active: ${accountLabel(activeCTraderAccount)}` : 'Active: none'}
               </span>
               {selectedCTraderAccount?.account_type === 'live' && (
-                <span className="ta-status" title="Selected Live account: eligible cTrader orders use real funds after the account becomes active and execution gates permit.">
-                  <span className="ta-status__dot ta-status__dot--bad" />
-                  LIVE MONEY
+                <span
+                  className="ta-status"
+                  title={
+                    liveTradingArmed
+                      ? 'Selected Live account is armed for real-money entries; all normal execution gates still apply.'
+                      : 'Selected Live account is disarmed; new real-money entries are blocked until Live Trading is armed in System.'
+                  }
+                >
+                  <span className={`ta-status__dot ${liveTradingArmed ? 'ta-status__dot--bad' : 'ta-status__dot--wait'}`} />
+                  {liveTradingArmed ? 'LIVE MONEY · ARMED' : 'LIVE MONEY · DISARMED'}
                 </span>
               )}
               {ctraderAccountSwitchInProgress && (
