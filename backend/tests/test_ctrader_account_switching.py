@@ -22,6 +22,7 @@ class _FakeClient:
         self.running = running
         self.started = 0
         self.sent: list[tuple[object, _Deferred]] = []
+        self.send_kwargs: list[dict[str, object]] = []
         self.connected_callback = None
         self.disconnected_callback = None
         self.message_callback = None
@@ -42,6 +43,7 @@ class _FakeClient:
     def send(self, request, **kwargs):
         deferred = _Deferred()
         self.sent.append((request, deferred))
+        self.send_kwargs.append(dict(kwargs))
         return deferred
 
 
@@ -79,6 +81,7 @@ def test_same_host_account_switch_reauthenticates_without_replacing_client(monke
     assert len(current.sent) == 1
     account_auth_request, deferred = current.sent[0]
     assert account_auth_request.ctidTraderAccountId == 222
+    assert current.send_kwargs[0]["responseTimeoutInSeconds"] == 15
 
     success, _ = deferred.callbacks
     success(object())
@@ -121,8 +124,16 @@ def test_cross_host_switch_replaces_client_and_ignores_stale_disconnect(monkeypa
 
     assert ctd.CONNECTED is True
     assert len(replacement.sent) == 1
-    app_auth_request, _ = replacement.sent[0]
+    app_auth_request, app_auth_deferred = replacement.sent[0]
     assert app_auth_request.clientId == (ctd.CLIENT_ID or "")
+    assert replacement.send_kwargs[0]["responseTimeoutInSeconds"] == 15
+
+    app_auth_success, _ = app_auth_deferred.callbacks
+    app_auth_success(object())
+    assert len(replacement.sent) == 2
+    account_auth_request, _ = replacement.sent[1]
+    assert account_auth_request.ctidTraderAccountId == 333
+    assert replacement.send_kwargs[1]["responseTimeoutInSeconds"] == 15
 
     ctd._on_disconnected(current, "stale old transport")
 
