@@ -1354,7 +1354,7 @@ This phase changes documentation and operator guidance only. It does not alter r
 **Status:** 🧪
 
 **Trigger**
-A real operator review on 2026-10-05 confirmed that the verified cTrader account selector was only exposed on System, not on the main Trade dashboard. After the selector was added to Trade, the cTrader platform showed more accounts than the current Open API token returned. Field testing and Spotware's official multi-environment sample clarified the correct boundary: the token-granted account directory is obtained through the Demo client, each returned account carries its broker-reported `isLive` flag, and that flag determines whether Demo or Live must be used later for account authorization/trading. The current token presently returns four Demo accounts; the additional FP Trading accounts shown in cTrader must be explicitly granted through OAuth before TradeAgent can expose them.
+A real operator review on 2026-10-05 confirmed that the verified cTrader account selector was only exposed on System, not on the main Trade dashboard. After the selector was added to Trade, the cTrader platform showed more accounts than the current Open API token returned. Field testing and Spotware's official multi-environment sample clarified the correct boundary: the token-granted account directory is obtained through the Demo client, each returned account carries its broker-reported `isLive` flag, and that flag determines whether Demo or Live must be used later for account authorization/trading. OAuth was then re-authorized with the intended accounts and the Demo-sourced directory returned all seven accounts, including FP Trading Live trader login `2123962`. A subsequent real switch attempt was correctly blocked because TradeAgent still tracks open broker-backed XAUUSD position `57748750`. That field evidence exposed one final safety requirement: selecting a Live account must never inherit an already-enabled Demo auto-trade state, so new Live entries now require a separate runtime-only, account-bound Live Trading arm.
 
 **Target behavior**
 - [x] Reuse the existing authorized cTrader account directory on the Trade dashboard.
@@ -1371,16 +1371,25 @@ A real operator review on 2026-10-05 confirmed that the verified cTrader account
 - [x] Do not query the Live endpoint for `ProtoOAGetAccountListByAccessTokenReq`.
 - [x] Preserve the authorization boundary: accounts visible in the cTrader platform but not granted to the current access token are not invented or exposed by TradeAgent.
 - [x] Add focused regression coverage for mixed Demo/Live rows returned from the Demo directory source and for Live transport + Demo directory separation.
+- [x] Require an explicitly selected cTrader account before cTrader auto-trade can be enabled.
+- [x] Keep Live accounts visible/selectable for broker truth, but default new real-money entry submission to disarmed.
+- [x] Add a runtime-only, account-bound Live Trading arm; it is not persisted across backend restart.
+- [x] Automatically disarm Live Trading on account changes and engine restart.
+- [x] Require the selected account to be the authenticated active Live account before arming.
+- [x] Require the engine to be stopped before arming Live Trading.
+- [x] Require Live Trading to be armed before an engine start can proceed with cTrader auto-trade on a Live account.
+- [x] Gate new Live entry submission on the arm while preserving protection, reconciliation, and verified-close handling for already-open broker-backed positions.
+- [x] Surface armed/disarmed Live state in System, Trade setup, status/readiness, incidents, and the Trade toolbar.
 - [x] Local frontend production build passed on the Phase 10.6 frontend implementation (701 modules).
 - [x] Local browser verification confirmed the selector is visible directly on the Trade dashboard.
 - [x] GitHub CI #338 passed on the pre-simplification implementation head; final-head CI remains required.
-- [ ] Re-authorize the cTrader Open API token with the intended FP Trading Demo/Live accounts and confirm the Demo-sourced directory returns them.
+- [x] Re-authorize the cTrader Open API token with the intended FP Trading Demo/Live accounts and confirm the Demo-sourced directory returns all seven intended accounts.
 - [ ] Local Demo/Live selection smoke check confirms selected-versus-active truth and existing switching guards remain intact.
 - [ ] Full backend regression passes on the final simplified implementation head.
 - [ ] GitHub CI passes on the final simplified implementation head.
 
 **Scope boundary**
-This item changes account-directory refresh behavior plus Trade-page UX only. It does not change persisted account selection, Demo↔Live transport replacement, execution eligibility, broker credentials, risk controls, or the global 0.60 signal-strength threshold. The account directory reflects only accounts granted to the current cTrader Open API access token.
+This item changes account-directory refresh behavior, Trade/System UX, and the fail-closed eligibility gate for new Live entries. It does not change persisted account selection, Demo↔Live transport replacement, broker credentials, existing position protection/reconciliation/close safety, sizing/risk limits, or the global 0.60 signal-strength threshold. The account directory reflects only accounts granted to the current cTrader Open API access token. Live arming is deliberately runtime-only and account-bound; it must not silently persist through backend restart or account changes.
 
 ---
 
