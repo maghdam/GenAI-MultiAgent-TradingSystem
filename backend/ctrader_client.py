@@ -373,9 +373,10 @@ def pips_to_relative(pips: int, digits: int) -> int:
     """Convert pips → 1/100000 units (works for 2–5 digit symbols)."""
     return pips * 10 ** (6 - digits)
 
-def on_error(failure):
+def on_error(failure, *, stage: str | None = None):
     global AUTH_ERROR, ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
-    err_msg = str(failure)
+    raw = str(failure)
+    err_msg = f"{stage}: {raw}" if stage else raw
     AUTH_ERROR = err_msg
     if ACCOUNT_SWITCH_IN_PROGRESS:
         ACCOUNT_SWITCH_IN_PROGRESS = False
@@ -388,11 +389,13 @@ def _session_error(
     failure,
     source_client=None,
     expected_account_id: int | None = None,
+    *,
+    stage: str | None = None,
 ):
     """Ignore late failures emitted by a superseded client/account session."""
     if not _is_current_session(source_client, expected_account_id):
         return failure
-    on_error(failure)
+    on_error(failure, stage=stage)
     return failure
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
@@ -537,6 +540,10 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
     ACCOUNT_SWITCH_TARGET_ID = None
     ACCOUNT_SWITCH_ERROR = None
     _refresh_account_flags()
+    print(
+        f"[CTRADER AUTH] account authorized id={active_account_id} "
+        f"host={ACTIVE_HOST_TYPE or 'unknown'}."
+    )
 
     # Phase 1: Fetch asset classes
     req = ProtoOAAssetClassListReq(
@@ -670,6 +677,7 @@ def account_list_response_cb(res, source_client=None):
             failure,
             active_client,
             account_id,
+            stage=f"cTrader {expected_host} account auth {account_id}",
         ),
     )
 
@@ -873,6 +881,10 @@ def app_auth_cb(_, source_client=None):
             ctidTraderAccountId=account_id,
             accessToken=ACCESS_TOKEN,
         )
+        print(
+            f"[CTRADER AUTH] application authorized host=live; "
+            f"sending account auth id={account_id}."
+        )
         return active_client.send(
             req,
             responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
@@ -882,6 +894,7 @@ def app_auth_cb(_, source_client=None):
                 failure,
                 active_client,
                 account_id,
+                stage=f"cTrader live account auth {account_id}",
             ),
         )
 
@@ -907,13 +920,19 @@ def _on_connected(connected_client):
     AUTH_ERROR = None
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = None
+    host_type = CLIENT_HOST_TYPE
+    print(f"[CTRADER AUTH] connected host={host_type}; sending application auth.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
     connected_client.send(
         req,
         responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
     ).addCallbacks(
         lambda response: app_auth_cb(response, connected_client),
-        lambda failure: _session_error(failure, connected_client),
+        lambda failure: _session_error(
+            failure,
+            connected_client,
+            stage=f"cTrader {host_type} application auth",
+        ),
     )
 
 
@@ -1019,7 +1038,29 @@ def _log_event(event) -> None:
         print(f"[CTRADER EVENT] {name}: {summary}")
 
 
+def _redact_sensitive_payload(value):
+    """Remove credential material before broker messages are written to logs."""
+    sensitive_keys = {
+        "accesstoken",
+        "refreshtoken",
+        "clientsecret",
+        "authorizationcode",
+    }
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            normalized = str(key).replace("_", "").lower()
+            redacted[key] = "<redacted>" if normalized in sensitive_keys else _redact_sensitive_payload(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_sensitive_payload(item) for item in value)
+    return value
+
+
 def _format_payload(payload) -> str:
+    payload = _redact_sensitive_payload(payload)
     try:
         txt = json.dumps(payload, ensure_ascii=False)
     except Exception:
@@ -1115,6 +1156,7 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
                     failure,
                     current_client,
                     target_id,
+                    stage=f"cTrader {target_host} account auth {target_id}",
                 ),
             )
         elif not getattr(current_client, "running", False):
