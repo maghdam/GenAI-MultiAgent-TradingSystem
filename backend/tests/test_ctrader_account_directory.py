@@ -21,6 +21,74 @@ class _Deferred:
         return self
 
 
+def test_probe_application_auth_message_advances_to_account_list(monkeypatch) -> None:
+    sent = []
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_PROBE_CLIENTS", {"live": probe})
+
+    class ProtoOAApplicationAuthRes:
+        pass
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: ProtoOAApplicationAuthRes())
+
+    ctd._account_directory_probe_message_received(probe, object(), "live", probe)
+
+    assert probe._tradeagent_directory_stage == "account_list"
+    assert len(sent) == 1
+    assert sent[0][1]["responseTimeoutInSeconds"] == 15
+
+
+def test_probe_account_list_message_merges_and_finishes(monkeypatch) -> None:
+    probe = SimpleNamespace(_tradeagent_directory_stage="account_list")
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_BY_HOST", {"demo": [], "live": []})
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_PROBE_CLIENTS", {"live": probe})
+    monkeypatch.setattr(
+        ctd,
+        "_ACCOUNT_DIRECTORY_PROBE_ERRORS",
+        {"demo": None, "live": None},
+    )
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda _: None)
+    ctd._replace_account_directory_host(
+        "demo",
+        [
+            SimpleNamespace(
+                ctidTraderAccountId=47140414,
+                isLive=False,
+                traderLogin=1105460,
+                brokerTitleShort="FP Trading",
+            )
+        ],
+    )
+
+    class ProtoOAGetAccountListByAccessTokenRes:
+        ctidTraderAccount = [
+            SimpleNamespace(
+                ctidTraderAccountId=47139918,
+                isLive=True,
+                traderLogin=2123962,
+                brokerTitleShort="FP Trading",
+            )
+        ]
+
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: ProtoOAGetAccountListByAccessTokenRes(),
+    )
+
+    ctd._account_directory_probe_message_received(probe, object(), "live", probe)
+
+    rows = ctd.get_available_accounts()
+    assert {row["trader_login"] for row in rows} == {1105460, 2123962}
+    assert ctd._ACCOUNT_DIRECTORY_PROBE_CLIENTS == {}
+
+
 def test_probe_already_logged_in_event_advances_to_account_list(monkeypatch) -> None:
     sent = []
     probe = SimpleNamespace(
