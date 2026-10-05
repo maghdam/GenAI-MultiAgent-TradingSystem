@@ -21,7 +21,7 @@ class _Deferred:
         return self
 
 
-def test_live_app_auth_uses_live_account_and_starts_demo_directory_probe(monkeypatch) -> None:
+def test_live_app_auth_defers_demo_directory_probe_until_account_auth(monkeypatch) -> None:
     sent = []
     probes = []
     active_client = SimpleNamespace(
@@ -35,14 +35,20 @@ def test_live_app_auth_uses_live_account_and_starts_demo_directory_probe(monkeyp
 
     deferred = ctd.app_auth_cb(object(), active_client)
 
-    assert probes == [True]
+    assert probes == []
     assert ctd.ACCOUNT_IS_DEMO is False
     assert len(sent) == 1
     request, kwargs = sent[0]
     assert request.ctidTraderAccountId == 47139918
     assert request.accessToken == ctd.ACCESS_TOKEN
     assert kwargs["responseTimeoutInSeconds"] == 15
+    assert kwargs["clientMsgId"].startswith("tradeagent:live-account-auth:47139918:")
     assert deferred is not None
+
+    success, _ = deferred.callbacks
+    success(object())
+
+    assert probes == [True]
 
 
 def test_demo_directory_probe_populates_mixed_token_accounts(monkeypatch) -> None:
