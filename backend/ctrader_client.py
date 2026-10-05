@@ -105,6 +105,13 @@ _PRICE_FACTOR = 100_000
 _PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurement units.
 _AUTH_RESPONSE_TIMEOUT_SECONDS = 15   # Cross-host auth can exceed the library's 5s default.
 
+
+def _request_client_msg_id(stage: str, account_id: int | None = None) -> str:
+    """Create a correlation id that is safe to expose in diagnostics."""
+    account_part = str(int(account_id)) if account_id is not None else "none"
+    return f"tradeagent:{stage}:{account_part}:{time.monotonic_ns()}"
+
+
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
 _LAST_ORDER_CTX: dict[str, int] = {"symbol_id": -1}
@@ -554,6 +561,12 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
         f"[CTRADER AUTH] account authorized id={active_account_id} "
         f"host={ACTIVE_HOST_TYPE or 'unknown'}."
     )
+    if CLIENT_HOST_TYPE == "live":
+        # Refresh the Demo-sourced token directory only after Live account auth.
+        # Starting a second Demo connection during cross-host authentication can
+        # overlap with teardown of the previous Demo transport and interfere with
+        # the sensitive Live auth sequence.
+        _start_demo_directory_probe()
 
     # Phase 1: Fetch asset classes
     req = ProtoOAAssetClassListReq(
@@ -680,6 +693,7 @@ def account_list_response_cb(res, source_client=None):
     )
     return active_client.send(
         req,
+        clientMsgId=_request_client_msg_id(expected_host + "-account-auth", account_id),
         responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
     ).addCallbacks(
         lambda response: account_auth_cb(response, active_client, account_id),
@@ -755,7 +769,11 @@ def _demo_directory_probe_send_account_list(probe_client):
     probe_client._tradeagent_directory_stage = "account_list"
     print("[CTRADER DIRECTORY] demo directory probe authorized; requesting token accounts.")
     req = ProtoOAGetAccountListByAccessTokenReq(accessToken=ACCESS_TOKEN)
-    return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
+    return probe_client.send(
+        req,
+        clientMsgId=_request_client_msg_id("demo-directory-account-list"),
+        responseTimeoutInSeconds=15,
+    ).addCallbacks(
         lambda _: None,
         lambda failure: _demo_directory_probe_error(
             failure,
@@ -795,6 +813,11 @@ def _demo_directory_probe_message_received(source_client, message, probe_client)
     if message_name != "ProtoOAErrorRes":
         return
 
+    client_msg_id = getattr(message, "clientMsgId", None) or "<none>"
+    print(
+        f"[CTRADER DIRECTORY ERROR CONTEXT] client_msg_id={client_msg_id} "
+        f"stage={stage or 'unknown'}"
+    )
     error_code = str(getattr(payload, "errorCode", "") or "").strip().upper()
     description = str(getattr(payload, "description", "") or "").strip()
     if stage == "app_auth" and error_code in {
@@ -815,7 +838,11 @@ def _demo_directory_probe_connected(connected_client, probe_client):
     probe_client._tradeagent_directory_stage = "app_auth"
     print("[CTRADER DIRECTORY] demo directory probe connected; authorizing application.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
-    return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
+    return probe_client.send(
+        req,
+        clientMsgId=_request_client_msg_id("demo-directory-app-auth"),
+        responseTimeoutInSeconds=15,
+    ).addCallbacks(
         lambda _: None,
         lambda failure: _demo_directory_probe_error(
             failure,
@@ -882,9 +909,9 @@ def app_auth_cb(_, source_client=None):
 
     if CLIENT_HOST_TYPE == "live":
         # Spotware's own multi-environment sample obtains the token account
-        # directory through the Demo client. The Live client only authenticates
-        # and operates the selected Live account.
-        _start_demo_directory_probe()
+        # directory through the Demo client. Authenticate the selected Live
+        # account first; the Demo-only directory refresh starts after that
+        # succeeds so cross-host authentication is serialized.
         ACCOUNT_IS_DEMO = False
         account_id = int(ACCOUNT_ID)
         req = ProtoOAAccountAuthReq(
@@ -897,6 +924,7 @@ def app_auth_cb(_, source_client=None):
         )
         return active_client.send(
             req,
+            clientMsgId=_request_client_msg_id("live-account-auth", account_id),
             responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
         ).addCallbacks(
             lambda response: account_auth_cb(response, active_client, account_id),
@@ -935,6 +963,7 @@ def _on_connected(connected_client):
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
     connected_client.send(
         req,
+        clientMsgId=_request_client_msg_id(f"{host_type}-application-auth"),
         responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
     ).addCallbacks(
         lambda response: app_auth_cb(response, connected_client),
@@ -1093,6 +1122,9 @@ def _configure_client_callbacks(target_client) -> None:
             print(f"[CTRADER EVENT] decode_error: {e}")
             return
         _log_event(event)
+        if event.__class__.__name__ == "ProtoOAErrorRes":
+            client_msg_id = getattr(message, "clientMsgId", None) or "<none>"
+            print(f"[CTRADER ERROR CONTEXT] client_msg_id={client_msg_id}")
 
         # Spotware's official OpenApiPy samples treat successful account auth
         # as a broker event. Do not require the SDK request Deferred to resolve:
@@ -1170,6 +1202,10 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
             )
             current_client.send(
                 req,
+                clientMsgId=_request_client_msg_id(
+                    f"{target_host}-account-auth",
+                    target_id,
+                ),
                 responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
             ).addCallbacks(
                 lambda response: account_auth_cb(
