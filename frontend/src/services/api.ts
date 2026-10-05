@@ -36,6 +36,13 @@ export interface V2CTraderAccountSelectionResponse {
   switch_started: boolean;
 }
 
+export interface V2LiveTradingArmResponse {
+  armed: boolean;
+  armed_account_id?: number | null;
+  active_account_id?: number | null;
+  account_type: 'demo' | 'live' | 'unknown';
+}
+
 export interface V2BrokerStatus {
   connected: boolean;
   socket_connected: boolean;
@@ -452,6 +459,8 @@ export interface V2Status {
   mode: 'paper_only' | 'demo_enabled' | 'live_enabled';
   broker: V2BrokerStatus;
   config: V2Config;
+  live_trading_armed: boolean;
+  live_trading_armed_account_id?: number | null;
   runtime: V2Runtime;
   readiness: V2ReadinessCheck[];
   status_truth: V2ReadinessCheck[];
@@ -644,6 +653,21 @@ export const selectV2CTraderAccount = async (
   });
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, `Failed to select cTrader account: ${response.status} ${response.statusText}`));
+  }
+  invalidateStatusCache();
+  return response.json();
+};
+
+export const setV2LiveTradingArm = async (
+  armed: boolean,
+): Promise<V2LiveTradingArmResponse> => {
+  const response = await authFetch('/api/broker/live-arm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ armed }),
+  });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Failed to update Live Trading arm state: ${response.status} ${response.statusText}`));
   }
   invalidateStatusCache();
   return response.json();
