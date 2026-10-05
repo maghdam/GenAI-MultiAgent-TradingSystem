@@ -761,6 +761,12 @@ def _cancel_account_directory_probe(host_type: str) -> bool:
     return True
 
 
+def _account_directory_probe_is_current(host_type: str, probe_client) -> bool:
+    host = _normalize_host_type(host_type)
+    with _account_directory_lock:
+        return _ACCOUNT_DIRECTORY_PROBE_CLIENTS.get(host) is probe_client
+
+
 def _finish_account_directory_probe(
     host_type: str,
     probe_client,
@@ -791,14 +797,38 @@ def _account_directory_probe_list_cb(res, host_type: str, probe_client):
     return None
 
 
-def _account_directory_probe_error_cb(failure, host_type: str, probe_client):
-    _finish_account_directory_probe(host_type, probe_client, error=str(failure))
-    return failure
+def _account_directory_probe_error_cb(
+    failure,
+    host_type: str,
+    probe_client,
+    *,
+    stage: str,
+):
+    if not _account_directory_probe_is_current(host_type, probe_client):
+        return None
+    current_stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
+    if stage == "app_auth" and current_stage != "app_auth":
+        # The server can emit ALREADY_LOGGED_IN as an event without resolving
+        # the SDK Deferred. If that event already advanced us to account-list
+        # discovery, consume the stale auth timeout instead of failing the probe.
+        return None
+    _finish_account_directory_probe(
+        host_type,
+        probe_client,
+        error=f"{stage}: {failure}",
+    )
+    return None
 
 
-def _account_directory_probe_app_auth_cb(_, host_type: str, probe_client):
+def _account_directory_probe_send_list(host_type: str, probe_client):
+    if not _account_directory_probe_is_current(host_type, probe_client):
+        return None
+    if getattr(probe_client, "_tradeagent_directory_stage", None) == "account_list":
+        return None
+    probe_client._tradeagent_directory_stage = "account_list"
+    print(f"[CTRADER DIRECTORY] {host_type} probe app authorized; requesting token accounts.")
     req = ProtoOAGetAccountListByAccessTokenReq(accessToken=ACCESS_TOKEN)
-    return probe_client.send(req).addCallbacks(
+    return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
         lambda response: _account_directory_probe_list_cb(
             response,
             host_type,
@@ -808,15 +838,62 @@ def _account_directory_probe_app_auth_cb(_, host_type: str, probe_client):
             failure,
             host_type,
             probe_client,
+            stage="account_list",
         ),
+    )
+
+
+def _account_directory_probe_app_auth_cb(_, host_type: str, probe_client):
+    return _account_directory_probe_send_list(host_type, probe_client)
+
+
+def _account_directory_probe_message_received(
+    source_client,
+    message,
+    host_type: str,
+    probe_client,
+) -> None:
+    if source_client is not probe_client:
+        return
+    if not _account_directory_probe_is_current(host_type, probe_client):
+        return
+    try:
+        payload = Protobuf.extract(message)
+    except Exception:
+        return
+    if payload.__class__.__name__ != "ProtoOAErrorRes":
+        return
+    error_code = int(getattr(payload, "errorCode", -1) or -1)
+    description = str(getattr(payload, "description", "") or "").strip()
+    stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
+    if stage == "app_auth" and error_code in {14, 103}:
+        # cTrader: ALREADY_LOGGED_IN / CH_CLIENT_ALREADY_AUTHENTICATED.
+        # Both mean this connection is already application-authorized, so the
+        # account-list request is the correct next step.
+        print(
+            f"[CTRADER DIRECTORY] {host_type} probe reported already-authorized "
+            f"application ({error_code}); continuing with account discovery."
+        )
+        _account_directory_probe_send_list(host_type, probe_client)
+        return
+    _finish_account_directory_probe(
+        host_type,
+        probe_client,
+        error=f"{stage or 'unknown'}: cTrader error {error_code} {description}".strip(),
     )
 
 
 def _account_directory_probe_connected(connected_client, host_type: str, probe_client):
     if connected_client is not probe_client:
         return None
+    if not _account_directory_probe_is_current(host_type, probe_client):
+        return None
+    if getattr(probe_client, "_tradeagent_directory_stage", None) == "app_auth":
+        return None
+    probe_client._tradeagent_directory_stage = "app_auth"
+    print(f"[CTRADER DIRECTORY] {host_type} probe connected; authorizing application.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
-    return probe_client.send(req).addCallbacks(
+    return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
         lambda response: _account_directory_probe_app_auth_cb(
             response,
             host_type,
@@ -826,6 +903,7 @@ def _account_directory_probe_connected(connected_client, host_type: str, probe_c
             failure,
             host_type,
             probe_client,
+            stage="app_auth",
         ),
     )
 
@@ -871,6 +949,14 @@ def _start_account_directory_probe(host_type: str) -> bool:
         lambda disconnected_client, reason: _account_directory_probe_disconnected(
             disconnected_client,
             reason,
+            host,
+            probe_client,
+        )
+    )
+    probe_client.setMessageReceivedCallback(
+        lambda source_client, message: _account_directory_probe_message_received(
+            source_client,
+            message,
             host,
             probe_client,
         )
