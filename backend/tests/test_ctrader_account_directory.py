@@ -471,4 +471,3 @@ def test_main_client_does_not_route_unrelated_message_to_demo_directory_probe(mo
     unrelated = SimpleNamespace(clientMsgId="different-request")
 
     assert ctd._route_main_message_to_demo_directory_probe(unrelated) is False
-
