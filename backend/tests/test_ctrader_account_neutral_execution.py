@@ -7,6 +7,7 @@ from backend import ctrader_client as ctd
 from backend.adapters.ctrader import CTraderBrokerAdapter
 from backend.api import router as router_module
 from backend.domain.models import BrokerAccountSnapshot, BrokerStatus, EngineConfig, EngineRuntime
+from backend.services.live_trading_guard import arm_live_trading, disarm_live_trading
 
 
 def _verified_snapshot(account_id: int = 47139918) -> BrokerAccountSnapshot:
@@ -176,9 +177,15 @@ def test_status_payload_reports_live_enabled_for_shared_ctrader_execution(monkey
 
     monkeypatch.setattr(router_module, "_get_cached_ollama_ready", _ready)
 
-    status = asyncio.run(router_module._status_payload())
+    arm_live_trading(47139918)
+    try:
+        status = asyncio.run(router_module._status_payload())
+    finally:
+        disarm_live_trading()
 
     assert status.mode == "live_enabled"
+    assert status.live_trading_armed is True
+    assert status.live_trading_armed_account_id == 47139918
     assert status.broker.account_verified is True
     assert status.config.ctrader_autotrade is True
 
@@ -191,6 +198,7 @@ def test_config_api_accepts_live_selected_account_without_allow_live_flag(monkey
         lambda config: saved.setdefault("config", config) or config,
     )
     monkeypatch.setattr(router_module.engine, "wake", lambda: None)
+    monkeypatch.setattr(router_module, "_current_config", lambda: EngineConfig())
 
     config = EngineConfig(
         ctrader_autotrade=True,
