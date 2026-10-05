@@ -558,12 +558,10 @@ def _apply_account_selection(
     config: EngineConfig,
 ) -> List[CTraderAccount]:
     selected_id = config.selected_ctrader_account_id
-    if selected_id is None:
-        active = next((account for account in accounts if account.active), None)
-        selected_id = active.account_id if active is not None else None
-
     return [
-        account.model_copy(update={"selected": account.account_id == selected_id})
+        account.model_copy(
+            update={"selected": selected_id is not None and account.account_id == selected_id}
+        )
         for account in accounts
     ]
 
