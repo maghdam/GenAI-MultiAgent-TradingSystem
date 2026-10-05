@@ -213,3 +213,36 @@ def test_config_rejects_ctrader_autotrade_without_selected_account(monkeypatch) 
         )
 
     assert exc.value.status_code == 409
+
+def test_config_save_cannot_bypass_live_arm_when_engine_enabled(monkeypatch) -> None:
+    account_id = 48922568
+    current = EngineConfig(
+        enabled=False,
+        ctrader_autotrade=True,
+        selected_ctrader_account_id=account_id,
+        selected_ctrader_account_type="live",
+    )
+    target = current.model_copy(update={"enabled": True})
+    saved: list[EngineConfig] = []
+
+    monkeypatch.setattr(router_module, "_current_config", lambda: current)
+    monkeypatch.setattr(router_module, "get_broker_status", lambda: _live_broker(account_id))
+    monkeypatch.setattr(
+        router_module,
+        "save_engine_config",
+        lambda value: saved.append(value.model_copy(deep=True)) or value,
+    )
+    monkeypatch.setattr(router_module.engine, "wake", lambda: None)
+
+    with pytest.raises(HTTPException, match="Live Trading is disarmed") as exc:
+        asyncio.run(router_module.v2_set_config(target))
+
+    assert exc.value.status_code == 409
+    assert saved == []
+
+    arm_live_trading(account_id)
+    result = asyncio.run(router_module.v2_set_config(target))
+
+    assert result.enabled is True
+    assert saved[-1].enabled is True
+
