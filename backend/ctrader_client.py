@@ -29,6 +29,7 @@ from google.protobuf.json_format import MessageToDict
 
 from twisted.application.internet import ClientService
 from twisted.internet import reactor
+from twisted.internet.defer import TimeoutError as DeferredTimeoutError
 import asyncio
 import os
 import threading
@@ -808,10 +809,22 @@ def _account_directory_probe_error_cb(
         return None
     current_stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
     if stage == "app_auth" and current_stage != "app_auth":
-        # The server can emit ALREADY_LOGGED_IN as an event without resolving
-        # the SDK Deferred. If that event already advanced us to account-list
-        # discovery, consume the stale auth timeout instead of failing the probe.
+        # A prior already-authorized signal or timeout fallback already advanced
+        # the probe; consume the stale auth Deferred failure.
         return None
+    if stage == "app_auth":
+        is_timeout = False
+        try:
+            is_timeout = bool(failure.check(DeferredTimeoutError))
+        except Exception:
+            is_timeout = isinstance(failure, DeferredTimeoutError)
+        if is_timeout:
+            print(
+                f"[CTRADER DIRECTORY] {host_type} probe app-auth response timed out; "
+                "testing authorization with account discovery."
+            )
+            _account_directory_probe_send_list(host_type, probe_client)
+            return None
     _finish_account_directory_probe(
         host_type,
         probe_client,
@@ -863,10 +876,14 @@ def _account_directory_probe_message_received(
         return
     if payload.__class__.__name__ != "ProtoOAErrorRes":
         return
-    error_code = int(getattr(payload, "errorCode", -1) or -1)
+    raw_error_code = getattr(payload, "errorCode", -1)
+    try:
+        error_code = int(raw_error_code)
+    except (TypeError, ValueError):
+        error_code = str(raw_error_code or "").strip().upper()
     description = str(getattr(payload, "description", "") or "").strip()
     stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
-    if stage == "app_auth" and error_code in {14, 103}:
+    if stage == "app_auth" and error_code in {14, 103, "ALREADY_LOGGED_IN", "CH_CLIENT_ALREADY_AUTHENTICATED"}:
         # cTrader: ALREADY_LOGGED_IN / CH_CLIENT_ALREADY_AUTHENTICATED.
         # Both mean this connection is already application-authorized, so the
         # account-list request is the correct next step.
