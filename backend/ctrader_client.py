@@ -673,6 +673,9 @@ def account_list_response_cb(res, source_client=None):
     accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
 
     _replace_account_directory_host(CLIENT_HOST_TYPE, accounts)
+    print(
+        f"[CTRADER DIRECTORY] {CLIENT_HOST_TYPE} host returned {len(accounts)} account(s)."
+    )
     _start_account_directory_probe("live" if CLIENT_HOST_TYPE == "demo" else "demo")
 
     selected = next(
@@ -779,6 +782,11 @@ def _account_directory_probe_list_cb(res, host_type: str, probe_client):
     payload = Protobuf.extract(res)
     accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
     _replace_account_directory_host(host_type, accounts)
+    merged_count = len(get_available_accounts())
+    print(
+        f"[CTRADER DIRECTORY] {host_type} probe returned {len(accounts)} account(s); "
+        f"merged token-granted directory has {merged_count} account(s)."
+    )
     _finish_account_directory_probe(host_type, probe_client)
     return None
 
