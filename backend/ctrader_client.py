@@ -841,12 +841,11 @@ def _account_directory_probe_send_list(host_type: str, probe_client):
     probe_client._tradeagent_directory_stage = "account_list"
     print(f"[CTRADER DIRECTORY] {host_type} probe app authorized; requesting token accounts.")
     req = ProtoOAGetAccountListByAccessTokenReq(accessToken=ACCESS_TOKEN)
+    # cTrader's Python sample treats protocol replies as incoming messages.
+    # Do not depend on the Deferred success callback because a server reply can
+    # arrive without echoing the SDK-generated clientMsgId.
     return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
-        lambda response: _account_directory_probe_list_cb(
-            response,
-            host_type,
-            probe_client,
-        ),
+        lambda _: None,
         lambda failure: _account_directory_probe_error_cb(
             failure,
             host_type,
@@ -854,10 +853,6 @@ def _account_directory_probe_send_list(host_type: str, probe_client):
             stage="account_list",
         ),
     )
-
-
-def _account_directory_probe_app_auth_cb(_, host_type: str, probe_client):
-    return _account_directory_probe_send_list(host_type, probe_client)
 
 
 def _account_directory_probe_message_received(
@@ -874,15 +869,29 @@ def _account_directory_probe_message_received(
         payload = Protobuf.extract(message)
     except Exception:
         return
-    if payload.__class__.__name__ != "ProtoOAErrorRes":
+    message_name = payload.__class__.__name__
+    stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
+
+    if message_name == "ProtoOAApplicationAuthRes":
+        if stage == "app_auth":
+            print(f"[CTRADER DIRECTORY] {host_type} probe application-auth response received.")
+            _account_directory_probe_send_list(host_type, probe_client)
         return
+
+    if message_name == "ProtoOAGetAccountListByAccessTokenRes":
+        if stage == "account_list":
+            _account_directory_probe_list_cb(message, host_type, probe_client)
+        return
+
+    if message_name != "ProtoOAErrorRes":
+        return
+
     raw_error_code = getattr(payload, "errorCode", -1)
     try:
         error_code = int(raw_error_code)
     except (TypeError, ValueError):
         error_code = str(raw_error_code or "").strip().upper()
     description = str(getattr(payload, "description", "") or "").strip()
-    stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
     if stage == "app_auth" and error_code in {14, 103, "ALREADY_LOGGED_IN", "CH_CLIENT_ALREADY_AUTHENTICATED"}:
         # cTrader: ALREADY_LOGGED_IN / CH_CLIENT_ALREADY_AUTHENTICATED.
         # Both mean this connection is already application-authorized, so the
@@ -910,12 +919,11 @@ def _account_directory_probe_connected(connected_client, host_type: str, probe_c
     probe_client._tradeagent_directory_stage = "app_auth"
     print(f"[CTRADER DIRECTORY] {host_type} probe connected; authorizing application.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
+    # Advance from ProtoOAApplicationAuthRes in the incoming message callback,
+    # matching Spotware's official Python sample instead of relying on the
+    # Deferred response correlation.
     return probe_client.send(req, responseTimeoutInSeconds=15).addCallbacks(
-        lambda response: _account_directory_probe_app_auth_cb(
-            response,
-            host_type,
-            probe_client,
-        ),
+        lambda _: None,
         lambda failure: _account_directory_probe_error_cb(
             failure,
             host_type,
