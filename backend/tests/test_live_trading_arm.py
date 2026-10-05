@@ -245,4 +245,3 @@ def test_config_save_cannot_bypass_live_arm_when_engine_enabled(monkeypatch) -> 
 
     assert result.enabled is True
     assert saved[-1].enabled is True
-
