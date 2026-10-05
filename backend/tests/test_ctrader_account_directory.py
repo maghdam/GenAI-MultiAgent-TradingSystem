@@ -21,6 +21,139 @@ class _Deferred:
         return self
 
 
+def test_account_directory_merges_demo_and_live_host_results(monkeypatch) -> None:
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_BY_HOST", {"demo": [], "live": []})
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+
+    ctd._replace_account_directory_host(
+        "demo",
+        [
+            SimpleNamespace(
+                ctidTraderAccountId=47140414,
+                isLive=False,
+                traderLogin=1105460,
+                brokerTitleShort="FP Trading",
+            ),
+            SimpleNamespace(
+                ctidTraderAccountId=47140449,
+                isLive=False,
+                traderLogin=1105462,
+                brokerTitleShort="FP Trading",
+            ),
+        ],
+    )
+    ctd._replace_account_directory_host(
+        "live",
+        [
+            SimpleNamespace(
+                ctidTraderAccountId=47139918,
+                isLive=True,
+                traderLogin=2123962,
+                brokerTitleShort="FP Trading",
+            ),
+        ],
+    )
+
+    rows = ctd.get_available_accounts()
+    assert {row["trader_login"] for row in rows} == {1105460, 1105462, 2123962}
+    live = next(row for row in rows if row["trader_login"] == 2123962)
+    active = next(row for row in rows if row["trader_login"] == 1105460)
+    assert live["account_type"] == "live"
+    assert live["is_live"] is True
+    assert active["active"] is True
+    assert active["selected"] is True
+
+
+def test_active_account_list_starts_opposite_environment_probe(monkeypatch) -> None:
+    sent = []
+    probes = []
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", None)
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_BY_HOST", {"demo": [], "live": []})
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: SimpleNamespace(
+            ctidTraderAccount=[
+                SimpleNamespace(
+                    ctidTraderAccountId=47140414,
+                    isLive=False,
+                    traderLogin=1105460,
+                    brokerTitleShort="FP Trading",
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
+    monkeypatch.setattr(
+        ctd,
+        "_start_account_directory_probe",
+        lambda host_type: probes.append(host_type) or True,
+    )
+
+    ctd.account_list_response_cb(object())
+
+    assert probes == ["live"]
+    assert [row["trader_login"] for row in ctd.get_available_accounts()] == [1105460]
+    assert len(sent) == 1
+    assert sent[0].ctidTraderAccountId == 47140414
+
+
+def test_probe_account_list_merges_without_replacing_active_host_accounts(monkeypatch) -> None:
+    probe = SimpleNamespace()
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 47140414)
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_BY_HOST", {"demo": [], "live": []})
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+    monkeypatch.setattr(
+        ctd,
+        "_ACCOUNT_DIRECTORY_PROBE_CLIENTS",
+        {"live": probe},
+    )
+    monkeypatch.setattr(
+        ctd,
+        "_ACCOUNT_DIRECTORY_PROBE_ERRORS",
+        {"demo": None, "live": None},
+    )
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda _: None)
+
+    ctd._replace_account_directory_host(
+        "demo",
+        [
+            SimpleNamespace(
+                ctidTraderAccountId=47140414,
+                isLive=False,
+                traderLogin=1105460,
+                brokerTitleShort="FP Trading",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: SimpleNamespace(
+            ctidTraderAccount=[
+                SimpleNamespace(
+                    ctidTraderAccountId=47139918,
+                    isLive=True,
+                    traderLogin=2123962,
+                    brokerTitleShort="FP Trading",
+                )
+            ]
+        ),
+    )
+
+    ctd._account_directory_probe_list_cb(object(), "live", probe)
+
+    rows = ctd.get_available_accounts()
+    assert {row["trader_login"] for row in rows} == {1105460, 2123962}
+    assert ctd._ACCOUNT_DIRECTORY_PROBE_CLIENTS == {}
+
+
 def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
