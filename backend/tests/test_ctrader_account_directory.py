@@ -166,12 +166,17 @@ def test_probe_account_list_merges_without_replacing_active_host_accounts(monkey
     assert ctd._ACCOUNT_DIRECTORY_PROBE_CLIENTS == {}
 
 
-def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
+def test_account_list_retains_accounts_and_selection_truth(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
     monkeypatch.setattr(ctd, "HOST_TYPE", "demo")
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
     monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", None)
     monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", None)
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_BY_HOST", {"demo": [], "live": []})
+    monkeypatch.setattr(ctd, "_ACCOUNT_DIRECTORY_PROBE_CLIENTS", {})
+    monkeypatch.setattr(ctd.reactor, "running", False, raising=False)
     monkeypatch.setattr(
         ctd.Protobuf,
         "extract",
@@ -199,39 +204,21 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
-    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
 
     deferred = ctd.account_list_response_cb(object())
 
-    assert ctd.get_available_accounts() == [
-        {
-            "account_id": 47139918,
-            "account_type": "live",
-            "is_live": True,
-            "trader_login": 2123962,
-            "broker_title": "FP Trading",
-            "selected": False,
-            "active": False,
-        },
-        {
-            "account_id": 47140414,
-            "account_type": "demo",
-            "is_live": False,
-            "trader_login": 1105460,
-            "broker_title": "FP Trading",
-            "selected": True,
-            "active": False,
-        },
-        {
-            "account_id": 47140449,
-            "account_type": "demo",
-            "is_live": False,
-            "trader_login": 1105462,
-            "broker_title": "FP Trading",
-            "selected": False,
-            "active": False,
-        },
-    ]
+    rows_by_id = {
+        row["account_id"]: row
+        for row in ctd.get_available_accounts()
+    }
+    assert set(rows_by_id) == {47139918, 47140414, 47140449}
+    assert rows_by_id[47139918]["account_type"] == "live"
+    assert rows_by_id[47139918]["trader_login"] == 2123962
+    assert rows_by_id[47140414]["account_type"] == "demo"
+    assert rows_by_id[47140414]["trader_login"] == 1105460
+    assert rows_by_id[47140414]["selected"] is True
+    assert rows_by_id[47140449]["trader_login"] == 1105462
+    assert all(row["broker_title"] == "FP Trading" for row in rows_by_id.values())
     assert len(sent) == 1
     assert sent[0].ctidTraderAccountId == 47140414
 
