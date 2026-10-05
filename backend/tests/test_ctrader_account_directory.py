@@ -25,7 +25,7 @@ def test_live_app_auth_uses_live_account_and_starts_demo_directory_probe(monkeyp
     sent = []
     probes = []
     active_client = SimpleNamespace(
-        send=lambda request: sent.append(request) or _Deferred(),
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
     )
     monkeypatch.setattr(ctd, "client", active_client)
     monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
@@ -38,9 +38,11 @@ def test_live_app_auth_uses_live_account_and_starts_demo_directory_probe(monkeyp
     assert probes == [True]
     assert ctd.ACCOUNT_IS_DEMO is False
     assert len(sent) == 1
-    assert sent[0].ctidTraderAccountId == 47139918
-    assert sent[0].accessToken == ctd.ACCESS_TOKEN
-    assert deferred is sent[0] or deferred is not None
+    request, kwargs = sent[0]
+    assert request.ctidTraderAccountId == 47139918
+    assert request.accessToken == ctd.ACCESS_TOKEN
+    assert kwargs["responseTimeoutInSeconds"] == 15
+    assert deferred is not None
 
 
 def test_demo_directory_probe_populates_mixed_token_accounts(monkeypatch) -> None:
