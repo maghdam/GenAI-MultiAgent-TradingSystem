@@ -1359,6 +1359,7 @@ A real operator review of the merged Phase 10 UI on 2026-10-05 confirmed that ac
 **Target behavior**
 - [x] Reuse the existing authorized cTrader account directory on the Trade dashboard.
 - [x] Show broker title, broker-reported Demo/Live type, and trader login/account number in the Trade toolbar.
+- [x] Show saved selection and currently authenticated active-account truth distinctly on the Trade toolbar.
 - [x] Mark the currently authenticated account as Active.
 - [x] Use the existing `POST /api/broker/accounts/select` path and existing transport-switching/safety guards rather than creating a second account-selection mechanism.
 - [x] Disable the selector while an account switch is in progress and surface account-directory/selection failures on the Trade page.
