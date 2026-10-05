@@ -193,7 +193,7 @@ export default function Header({
                 <select
                   className="ta-select ta-select--sm"
                   aria-label="cTrader account"
-                  title="cTrader account"
+                  title="Accounts granted to the current cTrader Open API access token"
                   value={selectedCTraderAccount?.account_id ?? ''}
                   onChange={(event) => onCTraderAccountChange(Number(event.target.value))}
                   disabled={ctraderAccountBusy || ctraderAccountSwitchInProgress || ctraderAccounts.length === 0}
