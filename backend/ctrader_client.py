@@ -205,11 +205,15 @@ def _clear_account_directory_host(host_type: str) -> None:
 
 def _clear_account_directory() -> None:
     with _account_directory_lock:
+        probes = list(_ACCOUNT_DIRECTORY_PROBE_CLIENTS.values())
+        _ACCOUNT_DIRECTORY_PROBE_CLIENTS.clear()
         _ACCOUNT_DIRECTORY_BY_HOST["demo"] = []
         _ACCOUNT_DIRECTORY_BY_HOST["live"] = []
         _ACCOUNT_DIRECTORY_PROBE_ERRORS["demo"] = None
         _ACCOUNT_DIRECTORY_PROBE_ERRORS["live"] = None
     AVAILABLE_ACCOUNTS.clear()
+    for probe_client in probes:
+        _stop_client_service(probe_client)
 
 
 def _is_current_session(source_client=None, expected_account_id: int | None = None) -> bool:
@@ -744,6 +748,16 @@ def account_list_error_cb(failure, source_client=None):
     return failure
 
 
+def _cancel_account_directory_probe(host_type: str) -> bool:
+    host = _normalize_host_type(host_type)
+    with _account_directory_lock:
+        probe_client = _ACCOUNT_DIRECTORY_PROBE_CLIENTS.pop(host, None)
+    if probe_client is None:
+        return False
+    _stop_client_service(probe_client)
+    return True
+
+
 def _finish_account_directory_probe(
     host_type: str,
     probe_client,
@@ -829,7 +843,7 @@ def _account_directory_probe_disconnected(
 def _start_account_directory_probe(host_type: str) -> bool:
     """Discover accounts from the opposite cTrader environment without changing the active trading client."""
     host = _normalize_host_type(host_type)
-    if host == CLIENT_HOST_TYPE:
+    if host == CLIENT_HOST_TYPE or not getattr(reactor, "running", False):
         return False
     with _account_directory_lock:
         if host in _ACCOUNT_DIRECTORY_PROBE_CLIENTS:
@@ -853,7 +867,11 @@ def _start_account_directory_probe(host_type: str) -> bool:
             probe_client,
         )
     )
-    probe_client.startService()
+    try:
+        probe_client.startService()
+    except Exception as exc:
+        _finish_account_directory_probe(host, probe_client, error=str(exc))
+        return False
     return True
 
 
@@ -1097,6 +1115,7 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
         # itself; _on_connected() will authenticate the desired account.
         return
 
+    _cancel_account_directory_probe(target_host)
     next_client = _new_client(target_host)
     _configure_client_callbacks(next_client)
     client = next_client
