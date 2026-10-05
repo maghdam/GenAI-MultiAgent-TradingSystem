@@ -1364,6 +1364,7 @@ A real operator review of the merged Phase 10 UI on 2026-10-05 first confirmed t
 - [x] Prevent redundant discovery connections during Demo↔Live account switching and do not start a probe before the Twisted reactor is running.
 - [x] Handle real-broker already-authorized probe responses and stale SDK Deferred timeouts without discarding the opposite-environment account directory.
 - [x] If application-auth response times out, perform one account-directory request as the authoritative authorization check; succeed only if cTrader returns the token-granted account list.
+- [x] Process application-auth and account-directory responses from the incoming protocol message stream, matching Spotware's official Python SDK sample instead of depending on Deferred success correlation.
 - [x] Add focused regression coverage for merged Demo/Live host discovery and preservation of the active-host account list.
 - [x] Show broker title, broker-reported Demo/Live type, and trader login/account number in the Trade toolbar.
 - [x] Show saved selection and currently authenticated active-account truth distinctly on the Trade toolbar.
