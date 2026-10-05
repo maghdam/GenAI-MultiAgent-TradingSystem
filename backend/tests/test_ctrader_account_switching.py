@@ -379,4 +379,3 @@ def test_sensitive_broker_payload_redaction() -> None:
     assert redacted["refresh_token"] == "<redacted>"
     assert redacted["nested"]["clientSecret"] == "<redacted>"
     assert redacted["nested"]["safe"] == "value"
-
