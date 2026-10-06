@@ -8,6 +8,7 @@ import {
   type CandlestickData,
   type Time,
   type IPriceLine,
+  type ISeriesMarkersPluginApi,
   type SeriesMarker,
   LineStyle,
 } from 'lightweight-charts';
@@ -95,7 +96,7 @@ export default function Chart({
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const signalMarkersRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const signalMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
