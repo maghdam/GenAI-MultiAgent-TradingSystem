@@ -27,9 +27,9 @@ _CREDENTIAL_TARGETS = {
     "CTRADER_ACCESS_TOKEN": "TradeAgent/cTrader/access_token",
 }
 _SECRET_ASSIGNMENT_RE = re.compile(
-    r"^\\s*(?:export\\s+)?("
+    r"^\s*(?:export\s+)?("
     + "|".join(re.escape(name) for name in CTRADER_SECRET_ENV_NAMES)
-    + r")\\s*="
+    + r")\s*="
 )
 
 
@@ -284,29 +284,38 @@ def restore_ctrader_secrets_to_env_file(path: Path) -> None:
     _atomic_write_text(path, "".join(output))
 
 
-def migrate_ctrader_secrets_from_env_file(
-    path: Path,
-    *,
-    scrub_env: bool = False,
-) -> None:
+def store_ctrader_secrets(secrets: Mapping[str, str]) -> None:
     if not _is_windows():
         raise CredentialStoreError(
-            "cTrader credential migration requires Windows Credential Manager."
+            "cTrader credential storage requires Windows Credential Manager."
         )
 
-    secrets = read_ctrader_secrets_from_env_file(path)
+    normalized: dict[str, str] = {}
+    missing: list[str] = []
+    for name in CTRADER_SECRET_ENV_NAMES:
+        value = secrets.get(name)
+        if value is None or not str(value):
+            missing.append(name)
+        else:
+            normalized[name] = str(value)
+
+    if missing:
+        raise CredentialStoreError(
+            "Missing required cTrader credential values: " + ", ".join(missing)
+        )
+
     previous = {
         name: read_windows_credential(name)
         for name in CTRADER_SECRET_ENV_NAMES
     }
 
     try:
-        for name, value in secrets.items():
+        for name, value in normalized.items():
             write_windows_credential(name, value)
 
         failed_verification = [
             name
-            for name, value in secrets.items()
+            for name, value in normalized.items()
             if read_windows_credential(name) != value
         ]
         if failed_verification:
@@ -314,13 +323,31 @@ def migrate_ctrader_secrets_from_env_file(
                 "Credential write verification failed for: "
                 + ", ".join(failed_verification)
             )
-    except Exception:
+    except Exception as exc:
+        rollback_errors: list[str] = []
         for name, old_value in previous.items():
-            if old_value is None:
-                delete_windows_credential(name)
-            else:
-                write_windows_credential(name, old_value)
+            try:
+                if old_value is None:
+                    delete_windows_credential(name)
+                else:
+                    write_windows_credential(name, old_value)
+            except Exception:
+                rollback_errors.append(name)
+        if rollback_errors:
+            raise CredentialStoreError(
+                "Credential storage failed and rollback was incomplete for: "
+                + ", ".join(rollback_errors)
+            ) from exc
         raise
+
+
+def migrate_ctrader_secrets_from_env_file(
+    path: Path,
+    *,
+    scrub_env: bool = False,
+) -> None:
+    secrets = read_ctrader_secrets_from_env_file(path)
+    store_ctrader_secrets(secrets)
 
     if scrub_env:
         scrub_ctrader_secrets_from_env_file(path)
