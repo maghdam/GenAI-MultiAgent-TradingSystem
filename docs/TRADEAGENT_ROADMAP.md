@@ -302,6 +302,37 @@ Show active TradeAgent positions directly on the Trade dashboard chart, using th
 **Scope boundary**
 This is a read-only Trade-dashboard visualization change. It does not submit/amend/close orders, mutate protection, alter reconciliation or broker identity, change risk/sizing/account selection, arm Live Trading, or modify the global 60% signal-strength threshold.
 
+### 2.7 Chart signal visualization and guarded trade-from-signal
+**Priority:** P1
+**Status:** 🧪 Ready to test
+
+Show automatic analysis signals on the Trade chart and allow an operator to inspect and deliberately submit the exact saved signal snapshot.
+
+**Target behavior**
+- [x] Show recent actionable Long/Short analyses as chart markers on the matching symbol/timeframe candle.
+- [x] Keep No Trade analyses out of chart markers to reduce clutter.
+- [x] Clicking a row in the existing Signals panel focuses that exact saved signal on its symbol/timeframe and preserves its strategy.
+- [x] Selected-signal Entry/SL/TP lines use the saved signal snapshot only; do not combine fields with a previous/manual analysis.
+- [x] Fix backend-naive UTC timestamp parsing so saved signal markers land on the correct chart candle.
+- [x] Show a compact selected-signal card with direction, strength, strategy, timestamp, Entry/SL/TP, and rationale.
+- [x] Require a two-step Review -> Confirm interaction before submitting a selected signal from the chart.
+- [x] Build selected-signal orders directly from the exact saved symbol/timeframe/strategy/entry/SL/TP/confidence/reasons snapshot plus the operator-selected lot size.
+- [x] Keep the normal toolbar Place Trade action disabled while a saved signal is selected, preventing a bypass of the chart review step.
+- [x] Preserve all existing backend risk, sizing, account authorization, Demo/Live, Live-arm, protection, and execution gates.
+- [x] Clear stale signal/manual-analysis trade context when the operator changes symbol, timeframe, or strategy.
+- [x] Limit automatic chart markers to the newest 12 matching actionable signals.
+
+**Verification**
+- [ ] Focused chart-signal snapshot/marker/order tests pass locally.
+- [ ] Existing chart-position overlay tests still pass locally.
+- [ ] Frontend production build passes locally.
+- [ ] Browser smoke confirms automatic signal markers, exact clicked-signal Entry/SL/TP display, clear action, and Review -> Confirm workflow without submitting an order during UI validation.
+- [ ] Git diff/worktree checks pass.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item changes frontend signal visualization/selection and routes an explicit confirmed signal through the existing manual-order API. It does not add a new execution endpoint, bypass existing risk/account/Live-arm gates, enable automatic orders, alter broker protection/reconciliation, or modify the global 60% signal-strength threshold.
+
 ---
 
 ## 5. Phase 3 — System page acceptance audit
@@ -1539,4 +1570,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Phase 2.6 chart position / SL / TP overlays is implementation-verified on PR #104; the real browser field observation remains deferred until the next natural open position and must not trigger manufactured broker exposure. After PR #104 merges and local `main` is clean/synchronized, the next operator-requested UI item is Phase 2.7: exact signal visualization on the chart with a guarded trade-from-signal workflow. The separate Phase 7 protected-position disconnect/recovery field observation should reuse the next natural qualifying protected Demo position when available. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**Phase 2.7 chart signal visualization and guarded trade-from-signal is the active operator-requested UI item. Validate exact saved-signal markers/selection, the two-step Review -> Confirm workflow, existing chart-position regression, and the frontend production build without placing a broker order merely for UI testing. The separate Phase 7 protected-position disconnect/recovery field observation should reuse the next natural qualifying protected Demo position when available. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
