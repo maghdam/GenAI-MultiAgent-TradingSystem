@@ -145,14 +145,20 @@ Recent execution intent details showed `account_currency=USD` and `starting_equi
 
 ### 1.4 Broker ledger completeness
 **Priority:** P1  
-**Status:** 🟨
+**Status:** ✅
 
 - [x] Legacy missing-deal case is fail-safe: never fabricate broker P&L.
 - [x] Partial-close ledger/reconciliation support implemented and regression-tested.
 - [x] Multiple closing deals are weighted/summed correctly in automated tests.
 - [x] Commission/swap/conversion fees are reflected in broker net P&L.
 - [x] Broker deal IDs are ingested idempotently so a deal cannot be counted twice.
-- [ ] Real cTrader demo partial-close field verification (waiting for the next normal TradeAgent-managed open position).
+- [x] Real cTrader demo partial-close field verification.
+  - Verified 2026-10-06 on normal TradeAgent-managed XAUUSD local `109` / broker `57783302` on verified Demo account `44089601`.
+  - Broker quantity was `0.10`; the operator partially closed exactly `0.05` through cTrader, leaving `0.05` open on the same canonical broker position ID.
+  - TradeAgent synchronized the residual tracker to quantity `0.05`, realized P&L `36.29 CHF`, and `realized_pnl_source=ctrader_deal_partial`.
+  - The partial-close audit recorded `status=partial_close_synced`, `previous_quantity=0.1`, `remaining_quantity=0.05`, `inserted_deals=1`, `total_closed_lots=0.05`, `required_closed_lots=0.05`, and `tracked_initial_quantity=0.1`.
+  - Reconciliation remained healthy with `id_match`, and the residual broker position remained fully protected with 100% protection coverage.
+  - Local docs-only staging validation passed on `9b127bf`; PR #99 CI #397 passed the normal backend/frontend CI contract before this verification update.
 
 ---
 
@@ -1222,6 +1228,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 10.6 Trade-dashboard cTrader selector + Live arming + transport isolation | Expose authorized Demo/Live account selection on Trade, preserve selected-vs-active truth, add runtime-only Live arming, serialize cross-host auth/directory refresh, redact auth logs, and isolate OpenApiPy TCP queues per connection | ✅ Focused cTrader suite + full backend regression passed locally on `91cdf9e`; real Demo `44089601` → Live `48922568` → Demo smoke passed with Live disarmed and 7-account Demo-directory refresh clean; PR CI #388 passed backend + frontend | PR #96 / `91cdf9e` | Merge after final docs-only CI, sync local main, then resume only the remaining evidence-dependent roadmap checks without manufacturing trades or changing the 60% threshold |
 | 2026-10-06 | Real backend restart with open broker positions | Restart the backend through the normal launcher while two canonical, fully protected Demo positions are open, then verify the same broker IDs and protection truth after recovery | ✅ US30 `57782376` + XAUUSD `57783302` recovered as `id_match` + `protected`; Demo `44089601` authorized/verified/execution-ready; local docs-only staging validation passed on `b2048b4`; PR CI #391 passed backend + frontend | PR #97 | Final docs-only validation/CI, merge, sync local main, then close the already-captured Phase 2.3 real broker-truth observation as the next smallest evidence item |
 | 2026-10-06 | Phase 2.3 real broker-truth field observation | Verify the Position-panel broker-truth fields against a naturally opened TradeAgent-managed cTrader Demo position without mutating the trade | ✅ XAUUSD local `107` / broker `57779123`: quantity `0.1`, broker entry `4131.83`, SL `4135.97`, TP `4123.1`, CHF basis, `protected`, `id_match`, timestamped broker snapshot; 1/1 protection-health coverage; local staging validation passed on `174d26e`; PR CI #394 passed backend + frontend | PR #98 | Final docs-only validation/CI, merge, sync local main, then resume only the remaining naturally evidence-dependent partial-close / protected-disconnect checks |
+| 2026-10-06 | Phase 1.4 real cTrader Demo partial-close field verification | Partially close one normal TradeAgent-managed broker position and verify residual quantity, authoritative broker-deal P&L, canonical identity, and continued broker protection | ✅ XAUUSD local `109` / broker `57783302`: `0.10 → 0.05` lots, `36.29 CHF` realized P&L from `ctrader_deal_partial`, one new broker deal, canonical `id_match`, residual 100% protected; local docs-only staging validation passed on `9b127bf`; PR CI #397 passed backend + frontend | PR #99 | Final docs-only validation/CI, merge, sync local main, then reuse this preserved evidence for the separate Phase 7 partial-close field-observation item |
 
 ---
 
@@ -1423,4 +1430,4 @@ This item changes account-directory refresh behavior, Trade/System UX, and the f
 
 ## 15. Next item
 
-**Phase 2.3 real broker-truth field evidence is verified in PR #98. After PR #98 merges and local `main` is clean/synchronized, resume the remaining evidence-dependent roadmap checks from normal Demo use. The remaining broker-position field observations are Phase 1.4 / Phase 7 real partial-close behavior and Phase 7 cTrader disconnect/recovery with an open protected TradeAgent-managed position; handle only one qualifying item at a time and do not manufacture a trade solely for testing. If no qualifying position is available, let Phase 5.3 sample evidence accumulate naturally. Keep the global 60% signal-strength threshold unchanged until the existing Phase 5.3 sufficiency screen qualifies.**
+**Phase 1.4 real cTrader Demo partial-close field verification is verified in PR #99. After PR #99 merges and local `main` is clean/synchronized, use the already-preserved 2026-10-06 XAUUSD partial-close evidence to close the separate Phase 7 real partial-close field-observation checkbox as the next smallest docs-only item; no second partial close is required. After that item is merged, the next broker-position field check is Phase 7 cTrader disconnect/recovery with an open protected TradeAgent-managed Demo position. Do not manufacture a trade solely for testing. Let Phase 5.3 evidence accumulate naturally and keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
