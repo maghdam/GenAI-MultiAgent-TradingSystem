@@ -9,7 +9,8 @@ import {
   type IPriceLine,
   LineStyle,
 } from 'lightweight-charts';
-import { getV2Candles, type Candle } from '../services/api';
+import { getV2Candles, type Candle, type V2PaperPosition } from '../services/api';
+import { buildChartPositionLevels } from '../services/chartPositionLines';
 import type { AnalysisResult } from '../types/analysis';
 
 const CHART_CANDLE_LIMIT = 1500;
@@ -27,6 +28,7 @@ interface ChartProps {
   symbol: string;
   timeframe: string;
   analysis: AnalysisResult | null;
+  positions: V2PaperPosition[];
 }
 
 function refreshIntervalForTimeframe(timeframe: string): number {
@@ -58,7 +60,7 @@ function chartErrorMessage(message: string): string {
   return message;
 }
 
-export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
+export default function Chart({ symbol, timeframe, analysis, positions }: ChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -69,6 +71,10 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const autoFitKeyRef = useRef('');
   const refreshMs = useMemo(() => refreshIntervalForTimeframe(timeframe), [timeframe]);
+  const positionLevels = useMemo(
+    () => buildChartPositionLevels(positions, symbol),
+    [positions, symbol],
+  );
   const chartKey = `${symbol}:${timeframe}`;
 
   useEffect(() => {
@@ -205,26 +211,53 @@ export default function Chart({ symbol, timeframe, analysis }: ChartProps) {
     priceLinesRef.current.forEach((line) => candleSeriesRef.current?.removePriceLine(line));
     priceLinesRef.current = [];
 
+    const createLine = (
+      price: number,
+      label: string,
+      color: string,
+      style: LineStyle = LineStyle.Dotted,
+      lineWidth: 1 | 2 = 1,
+    ) => {
+      const line = candleSeriesRef.current?.createPriceLine({
+        price,
+        color,
+        lineWidth,
+        lineStyle: style,
+        axisLabelVisible: true,
+        title: label,
+      });
+      if (line) priceLinesRef.current.push(line);
+    };
+
     if (analysis) {
       const { entry, tp, sl } = analysis;
-
-      const createLine = (price: number, label: string, color: string, style: LineStyle = LineStyle.Dotted) => {
-        const line = candleSeriesRef.current?.createPriceLine({
-          price,
-          color,
-          lineWidth: 1,
-          lineStyle: style,
-          axisLabelVisible: true,
-          title: label,
-        });
-        if (line) priceLinesRef.current.push(line);
-      };
-
-      if (entry) createLine(entry, 'Entry', '#8b5cf6', LineStyle.Solid);
-      if (tp) createLine(tp, 'TP', '#10b981');
-      if (sl) createLine(sl, 'SL', '#ef4444');
+      if (entry != null && Number.isFinite(entry)) {
+        createLine(entry, 'Signal Entry', '#8b5cf6', LineStyle.Solid);
+      }
+      if (tp != null && Number.isFinite(tp)) {
+        createLine(tp, 'Signal TP', '#10b981');
+      }
+      if (sl != null && Number.isFinite(sl)) {
+        createLine(sl, 'Signal SL', '#ef4444');
+      }
     }
-  }, [analysis, chartReady]);
+
+    for (const level of positionLevels) {
+      if (level.kind === 'entry') {
+        createLine(
+          level.price,
+          level.title,
+          level.direction === 'long' ? '#38bdf8' : '#f59e0b',
+          LineStyle.Solid,
+          2,
+        );
+      } else if (level.kind === 'stop_loss') {
+        createLine(level.price, level.title, '#ef4444', LineStyle.Dashed);
+      } else {
+        createLine(level.price, level.title, '#10b981', LineStyle.Dashed);
+      }
+    }
+  }, [analysis, chartReady, positionLevels]);
 
   const showOverlay = candles.length === 0 && (loading || !!error || !loading);
 
