@@ -177,7 +177,7 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
   useEffect(() => () => resetController(), []);
 
   const placeTrade = useCallback(async () => {
-    let request;
+    let request: Parameters<typeof placeV2ManualOrder>[0];
 
     if (selectedSignal) {
       request = buildSelectedSignalOrder(selectedSignal, lotSize);
@@ -216,7 +216,7 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
   const renderAnalysis = () => {
     const a = selectedSignal ? selectedSignalToAnalysis(selectedSignal) : state.analysis;
 
-    if (state.loading) {
+    if (!selectedSignal && state.loading) {
       return (
         <div className="ta-panel__body" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '28px' }}>
           <div className="ta-spinner" />
@@ -224,10 +224,10 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
         </div>
       );
     }
-    if (state.cancelled) {
+    if (!selectedSignal && state.cancelled) {
       return <div className="ta-panel__empty">Analysis cancelled</div>;
     }
-    if (state.error) {
+    if (!selectedSignal && state.error) {
       return <div className="ta-panel__empty" style={{ color: 'var(--ta-bear)' }}>{state.error}</div>;
     }
     if (!a) {
