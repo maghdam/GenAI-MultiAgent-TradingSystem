@@ -271,7 +271,7 @@ Keep Trade setup lot entry visually consistent with cTrader while leaving broker
 
 ### 2.6 Chart position / SL / TP overlays
 **Priority:** P1
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 Show active TradeAgent positions directly on the Trade dashboard chart, using the same position truth already shown in the Positions panel.
 
@@ -287,11 +287,17 @@ Show active TradeAgent positions directly on the Trade dashboard chart, using th
 - [x] Preserve multiple same-symbol positions rather than collapsing by symbol/direction.
 
 **Verification**
-- [ ] Focused chart-position truth test passes locally.
-- [ ] Frontend production build passes locally.
-- [ ] Browser smoke check confirms entry/SL/TP overlays render on the selected symbol and disappear when no matching open position exists.
-- [ ] Git diff/worktree checks pass.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused chart-position truth test passes locally: 4/4.
+- [x] Frontend production build passes locally: 703 modules transformed.
+- [x] Git diff/worktree checks pass on implementation head `b5a673d`.
+- [x] GitHub CI #413 passes on exact implementation head `b5a673d`.
+- [ ] Real browser field observation of broker-backed Entry/SL/TP lines remains pending until the next natural open TradeAgent-managed position exists. This is post-merge evidence only; no broker exposure will be manufactured solely for UI testing.
+
+**Verification evidence**
+- The focused model test proves broker-backed overlays use broker entry/SL/TP rather than local tracked values, suppress all three lines when broker truth is unavailable, use tracked values only for pure-paper positions, and filter to open positions for the selected symbol.
+- The production TypeScript/Vite build passed locally with 703 modules transformed.
+- The runtime status probe at validation time returned zero open TradeAgent positions, so no legitimate live chart overlay existed to inspect in the browser.
+- PR #104 CI #413 passed the backend/frontend CI contract on `b5a673d`.
 
 **Scope boundary**
 This is a read-only Trade-dashboard visualization change. It does not submit/amend/close orders, mutate protection, alter reconciliation or broker identity, change risk/sizing/account selection, arm Live Trading, or modify the global 60% signal-strength threshold.
@@ -1293,6 +1299,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 2.5 cTrader-style lot-size entry | Replace misleading four-decimal Trade setup lot entry with two-decimal cTrader-style input formatting while preserving backend broker-contract validation | ✅ Focused frontend lot-size test 3/3 + production build (702 modules) + clean diff/worktree + browser smoke showing correct two-decimal UI; PR CI #404 passed on implementation head `02997a0` | PR #101 / `02997a0` | Final docs-only validation/CI, merge, sync local main, then resume the pending Phase 7 protected-position disconnect field observation only when a natural qualifying Demo position exists |
 | 2026-10-06 | Phase 5.3 threshold sample-sufficiency re-check | Re-run the existing read-only sufficiency screen after additional naturally closed automatic trades while Phase 7 field evidence remained blocked by zero open managed positions | 🟨 0/3 cells sufficient; NAS100 31, US30 31, XAUUSD 48 baseline trades; all cells have 100% R coverage and sufficient win/loss diversity, but minimum sample, 95% margin-of-error, and bucket-coverage gates still fail; threshold stayed 0.60 and no threshold was selected | Evidence-only PR | Keep 60% unchanged; resume Phase 7 disconnect/recovery only when a natural protected Demo position exists |
 | 2026-10-06 | Phase 10.7 Windows Credential Manager hardening | Move cTrader client ID/secret/access token out of plaintext project `.env` into Windows Credential Manager with verified migration, rollback, status, and emergency restore tooling | ✅ 8 credential tests + 56 focused cTrader safety tests + full backend suite; real two-stage migration/restart passed; plaintext secret assignments absent; Demo `44089601` verified/execution-ready and 7-account directory intact using Credential Manager only; CI #409 passed on `9e1b716` | PR #103 / `9e1b716` | Final docs-head validation/CI, merge, sync main, then return to pending Phase 7 protected-position disconnect/recovery only when a natural qualifying Demo position exists |
+| 2026-10-06 | Phase 2.6 chart position / SL / TP overlays | Render actual open-position entry/protection levels on the Trade chart from existing position truth, with strict broker-vs-paper source semantics | ✅ Focused overlay truth tests 4/4, frontend production build 703 modules, clean diff/worktree, CI #413 passed on `b5a673d`; runtime had zero open positions so real browser field observation is deferred until the next natural position | PR #104 / `b5a673d` | Merge after final docs-head validation/CI; preserve browser field observation as post-merge evidence, then implement Phase 2.7 signal visualization/trade-from-signal workflow |
 
 ---
 
@@ -1532,4 +1539,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Phase 2.6 chart position / SL / TP overlays is the active operator-reported UI item after Phase 10.7 merged cleanly. Validate the read-only chart overlays against actual position truth and the frontend production build. After Phase 2.6 is verified and merged, return to the exact unfinished Phase 7 cTrader disconnect/recovery observation only when a natural TradeAgent-managed protected Demo position exists; do not manufacture a trade solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**Phase 2.6 chart position / SL / TP overlays is implementation-verified on PR #104; the real browser field observation remains deferred until the next natural open position and must not trigger manufactured broker exposure. After PR #104 merges and local `main` is clean/synchronized, the next operator-requested UI item is Phase 2.7: exact signal visualization on the chart with a guarded trade-from-signal workflow. The separate Phase 7 protected-position disconnect/recovery field observation should reuse the next natural qualifying protected Demo position when available. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
