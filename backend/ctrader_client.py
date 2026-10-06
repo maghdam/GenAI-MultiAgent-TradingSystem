@@ -37,15 +37,19 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 import calendar, time, threading, os, json, math
 
-# Try to find a .env (root), otherwise fall back to backend/.env
+# Try to find a .env (root), otherwise fall back to backend/.env.
+# On Windows, cTrader secrets are read from Windows Credential Manager first;
+# environment variables remain a non-Windows/CI fallback.
 from dotenv import load_dotenv, find_dotenv
+from backend.security.credential_store import get_ctrader_secret
+
 dotenv_path = find_dotenv() or "backend/.env"
 load_dotenv(dotenv_path)
 
 # ── Credentials & client ───────────────────────────────────────────────────
-CLIENT_ID     = os.getenv("CTRADER_CLIENT_ID")
-CLIENT_SECRET = os.getenv("CTRADER_CLIENT_SECRET")
-ACCESS_TOKEN  = os.getenv("CTRADER_ACCESS_TOKEN")
+CLIENT_ID     = get_ctrader_secret("CTRADER_CLIENT_ID")
+CLIENT_SECRET = get_ctrader_secret("CTRADER_CLIENT_SECRET")
+ACCESS_TOKEN  = get_ctrader_secret("CTRADER_ACCESS_TOKEN")
 ACCOUNT_ID    = int(os.getenv("CTRADER_ACCOUNT_ID"))
 HOST_TYPE     = (os.getenv("CTRADER_HOST_TYPE") or "demo").lower()
 if HOST_TYPE not in {"demo", "live"}:
