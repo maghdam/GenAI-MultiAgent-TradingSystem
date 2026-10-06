@@ -1,7 +1,7 @@
 import type { AgentSignal } from '../types';
 import type { AnalysisResult } from '../types/analysis';
 import type { Candle, V2Analysis, V2ManualOrderRequest } from './api';
-import { parseBackendUtc } from '../utils/datetime';
+import { backendUtcEpochSeconds } from '../utils/datetime.ts';
 
 export interface ChartSignalMarker {
   id: string;
@@ -17,8 +17,8 @@ function isActionableSignal(signal: string): signal is 'long' | 'short' {
 }
 
 function signalTimestamp(value: string): number | null {
-  const parsed = parseBackendUtc(value);
-  return parsed ? Math.floor(parsed.getTime() / 1000) : null;
+  const timestamp = backendUtcEpochSeconds(value);
+  return timestamp > 0 ? timestamp : null;
 }
 
 function candleTimeForSignal(candles: Candle[], timestamp: number): number | null {
