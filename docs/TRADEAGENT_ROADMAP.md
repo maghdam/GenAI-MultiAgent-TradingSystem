@@ -249,6 +249,26 @@ Drill-down:
 - [x] Local full backend regression suite.
 - [x] GitHub CI frontend production build + full backend suite.
 
+### 2.5 cTrader-style lot-size entry
+**Priority:** P1
+**Status:** ✅
+
+Keep Trade setup lot entry visually consistent with cTrader while leaving broker/account/symbol contract enforcement in the backend.
+
+**Implemented**
+- [x] Replace the misleading four-decimal UI minimum `0.0001` with the normal two-decimal lot-entry floor/step `0.01`.
+- [x] Render configured lot values in cTrader-style two-decimal form such as `0.01`, `0.10`, and `1.00`.
+- [x] Normalize legacy sub-`0.01` Trade setup values to `0.01` in the editable UI model.
+- [x] Do not hard-code broker-specific symbol minima into the display; existing backend broker contract validation remains authoritative at execution.
+- [x] Remove the misleading universal frontend `max=100` constraint because broker maxima are contract-specific.
+
+**Verification**
+- [x] Focused frontend lot-size test: 3/3 passed locally.
+- [x] Local frontend production build passed (702 modules transformed).
+- [x] Local browser smoke check confirmed Trade setup now uses the expected two-decimal cTrader-style presentation and no longer shows `0.0001`.
+- [x] Local final implementation-head checks passed: exact head `02997a0`, clean working tree, and `git diff --check origin/main...HEAD`.
+- [x] GitHub PR #101 CI #404 passed backend + frontend on implementation head `02997a0`.
+
 ---
 
 ## 5. Phase 3 — System page acceptance audit
@@ -1235,6 +1255,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 2.3 real broker-truth field observation | Verify the Position-panel broker-truth fields against a naturally opened TradeAgent-managed cTrader Demo position without mutating the trade | ✅ XAUUSD local `107` / broker `57779123`: quantity `0.1`, broker entry `4131.83`, SL `4135.97`, TP `4123.1`, CHF basis, `protected`, `id_match`, timestamped broker snapshot; 1/1 protection-health coverage; local staging validation passed on `174d26e`; PR CI #394 passed backend + frontend | PR #98 | Final docs-only validation/CI, merge, sync local main, then resume only the remaining naturally evidence-dependent partial-close / protected-disconnect checks |
 | 2026-10-06 | Phase 1.4 real cTrader Demo partial-close field verification | Partially close one normal TradeAgent-managed broker position and verify residual quantity, authoritative broker-deal P&L, canonical identity, and continued broker protection | ✅ XAUUSD local `109` / broker `57783302`: `0.10 → 0.05` lots, `36.29 CHF` realized P&L from `ctrader_deal_partial`, one new broker deal, canonical `id_match`, residual 100% protected; local docs-only staging validation passed on `9b127bf`; PR CI #397 passed backend + frontend | PR #99 | Final docs-only validation/CI, merge, sync local main, then reuse this preserved evidence for the separate Phase 7 partial-close field-observation item |
 | 2026-10-06 | Phase 7 real cTrader Demo partial-close field observation | Close the remaining Phase 7 field-evidence checkbox by reusing the already-preserved normal partial-close observation without manufacturing a second trade | ✅ XAUUSD local `109` / broker `57783302`: `0.10 → 0.05` lots, `36.29 CHF` from `ctrader_deal_partial`, `partial_close_synced`, exact authoritative `0.05` closed/required lots, canonical `id_match`, residual 100% protected; local staging validation passed on `341ab60`; PR CI #400 passed backend + frontend | PR #100 | Final docs-only validation/CI, merge, sync local main, then perform the still-pending Phase 7 protected-position disconnect/recovery field observation only when a safe qualifying TradeAgent-managed Demo position exists |
+| 2026-10-06 | Phase 2.5 cTrader-style lot-size entry | Replace misleading four-decimal Trade setup lot entry with two-decimal cTrader-style input formatting while preserving backend broker-contract validation | ✅ Focused frontend lot-size test 3/3 + production build (702 modules) + clean diff/worktree + browser smoke showing correct two-decimal UI; PR CI #404 passed on implementation head `02997a0` | PR #101 / `02997a0` | Final docs-only validation/CI, merge, sync local main, then resume the pending Phase 7 protected-position disconnect field observation only when a natural qualifying Demo position exists |
 
 ---
 
@@ -1436,4 +1457,4 @@ This item changes account-directory refresh behavior, Trade/System UX, and the f
 
 ## 15. Next item
 
-**Phase 7 real cTrader Demo partial-close field observation is verified in PR #100 using the already-preserved 2026-10-06 XAUUSD evidence; no second partial close was required. After PR #100 merges and local `main` is clean/synchronized, the next broker-position field check is the still-pending Phase 7 cTrader disconnect/recovery observation with an open protected TradeAgent-managed Demo position. Perform it only when a safe qualifying position exists; do not manufacture a trade solely for testing. If no qualifying position is available, let Phase 5.3 evidence accumulate naturally. Keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
+**Phase 2.5 cTrader-style lot-size entry is verified in PR #101 after focused tests, production build, browser smoke, clean diff/worktree checks, and CI #404 on implementation head `02997a0`. After PR #101 merges and local `main` is clean/synchronized, return to the still-pending Phase 7 cTrader disconnect/recovery observation with an open protected TradeAgent-managed Demo position. The prior XAUUSD candidate closed naturally before the disconnect probe, so no test trade was manufactured. Perform the field observation only when another safe qualifying position exists; otherwise let Phase 5.3 evidence accumulate naturally. Keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
