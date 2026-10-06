@@ -269,6 +269,33 @@ Keep Trade setup lot entry visually consistent with cTrader while leaving broker
 - [x] Local final implementation-head checks passed: exact head `02997a0`, clean working tree, and `git diff --check origin/main...HEAD`.
 - [x] GitHub PR #101 CI #404 passed backend + frontend on implementation head `02997a0`.
 
+### 2.6 Chart position / SL / TP overlays
+**Priority:** P1
+**Status:** 🧪 Ready to test
+
+Show active TradeAgent positions directly on the Trade dashboard chart, using the same position truth already shown in the Positions panel.
+
+**Target behavior**
+- [x] Overlay every open position for the currently charted symbol, independent of chart timeframe.
+- [x] Show the actual position entry line with Buy/Sell direction, quantity, and position identity.
+- [x] Show SL and TP price lines for that position when those levels exist.
+- [x] For broker-backed positions, use only read-only broker truth: `broker_entry_price`, `broker_stop_loss`, and `broker_take_profit`.
+- [x] Never fall back to tracked/local entry or protection values when broker truth for a broker-backed position is unavailable.
+- [x] For pure-paper positions, use the local tracked entry/SL/TP values.
+- [x] Keep analysis/signal price lines distinct from actual position lines.
+- [x] Refresh overlays from the existing status polling path so changed SL/TP or closed positions disappear/update without a separate write path.
+- [x] Preserve multiple same-symbol positions rather than collapsing by symbol/direction.
+
+**Verification**
+- [ ] Focused chart-position truth test passes locally.
+- [ ] Frontend production build passes locally.
+- [ ] Browser smoke check confirms entry/SL/TP overlays render on the selected symbol and disappear when no matching open position exists.
+- [ ] Git diff/worktree checks pass.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This is a read-only Trade-dashboard visualization change. It does not submit/amend/close orders, mutate protection, alter reconciliation or broker identity, change risk/sizing/account selection, arm Live Trading, or modify the global 60% signal-strength threshold.
+
 ---
 
 ## 5. Phase 3 — System page acceptance audit
@@ -1505,4 +1532,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Phase 10.7 Windows Credential Manager hardening is verified on PR #103: the three cTrader secrets now live in Windows Credential Manager, the plaintext assignments are absent from the ignored local `backend/.env`, and a real backend restart authenticated Demo `44089601` with the full 7-account directory using Credential Manager only. After PR #103 merges and local `main` is clean/synchronized, return to the exact unfinished Phase 7 cTrader disconnect/recovery observation only when a natural TradeAgent-managed protected Demo position exists; do not manufacture a trade solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**Phase 2.6 chart position / SL / TP overlays is the active operator-reported UI item after Phase 10.7 merged cleanly. Validate the read-only chart overlays against actual position truth and the frontend production build. After Phase 2.6 is verified and merged, return to the exact unfinished Phase 7 cTrader disconnect/recovery observation only when a natural TradeAgent-managed protected Demo position exists; do not manufacture a trade solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
