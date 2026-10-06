@@ -71,9 +71,34 @@ This script kills listeners on ports `4000` and `5173` and aggressively cleans u
 
 ### cTrader credentials and account selection
 
-Configure the cTrader Open API application credentials and one access token in `backend/.env` (using `backend/.env.example` as the template). The access token is the source of truth for the authorized account directory: TradeAgent discovers every account available to that token and reads the broker-reported Demo/Live type.
+On Windows, keep the cTrader application/token secrets in **Windows Credential Manager**, not in a plaintext project file. TradeAgent checks Credential Manager first for `CTRADER_CLIENT_ID`, `CTRADER_CLIENT_SECRET`, and `CTRADER_ACCESS_TOKEN`. Environment variables remain a fallback for non-Windows/CI environments.
 
-Do **not** create separate environment-variable entries for every broker account. `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` are bootstrap/fallback values used for initial connection/discovery and older persisted-selection migration. During normal operation, choose the desired account from the System dashboard. TradeAgent persists that account ID/type in SQLite and restores it on restart.
+For a fresh Windows setup, enter the three values without echoing them:
+
+```powershell
+python scripts\manage_ctrader_credentials.py set
+python scripts\manage_ctrader_credentials.py status --env-file backend\.env
+```
+
+To migrate an existing local `backend/.env`, first copy and verify the values in Credential Manager without changing the file:
+
+```powershell
+python scripts\manage_ctrader_credentials.py migrate --env-file backend\.env
+python scripts\manage_ctrader_credentials.py status --env-file backend\.env
+```
+
+After the status reports `effective_source=windows_credential_manager` for all three credentials, remove those three plaintext assignments only after a verified write/read round trip:
+
+```powershell
+python scripts\manage_ctrader_credentials.py migrate --env-file backend\.env --scrub-env
+python scripts\manage_ctrader_credentials.py status --env-file backend\.env
+```
+
+The status command reports only presence/source metadata and never prints secret values. If an emergency rollback is needed before reverting code, `python scripts\manage_ctrader_credentials.py restore-env --env-file backend\.env` can reconstruct the three local assignments from Credential Manager.
+
+The local `backend/.env` remains useful for non-secret bootstrap/runtime settings and is ignored by Git through `*.env`. Do **not** store the real `.env` in GitHub or a synchronized cloud-drive folder.
+
+The access token is the source of truth for the authorized account directory: TradeAgent discovers every account available to that token and reads the broker-reported Demo/Live type. Do **not** create separate credential entries for every broker account. `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` are non-secret bootstrap/fallback values used for initial connection/discovery and older persisted-selection migration. During normal operation, choose the desired account from the System dashboard. TradeAgent persists only that account ID/type in local SQLite and restores it on restart.
 
 Account switching is deliberately guarded:
 
