@@ -250,7 +250,7 @@ Drill-down:
 - [x] GitHub CI frontend production build + full backend suite.
 
 ### 2.5 cTrader-style lot-size entry
-**Priority:** P1  
+**Priority:** P1
 **Status:** 🟨 local validation pending
 
 Keep Trade setup lot entry visually consistent with cTrader while leaving broker/account/symbol contract enforcement in the backend.
