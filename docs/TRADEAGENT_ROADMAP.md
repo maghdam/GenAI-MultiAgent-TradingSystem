@@ -212,11 +212,11 @@ Show:
 
 **Verification**
 - [x] Focused broker-truth/API tests, full backend suite, frontend production build, and CI.
-- [ ] Real cTrader field observation on the next normal TradeAgent-managed open demo position.
-  - 2026-10-06 evidence candidate captured on naturally opened XAUUSD local `107` / broker `57779123` on verified Demo account `44089601`.
+- [x] Real cTrader field observation on the next normal TradeAgent-managed open demo position.
+  - Verified 2026-10-06 on naturally opened XAUUSD local `107` / broker `57779123` on verified Demo account `44089601`.
   - The enriched position exposed quantity `0.1`, tracked entry `4131.68`, broker entry `4131.83`, broker SL `4135.97`, broker TP `4123.1`, account currency `CHF`, protection `protected`, broker sync `id_match`, and broker snapshot timestamp `2026-10-06T06:43:58.676505`.
   - The immediately preceding protection-health observation reported broker truth/execution ready, 1/1 assessable position fully protected, and 100% protection coverage for the same broker position.
-  - Keep this checkbox unchecked until this docs-only evidence PR passes local validation and GitHub CI.
+  - Local docs-only staging validation passed on `174d26e`; PR #98 CI #394 passed the normal backend/frontend CI contract before this verification update.
 
 ### 2.4 Journal filtering / drill-down
 **Priority:** P2  
@@ -1221,6 +1221,7 @@ Add one row after every completed task.
 | 2026-10-04 | Phase 10.5 documentation and operator disclaimer | Align README, architecture, environment bootstrap guidance, operations, generated-strategy security, and architecture diagram with the account-neutral Demo/Live execution model and explicit Live-risk warning | ✅ Local documentation consistency checks + full backend regression + frontend production build passed on `257e90b`; working tree/diff clean; PR CI #323 passed | PR #94 / `257e90b` | Phase 10 implementation complete; require final docs-only CI, merge, sync local main, then gather remaining broker-position/sample evidence naturally |
 | 2026-10-06 | Phase 10.6 Trade-dashboard cTrader selector + Live arming + transport isolation | Expose authorized Demo/Live account selection on Trade, preserve selected-vs-active truth, add runtime-only Live arming, serialize cross-host auth/directory refresh, redact auth logs, and isolate OpenApiPy TCP queues per connection | ✅ Focused cTrader suite + full backend regression passed locally on `91cdf9e`; real Demo `44089601` → Live `48922568` → Demo smoke passed with Live disarmed and 7-account Demo-directory refresh clean; PR CI #388 passed backend + frontend | PR #96 / `91cdf9e` | Merge after final docs-only CI, sync local main, then resume only the remaining evidence-dependent roadmap checks without manufacturing trades or changing the 60% threshold |
 | 2026-10-06 | Real backend restart with open broker positions | Restart the backend through the normal launcher while two canonical, fully protected Demo positions are open, then verify the same broker IDs and protection truth after recovery | ✅ US30 `57782376` + XAUUSD `57783302` recovered as `id_match` + `protected`; Demo `44089601` authorized/verified/execution-ready; local docs-only staging validation passed on `b2048b4`; PR CI #391 passed backend + frontend | PR #97 | Final docs-only validation/CI, merge, sync local main, then close the already-captured Phase 2.3 real broker-truth observation as the next smallest evidence item |
+| 2026-10-06 | Phase 2.3 real broker-truth field observation | Verify the Position-panel broker-truth fields against a naturally opened TradeAgent-managed cTrader Demo position without mutating the trade | ✅ XAUUSD local `107` / broker `57779123`: quantity `0.1`, broker entry `4131.83`, SL `4135.97`, TP `4123.1`, CHF basis, `protected`, `id_match`, timestamped broker snapshot; 1/1 protection-health coverage; local staging validation passed on `174d26e`; PR CI #394 passed backend + frontend | PR #98 | Final docs-only validation/CI, merge, sync local main, then resume only the remaining naturally evidence-dependent partial-close / protected-disconnect checks |
 
 ---
 
@@ -1422,4 +1423,4 @@ This item changes account-directory refresh behavior, Trade/System UX, and the f
 
 ## 15. Next item
 
-**Phase 2.3 broker-truth field evidence is staged from the 2026-10-06 natural XAUUSD observation. Validate this docs-only evidence PR locally and in GitHub CI; only then mark the Phase 2.3 real-field checkbox verified, update the work log, and merge. After Phase 2.3 is merged and local `main` is clean/synchronized, continue normal Demo use and wait for naturally qualifying positions for the still-pending Phase 1.4 / Phase 7 partial-close and protected-position disconnect field observations. Do not manufacture a trade solely for testing. Let Phase 5.3 sample evidence accumulate naturally and keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
+**Phase 2.3 real broker-truth field evidence is verified in PR #98. After PR #98 merges and local `main` is clean/synchronized, resume the remaining evidence-dependent roadmap checks from normal Demo use. The remaining broker-position field observations are Phase 1.4 / Phase 7 real partial-close behavior and Phase 7 cTrader disconnect/recovery with an open protected TradeAgent-managed position; handle only one qualifying item at a time and do not manufacture a trade solely for testing. If no qualifying position is available, let Phase 5.3 sample evidence accumulate naturally. Keep the global 60% signal-strength threshold unchanged until the existing Phase 5.3 sufficiency screen qualifies.**
