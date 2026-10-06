@@ -18,6 +18,8 @@ from backend.domain.models import (
     CTraderAccount,
     CTraderAccountSelectionRequest,
     CTraderAccountSelectionResponse,
+    LiveTradingArmRequest,
+    LiveTradingArmResponse,
     ConfluenceReplayResponse,
     DailySummaryResponse,
     EngineConfig,
@@ -61,6 +63,12 @@ from backend.services.reconciler import reconcile_open_positions, recover_runtim
 from backend.services.broker_ledger import reconcile_closed_history
 from backend.services.position_truth import attach_broker_truth
 from backend.services.risk import build_readiness
+from backend.services.live_trading_guard import (
+    arm_live_trading,
+    disarm_live_trading,
+    get_live_trading_armed_account_id,
+    is_live_trading_armed,
+)
 from backend.services import model_service
 from backend.services import studio_llm
 from backend.services.studio_backtests import load_saved_strategy_source, list_saved_strategy_files, run_saved_strategy_backtest
@@ -159,6 +167,15 @@ def _status_truth_checks(
     else:
         engine_detail = "Engine is enabled but the scan loop is not active."
 
+    live_arm_required = bool(config.ctrader_autotrade and broker.account_type == "live")
+    live_arm_ok = (
+        not live_arm_required
+        or (
+            broker.account_id is not None
+            and is_live_trading_armed(broker.account_id)
+        )
+    )
+
     return [
         ReadinessCheck(
             name="connected",
@@ -181,6 +198,19 @@ def _status_truth_checks(
                 "cTrader execution prerequisites are verified."
                 if broker.execution_ready
                 else "cTrader execution prerequisites are not fully verified."
+            ),
+        ),
+        ReadinessCheck(
+            name="live_trading_arm",
+            ok=live_arm_ok,
+            detail=(
+                f"Live trading is explicitly armed for cTrader account {broker.account_id}."
+                if live_arm_required and live_arm_ok
+                else (
+                    "Live trading is disarmed; new real-money entries are blocked until the active Live account is explicitly armed in System."
+                    if live_arm_required
+                    else "Live trading arming is not required for the active Demo account."
+                )
             ),
         ),
         ReadinessCheck(
@@ -383,6 +413,20 @@ def _active_status_incidents(
                     message="The selected cTrader account is authenticated, but execution prerequisites are not currently ready.",
                 )
             )
+        elif (
+            broker.account_type == "live"
+            and not is_live_trading_armed(broker.account_id)
+        ):
+            incidents.append(
+                ActiveIncident(
+                    level="error",
+                    code="live_trading_disarmed",
+                    message=(
+                        "Automatic cTrader execution is enabled on an active Live account, "
+                        "but Live Trading is disarmed. New real-money entries remain blocked."
+                    ),
+                )
+            )
 
     if (
         config.enabled
@@ -431,6 +475,12 @@ async def _status_payload() -> EngineStatus:
     runtime.ollama_ready = await _get_cached_ollama_ready()
     status_truth = _status_truth_checks(config, broker, runtime)
     active_incidents = _active_status_incidents(config, broker, runtime)
+    armed_account_id = get_live_trading_armed_account_id()
+    live_trading_armed = bool(
+        broker.account_type == "live"
+        and broker.account_id is not None
+        and is_live_trading_armed(broker.account_id)
+    )
 
     paper_positions = list_paper_positions("open")
     broker_rows = None
@@ -445,7 +495,12 @@ async def _status_payload() -> EngineStatus:
         version=SETTINGS.version,
         mode=(
             "live_enabled"
-            if config.ctrader_autotrade and broker.execution_ready and broker.account_type == "live"
+            if (
+                config.ctrader_autotrade
+                and broker.execution_ready
+                and broker.account_type == "live"
+                and live_trading_armed
+            )
             else (
                 "demo_enabled"
                 if config.ctrader_autotrade and broker.execution_ready
@@ -454,6 +509,8 @@ async def _status_payload() -> EngineStatus:
         ),
         broker=broker,
         config=config,
+        live_trading_armed=live_trading_armed,
+        live_trading_armed_account_id=armed_account_id,
         runtime=runtime,
         readiness=readiness,
         status_truth=status_truth,
@@ -501,12 +558,10 @@ def _apply_account_selection(
     config: EngineConfig,
 ) -> List[CTraderAccount]:
     selected_id = config.selected_ctrader_account_id
-    if selected_id is None:
-        active = next((account for account in accounts if account.active), None)
-        selected_id = active.account_id if active is not None else None
-
     return [
-        account.model_copy(update={"selected": account.account_id == selected_id})
+        account.model_copy(
+            update={"selected": selected_id is not None and account.account_id == selected_id}
+        )
         for account in accounts
     ]
 
@@ -555,6 +610,11 @@ async def v2_select_broker_account(
         )
 
     active = next((account for account in accounts if account.active), None)
+    if transport_switch_required:
+        # Account changes always fail closed for future Live entries. Existing
+        # broker-backed positions remain protected by the normal broker path.
+        disarm_live_trading()
+
     updated_config = config.model_copy(
         update={
             "selected_ctrader_account_id": request.account_id,
@@ -582,6 +642,68 @@ async def v2_select_broker_account(
         active_account_id=active.account_id if active is not None else None,
         transport_switch_required=transport_switch_required,
         switch_started=switch_started,
+    )
+
+
+@router.post("/broker/live-arm", response_model=LiveTradingArmResponse)
+async def v2_live_trading_arm(
+    request: LiveTradingArmRequest,
+) -> LiveTradingArmResponse:
+    config = _current_config()
+    broker = await asyncio.to_thread(get_broker_status)
+
+    if not request.armed:
+        disarm_live_trading()
+        return LiveTradingArmResponse(
+            armed=False,
+            armed_account_id=None,
+            active_account_id=broker.account_id,
+            account_type=broker.account_type,
+        )
+
+    if config.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the engine before arming Live Trading.",
+        )
+    if not config.ctrader_autotrade:
+        raise HTTPException(
+            status_code=409,
+            detail="Enable and save cTrader auto-trade before arming Live Trading.",
+        )
+    if (
+        config.selected_ctrader_account_id is None
+        or config.selected_ctrader_account_type != "live"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Select a Live cTrader account before arming Live Trading.",
+        )
+    if broker.account_switch_in_progress:
+        raise HTTPException(
+            status_code=409,
+            detail="Wait for the cTrader account switch to finish before arming Live Trading.",
+        )
+    if (
+        not broker.account_verified
+        or broker.account_type != "live"
+        or broker.active_host_type != "live"
+        or broker.account_id != config.selected_ctrader_account_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The selected Live cTrader account must be the authenticated active "
+                "Live transport before Live Trading can be armed."
+            ),
+        )
+
+    armed_account_id = arm_live_trading(broker.account_id)
+    return LiveTradingArmResponse(
+        armed=True,
+        armed_account_id=armed_account_id,
+        active_account_id=broker.account_id,
+        account_type=broker.account_type,
     )
 
 
@@ -687,6 +809,46 @@ async def v2_statement_comparison(
 
 @router.post("/config", response_model=EngineConfig)
 async def v2_set_config(config: EngineConfig) -> EngineConfig:
+    current = _current_config()
+    if config.ctrader_autotrade and (
+        config.selected_ctrader_account_id is None
+        or config.selected_ctrader_account_type not in {"demo", "live"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Select a cTrader account before enabling cTrader auto-trade.",
+        )
+
+    selection_changed = (
+        config.selected_ctrader_account_id != current.selected_ctrader_account_id
+        or config.selected_ctrader_account_type != current.selected_ctrader_account_type
+    )
+    if not config.ctrader_autotrade or selection_changed:
+        disarm_live_trading()
+
+    if config.enabled and config.ctrader_autotrade:
+        broker = await asyncio.to_thread(get_broker_status)
+        if (
+            not broker.account_verified
+            or broker.account_id != config.selected_ctrader_account_id
+            or broker.account_type != config.selected_ctrader_account_type
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The selected cTrader account must be the authenticated active "
+                    "account before saving an enabled cTrader auto-trade configuration."
+                ),
+            )
+        if broker.account_type == "live" and not is_live_trading_armed(broker.account_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Live Trading is disarmed. Arm the active Live account explicitly "
+                    "before saving an enabled cTrader auto-trade configuration."
+                ),
+            )
+
     saved = save_engine_config(config)
     engine.wake()
     return saved
@@ -1062,6 +1224,38 @@ async def v2_trade_audit(limit: int = 20) -> list:
 @router.post("/engine/start")
 async def v2_engine_start() -> dict:
     config = _current_config()
+    if config.ctrader_autotrade:
+        if (
+            config.selected_ctrader_account_id is None
+            or config.selected_ctrader_account_type not in {"demo", "live"}
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Select a cTrader account before starting cTrader auto-trading.",
+            )
+
+        broker = await asyncio.to_thread(get_broker_status)
+        if (
+            not broker.account_verified
+            or broker.account_id != config.selected_ctrader_account_id
+            or broker.account_type != config.selected_ctrader_account_type
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The selected cTrader account must be the authenticated active "
+                    "account before the engine can start with cTrader auto-trade."
+                ),
+            )
+        if broker.account_type == "live" and not is_live_trading_armed(broker.account_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Live Trading is disarmed. Arm the active Live account explicitly "
+                    "in System before starting the engine."
+                ),
+            )
+
     config.enabled = True
     saved = save_engine_config(config)
     engine.wake()
@@ -1079,6 +1273,7 @@ async def v2_engine_stop() -> dict:
 
 @router.post("/engine/restart")
 async def v2_engine_restart() -> dict:
+    disarm_live_trading()
     await engine.restart()
     config = _current_config()
     return {"ok": True, "enabled": config.enabled, "restarted": True}

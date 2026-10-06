@@ -22,6 +22,7 @@ class _FakeClient:
         self.running = running
         self.started = 0
         self.sent: list[tuple[object, _Deferred]] = []
+        self.send_kwargs: list[dict[str, object]] = []
         self.connected_callback = None
         self.disconnected_callback = None
         self.message_callback = None
@@ -42,6 +43,7 @@ class _FakeClient:
     def send(self, request, **kwargs):
         deferred = _Deferred()
         self.sent.append((request, deferred))
+        self.send_kwargs.append(dict(kwargs))
         return deferred
 
 
@@ -79,6 +81,7 @@ def test_same_host_account_switch_reauthenticates_without_replacing_client(monke
     assert len(current.sent) == 1
     account_auth_request, deferred = current.sent[0]
     assert account_auth_request.ctidTraderAccountId == 222
+    assert current.send_kwargs[0]["responseTimeoutInSeconds"] == 15
 
     success, _ = deferred.callbacks
     success(object())
@@ -121,8 +124,16 @@ def test_cross_host_switch_replaces_client_and_ignores_stale_disconnect(monkeypa
 
     assert ctd.CONNECTED is True
     assert len(replacement.sent) == 1
-    app_auth_request, _ = replacement.sent[0]
+    app_auth_request, app_auth_deferred = replacement.sent[0]
     assert app_auth_request.clientId == (ctd.CLIENT_ID or "")
+    assert replacement.send_kwargs[0]["responseTimeoutInSeconds"] == 15
+
+    app_auth_success, _ = app_auth_deferred.callbacks
+    app_auth_success(object())
+    assert len(replacement.sent) == 2
+    account_auth_request, _ = replacement.sent[1]
+    assert account_auth_request.ctidTraderAccountId == 333
+    assert replacement.send_kwargs[1]["responseTimeoutInSeconds"] == 15
 
     ctd._on_disconnected(current, "stale old transport")
 
@@ -335,3 +346,92 @@ def test_app_bootstrap_legacy_id_only_selection_fails_closed_then_switches(monke
     asyncio.run(_run())
 
     assert calls["engine_stop"] is True
+
+def test_live_application_auth_failure_is_stage_labeled(monkeypatch) -> None:
+    replacement = _FakeClient(connected=False, running=False)
+    _prime_state(monkeypatch, replacement, account_id=333)
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_IN_PROGRESS", True)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_TARGET_ID", 333)
+
+    replacement.isConnected = True
+    ctd._on_connected(replacement)
+
+    _, deferred = replacement.sent[0]
+    _, failure = deferred.callbacks
+    failure("timeout")
+
+    assert "cTrader live application auth" in (ctd.ACCOUNT_SWITCH_ERROR or "")
+    assert "timeout" in (ctd.ACCOUNT_SWITCH_ERROR or "")
+
+
+def test_sensitive_broker_payload_redaction() -> None:
+    payload = {
+        "accessToken": "secret-access",
+        "refresh_token": "secret-refresh",
+        "nested": {"clientSecret": "secret-client", "safe": "value"},
+    }
+
+    redacted = ctd._redact_sensitive_payload(payload)
+
+    assert redacted["accessToken"] == "<redacted>"
+    assert redacted["refresh_token"] == "<redacted>"
+    assert redacted["nested"]["clientSecret"] == "<redacted>"
+    assert redacted["nested"]["safe"] == "value"
+
+def test_account_auth_event_completes_live_switch_without_deferred_correlation(monkeypatch) -> None:
+    current = _FakeClient(connected=True, running=True)
+    replacement = _FakeClient(connected=False, running=False)
+    _prime_state(monkeypatch, current)
+
+    stopped = []
+    monkeypatch.setattr(ctd, "_new_client", lambda host_type: replacement)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+    monkeypatch.setattr(ctd, "_start_demo_directory_probe", lambda: True)
+    monkeypatch.setattr(ctd, "ACCESS_TOKEN", "test-token")
+
+    result = ctd.switch_account(333, "live")
+    assert result["switch_started"] is True
+
+    replacement.isConnected = True
+    replacement.connected_callback(replacement)
+
+    app_auth_request, app_auth_deferred = replacement.sent[0]
+    assert app_auth_request.__class__.__name__ == "ProtoOAApplicationAuthReq"
+    assert replacement.send_kwargs[0]["clientMsgId"].startswith(
+        "tradeagent:live-application-auth:none:"
+    )
+    app_auth_success, _ = app_auth_deferred.callbacks
+    app_auth_success(object())
+
+    assert len(replacement.sent) == 2
+    _, account_auth_deferred = replacement.sent[1]
+    assert replacement.send_kwargs[1]["clientMsgId"].startswith(
+        "tradeagent:live-account-auth:333:"
+    )
+    assert account_auth_deferred.callbacks is not None
+    assert ctd.AUTHORIZED is False
+    assert ctd.ACCOUNT_SWITCH_IN_PROGRESS is True
+
+    event = type(
+        "ProtoOAAccountAuthRes",
+        (),
+        {"ctidTraderAccountId": 333},
+    )()
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: event)
+
+    replacement.message_callback(replacement, object())
+
+    assert ctd.AUTHORIZED is True
+    assert ctd.ACTIVE_ACCOUNT_ID == 333
+    assert ctd.ACTIVE_HOST_TYPE == "live"
+    assert ctd.ACCOUNT_SWITCH_IN_PROGRESS is False
+    assert ctd.ACCOUNT_SWITCH_ERROR is None
+
+    # If the SDK Deferred resolves afterwards, the idempotent handler must not
+    # duplicate the post-auth bootstrap requests.
+    sent_after_event = len(replacement.sent)
+    account_auth_success, _ = account_auth_deferred.callbacks
+    account_auth_success(object())
+    assert len(replacement.sent) == sent_after_event

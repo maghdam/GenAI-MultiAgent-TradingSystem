@@ -3,11 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { AIOutputHandle } from '../components/AIOutput';
 import type { AnalysisResult } from '../types/analysis';
 import {
+  getV2CTraderAccounts,
   getV2Strategies,
   getV2Status,
+  selectV2CTraderAccount,
   setV2Config,
   startV2Engine,
   stopV2Engine,
+  type V2CTraderAccount,
   type V2StrategyInfo,
   type V2Status,
   type V2WatchlistItem,
@@ -39,6 +42,9 @@ export default function DashboardPage() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(false);
   const [status, setStatus] = useState<V2Status | null>(null);
+  const [ctraderAccounts, setCtraderAccounts] = useState<V2CTraderAccount[]>([]);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState('');
   const [selectedSignal, setSelectedSignal] = useState<AgentSignal | null>(null);
   const [v2Strategies, setV2Strategies] = useState<V2StrategyInfo[]>([]);
   const [bootstrapError, setBootstrapError] = useState('');
@@ -91,6 +97,18 @@ export default function DashboardPage() {
     return snapshot;
   };
 
+  const loadCTraderAccounts = async () => {
+    try {
+      const rows = await getV2CTraderAccounts();
+      setCtraderAccounts(rows);
+      setAccountError('');
+      return rows;
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : 'cTrader account directory unavailable.');
+      return null;
+    }
+  };
+
   useEffect(() => {
     let disposed = false;
 
@@ -101,6 +119,16 @@ export default function DashboardPage() {
       });
       if (disposed) return;
       applyDashboardSnapshot(snapshot, initialSyncPendingRef.current);
+      void getV2CTraderAccounts()
+        .then((rows) => {
+          if (disposed) return;
+          setCtraderAccounts(rows);
+          setAccountError('');
+        })
+        .catch((error) => {
+          if (disposed) return;
+          setAccountError(error instanceof Error ? error.message : 'cTrader account directory unavailable.');
+        });
     };
 
     void refresh();
@@ -172,8 +200,23 @@ export default function DashboardPage() {
   };
 
   const handleReloadStrategies = async () => {
-    try { await loadDashboardState(true); }
-    catch (error) { console.error('Failed to refresh', error); }
+    try {
+      await Promise.all([loadDashboardState(true), loadCTraderAccounts()]);
+    } catch (error) { console.error('Failed to refresh', error); }
+  };
+
+  const handleCTraderAccountChange = async (accountId: number) => {
+    if (!Number.isInteger(accountId) || accountId <= 0 || accountBusy) return;
+    setAccountBusy(true);
+    setAccountError('');
+    try {
+      await selectV2CTraderAccount(accountId);
+      await Promise.all([loadDashboardState(false), loadCTraderAccounts()]);
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : 'Failed to select cTrader account.');
+    } finally {
+      setAccountBusy(false);
+    }
   };
 
   const handleSignalSelect = (signal: AgentSignal) => {
@@ -234,6 +277,11 @@ export default function DashboardPage() {
         symbol={symbol}
         timeframe={timeframe}
         onTimeframeChange={handleTimeframeChange}
+        ctraderAccounts={ctraderAccounts}
+        ctraderAccountBusy={accountBusy}
+        ctraderAccountSwitchInProgress={status?.broker.account_switch_in_progress ?? false}
+        liveTradingArmed={status?.live_trading_armed ?? false}
+        onCTraderAccountChange={handleCTraderAccountChange}
       />
 
       {/* Symbol selector row — compact */}
@@ -244,6 +292,12 @@ export default function DashboardPage() {
       {bootstrapError && (
         <div className="v2-banner v2-banner-bad">
           Frontend refresh degraded: {bootstrapError}. Retaining last known backend state and retrying automatically.
+        </div>
+      )}
+
+      {accountError && (
+        <div className="v2-banner v2-banner-bad">
+          cTrader account selection: {accountError}
         </div>
       )}
 

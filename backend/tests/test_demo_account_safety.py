@@ -38,7 +38,11 @@ def test_account_list_confirms_demo_before_account_authorization(monkeypatch) ->
             ctidTraderAccount=[SimpleNamespace(ctidTraderAccountId=123, isLive=False)]
         ),
     )
-    monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
+    monkeypatch.setattr(
+        ctd.client,
+        "send",
+        lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
     monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", None)
     monkeypatch.setattr(ctd, "ACCOUNT_VERIFICATION_ERROR", None)
     monkeypatch.setattr(ctd, "AUTH_ERROR", None)
@@ -48,7 +52,9 @@ def test_account_list_confirms_demo_before_account_authorization(monkeypatch) ->
     assert ctd.ACCOUNT_IS_DEMO is True
     assert ctd.ACCOUNT_VERIFICATION_ERROR is None
     assert len(sent) == 1
-    assert sent[0].ctidTraderAccountId == 123
+    request, kwargs = sent[0]
+    assert request.ctidTraderAccountId == 123
+    assert kwargs["responseTimeoutInSeconds"] == 15
 
 
 def test_account_list_blocks_live_account_on_demo_host(monkeypatch) -> None:
@@ -90,7 +96,11 @@ def test_account_list_allows_live_account_auth_on_live_host(monkeypatch) -> None
             ctidTraderAccount=[SimpleNamespace(ctidTraderAccountId=123, isLive=True)]
         ),
     )
-    monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
+    monkeypatch.setattr(
+        ctd.client,
+        "send",
+        lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
     monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", None)
     monkeypatch.setattr(ctd, "ACCOUNT_VERIFICATION_ERROR", None)
     monkeypatch.setattr(ctd, "AUTH_ERROR", None)
@@ -100,7 +110,9 @@ def test_account_list_allows_live_account_auth_on_live_host(monkeypatch) -> None
     assert ctd.ACCOUNT_IS_DEMO is False
     assert ctd.ACCOUNT_VERIFICATION_ERROR is None
     assert len(sent) == 1
-    assert sent[0].ctidTraderAccountId == 123
+    request, kwargs = sent[0]
+    assert request.ctidTraderAccountId == 123
+    assert kwargs["responseTimeoutInSeconds"] == 15
 
     success, _ = deferred.callbacks
     success(object())

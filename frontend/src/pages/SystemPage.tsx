@@ -10,6 +10,7 @@ import {
   scanV2Engine,
   selectV2CTraderAccount,
   setV2Config,
+  setV2LiveTradingArm,
   startV2Engine,
   stopV2Engine,
   type V2Config,
@@ -24,7 +25,7 @@ export default function SystemPage() {
   const [status, setStatus] = useState<V2Status | null>(null);
   const [accounts, setAccounts] = useState<V2CTraderAccount[]>([]);
   const [draft, setDraft] = useState<V2Config | null>(null);
-  const [busy, setBusy] = useState<'save' | 'account' | 'engine' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
+  const [busy, setBusy] = useState<'save' | 'account' | 'live-arm' | 'engine' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
   const [error, setError] = useState('');
 
   const load = async (syncDraft = false) => {
@@ -89,6 +90,10 @@ export default function SystemPage() {
     const accountId = Number(event.target.value);
     if (!Number.isInteger(accountId) || accountId <= 0) return;
     void run('account', () => selectV2CTraderAccount(accountId));
+  };
+  const toggleLiveTradingArm = () => {
+    const next = !(status?.live_trading_armed ?? false);
+    void run('live-arm', () => setV2LiveTradingArm(next));
   };
 
   return (
@@ -204,7 +209,7 @@ export default function SystemPage() {
           <div className="v2-panel-head">
             <div>
               <h2>Safety configuration</h2>
-              <span>Paper execution and cTrader execution are separate controls. cTrader orders follow the explicitly selected active account; Live accounts can place real-money orders when auto-trade is enabled and the kill switch is off.</span>
+              <span>Paper execution and cTrader execution are separate controls. Live accounts require an explicit runtime-only Live Trading arm in addition to cTrader auto-trade, the selected active account, and the normal kill-switch/risk gates.</span>
             </div>
             <button className="btn primary" type="button" onClick={save} disabled={!draft || busy !== ''}>{busy === 'save' ? 'Saving…' : 'Save safety settings'}</button>
           </div>
@@ -246,6 +251,51 @@ export default function SystemPage() {
                 <label>Cooldown (minutes)<input type="number" min="0" max="1440" step="1" value={draft.cooldown_minutes} onChange={updateNumber('cooldown_minutes', 30, 0, 1440)} /></label>
                 <label>Session start (UTC)<input type="number" min="0" max="23" step="1" value={draft.session_start_hour_utc} onChange={updateNumber('session_start_hour_utc', 6, 0, 23)} disabled={!draft.session_filter_enabled} /></label>
                 <label>Session end (UTC)<input type="number" min="0" max="23" step="1" value={draft.session_end_hour_utc} onChange={updateNumber('session_end_hour_utc', 21, 0, 23)} disabled={!draft.session_filter_enabled} /></label>
+              </div>
+              <div className={`v2-banner ${status?.live_trading_armed ? 'v2-banner-bad' : 'v2-banner-good'}`} style={{ marginTop: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                  <div>
+                    <strong>
+                      {status?.live_trading_armed
+                        ? `LIVE TRADING ARMED · account ${status.live_trading_armed_account_id ?? '—'}`
+                        : 'Live Trading disarmed'}
+                    </strong>
+                    <div style={{ marginTop: 4 }}>
+                      {activeAccount?.account_type === 'live'
+                        ? `Active Live account: ${accountLabel(activeAccount)}. New real-money entries require this arm in addition to the saved cTrader auto-trade setting.`
+                        : 'The active account is Demo, so Live arming is not required. Live arming resets on account changes, engine restart, and backend restart.'}
+                    </div>
+                  </div>
+                  <button
+                    className={`btn ${status?.live_trading_armed ? 'danger' : 'primary'}`}
+                    type="button"
+                    onClick={toggleLiveTradingArm}
+                    disabled={
+                      busy !== ''
+                      || (
+                        !status?.live_trading_armed
+                        && (
+                          status?.config.enabled
+                          || status?.config.ctrader_autotrade !== true
+                          || activeAccount?.account_type !== 'live'
+                          || selectedAccount?.account_id !== activeAccount?.account_id
+                          || !status?.broker.account_verified
+                        )
+                      )
+                    }
+                  >
+                    {busy === 'live-arm'
+                      ? 'Updating…'
+                      : status?.live_trading_armed
+                        ? 'Disarm Live Trading'
+                        : 'Arm Live Trading'}
+                  </button>
+                </div>
+                {!status?.live_trading_armed && activeAccount?.account_type === 'live' && (
+                  <div style={{ marginTop: 6 }}>
+                    To arm: stop the engine, make this Live account both selected and active, save cTrader auto-trade, then arm it explicitly.
+                  </div>
+                )}
               </div>
               <label style={{ display: 'grid', gap: 6, marginTop: 12 }}>Operator note<textarea rows={2} value={draft.operator_note} onChange={(event) => setDraft({ ...draft, operator_note: event.target.value })} /></label>
             </>

@@ -59,6 +59,7 @@ def test_status_truth_uses_live_sources_for_all_phase_3_4_flags() -> None:
         "connected": True,
         "account_verified": True,
         "execution_ready": True,
+        "live_trading_arm": True,
         "symbol_metadata_ready": True,
         "engine_scanning": True,
         "model_ready": True,

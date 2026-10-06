@@ -33,6 +33,7 @@ import asyncio
 import os
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone, timedelta
 import calendar, time, threading, os, json, math
 
@@ -51,13 +52,29 @@ if HOST_TYPE not in {"demo", "live"}:
     HOST_TYPE = "demo"
 
 
+class _TradeAgentTcpProtocol(TcpProtocol):
+    """Isolate OpenApiPy transport state per connection.
+
+    Upstream TcpProtocol keeps its outbound queue/task/timestamp as class
+    attributes. With simultaneous Live + Demo clients that makes different
+    sockets share the same send queue, so a Demo probe request can be emitted
+    by the Live protocol. Shadow those fields on each protocol instance.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._send_queue = deque([])
+        self._send_task = None
+        self._lastSendMessageTime = None
+
+
 def _new_client(host_type: str):
     host = (
         EndPoints.PROTOBUF_LIVE_HOST
         if str(host_type).lower() == "live"
         else EndPoints.PROTOBUF_DEMO_HOST
     )
-    return Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
+    return Client(host, EndPoints.PROTOBUF_PORT, _TradeAgentTcpProtocol)
 
 
 client = _new_client(HOST_TYPE)
@@ -88,6 +105,8 @@ LAST_AUTH_ATTEMPT_AT = None
 ACCOUNT_IS_DEMO: bool | None = None
 ACCOUNT_VERIFICATION_ERROR: str | None = None
 AVAILABLE_ACCOUNTS: list[dict[str, object]] = []
+_DEMO_DIRECTORY_PROBE_CLIENT = None
+_demo_directory_probe_lock = threading.Lock()
 ACTIVE_ACCOUNT_ID: int | None = None
 ACTIVE_HOST_TYPE: str | None = None
 ACCOUNT_SWITCH_IN_PROGRESS: bool = False
@@ -101,6 +120,14 @@ _asset_cache_lock = threading.Lock()
 
 _PRICE_FACTOR = 100_000
 _PROTOCOL_VOLUME_SCALE = 100       # cTrader volume fields are cents of measurement units.
+_AUTH_RESPONSE_TIMEOUT_SECONDS = 15   # Cross-host auth can exceed the library's 5s default.
+
+
+def _request_client_msg_id(stage: str, account_id: int | None = None) -> str:
+    """Create a correlation id that is safe to expose in diagnostics."""
+    account_part = str(int(account_id)) if account_id is not None else "none"
+    return f"tradeagent:{stage}:{account_part}:{time.monotonic_ns()}"
+
 
 # Track the last order's symbol so we can reconcile broker-side volume
 # requirements if an immediate TRADING_BAD_VOLUME error arrives.
@@ -370,9 +397,10 @@ def pips_to_relative(pips: int, digits: int) -> int:
     """Convert pips → 1/100000 units (works for 2–5 digit symbols)."""
     return pips * 10 ** (6 - digits)
 
-def on_error(failure):
+def on_error(failure, *, stage: str | None = None):
     global AUTH_ERROR, ACCOUNT_SWITCH_IN_PROGRESS, ACCOUNT_SWITCH_TARGET_ID, ACCOUNT_SWITCH_ERROR
-    err_msg = str(failure)
+    raw = str(failure)
+    err_msg = f"{stage}: {raw}" if stage else raw
     AUTH_ERROR = err_msg
     if ACCOUNT_SWITCH_IN_PROGRESS:
         ACCOUNT_SWITCH_IN_PROGRESS = False
@@ -385,11 +413,13 @@ def _session_error(
     failure,
     source_client=None,
     expected_account_id: int | None = None,
+    *,
+    stage: str | None = None,
 ):
     """Ignore late failures emitted by a superseded client/account session."""
     if not _is_current_session(source_client, expected_account_id):
         return failure
-    on_error(failure)
+    on_error(failure, stage=stage)
     return failure
 
 # ── bootstrapping: symbols ─────────────────────────────────────────────────
@@ -524,6 +554,16 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
         return None
     active_client = source_client or client
     active_account_id = _account_id_int(expected_account_id or ACCOUNT_ID)
+    if (
+        AUTHORIZED
+        and active_account_id is not None
+        and ACTIVE_ACCOUNT_ID == active_account_id
+        and ACTIVE_HOST_TYPE == CLIENT_HOST_TYPE
+    ):
+        # Spotware's Python sample handles ProtoOAAccountAuthRes from the
+        # message stream. The SDK may also resolve the request Deferred for
+        # the same response, so keep this handler idempotent.
+        return None
     AUTHORIZED = True
     AUTH_ERROR = None
     ACCOUNT_VERIFICATION_ERROR = None
@@ -534,6 +574,16 @@ def account_auth_cb(_, source_client=None, expected_account_id: int | None = Non
     ACCOUNT_SWITCH_TARGET_ID = None
     ACCOUNT_SWITCH_ERROR = None
     _refresh_account_flags()
+    print(
+        f"[CTRADER AUTH] account authorized id={active_account_id} "
+        f"host={ACTIVE_HOST_TYPE or 'unknown'}."
+    )
+    if CLIENT_HOST_TYPE == "live":
+        # Refresh the Demo-sourced token directory only after Live account auth.
+        # Starting a second Demo connection during cross-host authentication can
+        # overlap with teardown of the previous Demo transport and interfere with
+        # the sensitive Live auth sequence.
+        _start_demo_directory_probe()
 
     # Phase 1: Fetch asset classes
     req = ProtoOAAssetClassListReq(
@@ -578,21 +628,13 @@ def asset_class_response_cb(res, source_client=None, expected_account_id: int | 
         ),
     )
 
-def account_list_response_cb(res, source_client=None):
-    global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
-    if source_client is not None and source_client is not client:
-        return None
-    active_client = source_client or client
-    payload = Protobuf.extract(res)
-    accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
-
+def _apply_account_directory(accounts) -> None:
     AVAILABLE_ACCOUNTS.clear()
     for account in accounts:
         account_id = int(getattr(account, "ctidTraderAccountId", 0) or 0)
         if account_id <= 0:
             continue
         is_live = bool(getattr(account, "isLive", False))
-        is_active = ACTIVE_ACCOUNT_ID is not None and account_id == int(ACTIVE_ACCOUNT_ID)
         trader_login_raw = getattr(account, "traderLogin", None)
         trader_login = int(trader_login_raw) if trader_login_raw is not None else None
         broker_title = str(getattr(account, "brokerTitleShort", "") or "").strip() or None
@@ -603,10 +645,22 @@ def account_list_response_cb(res, source_client=None):
                 "is_live": is_live,
                 "trader_login": trader_login,
                 "broker_title": broker_title,
-                "selected": is_active,
-                "active": is_active,
+                "selected": False,
+                "active": False,
             }
         )
+    _refresh_account_flags()
+
+
+def account_list_response_cb(res, source_client=None):
+    global ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR, AUTH_ERROR
+    if source_client is not None and source_client is not client:
+        return None
+    active_client = source_client or client
+    payload = Protobuf.extract(res)
+    accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
+    _apply_account_directory(accounts)
+    print(f"[CTRADER DIRECTORY] demo host returned {len(accounts)} token-granted account(s).")
 
     selected = next(
         (
@@ -654,12 +708,17 @@ def account_list_response_cb(res, source_client=None):
         ctidTraderAccountId=account_id,
         accessToken=ACCESS_TOKEN,
     )
-    return active_client.send(req).addCallbacks(
+    return active_client.send(
+        req,
+        clientMsgId=_request_client_msg_id(expected_host + "-account-auth", account_id),
+        responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+    ).addCallbacks(
         lambda response: account_auth_cb(response, active_client, account_id),
         lambda failure: _session_error(
             failure,
             active_client,
             account_id,
+            stage=f"cTrader {expected_host} account auth {account_id}",
         ),
     )
 
@@ -681,19 +740,244 @@ def account_list_error_cb(failure, source_client=None):
     return failure
 
 
+
+def _demo_directory_probe_is_current(probe_client) -> bool:
+    with _demo_directory_probe_lock:
+        return _DEMO_DIRECTORY_PROBE_CLIENT is probe_client
+
+
+def _finish_demo_directory_probe(probe_client, *, error: str | None = None) -> None:
+    global _DEMO_DIRECTORY_PROBE_CLIENT
+    with _demo_directory_probe_lock:
+        if _DEMO_DIRECTORY_PROBE_CLIENT is not probe_client:
+            return
+        _DEMO_DIRECTORY_PROBE_CLIENT = None
+    _stop_client_service(probe_client)
+    if error:
+        print(f"[WARN] cTrader demo account-directory probe failed: {error}")
+
+
+def _cancel_demo_directory_probe() -> bool:
+    global _DEMO_DIRECTORY_PROBE_CLIENT
+    with _demo_directory_probe_lock:
+        probe_client = _DEMO_DIRECTORY_PROBE_CLIENT
+        _DEMO_DIRECTORY_PROBE_CLIENT = None
+    if probe_client is None:
+        return False
+    _stop_client_service(probe_client)
+    return True
+
+
+def _demo_directory_probe_error(failure, probe_client, *, stage: str):
+    if not _demo_directory_probe_is_current(probe_client):
+        return None
+    current_stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
+    if current_stage != stage:
+        return None
+    _finish_demo_directory_probe(probe_client, error=f"{stage}: {failure}")
+    return None
+
+
+def _demo_directory_probe_send_account_list(probe_client):
+    if not _demo_directory_probe_is_current(probe_client):
+        return None
+    if getattr(probe_client, "_tradeagent_directory_stage", None) == "account_list":
+        return None
+    probe_client._tradeagent_directory_stage = "account_list"
+    print("[CTRADER DIRECTORY] demo directory probe authorized; requesting token accounts.")
+    req = ProtoOAGetAccountListByAccessTokenReq(accessToken=ACCESS_TOKEN)
+    request_id = _request_client_msg_id("demo-directory-account-list")
+    probe_client._tradeagent_directory_client_msg_id = request_id
+    return probe_client.send(
+        req,
+        clientMsgId=request_id,
+        responseTimeoutInSeconds=15,
+    ).addCallbacks(
+        lambda _: None,
+        lambda failure: _demo_directory_probe_error(
+            failure,
+            probe_client,
+            stage="account_list",
+        ),
+    )
+
+
+def _demo_directory_probe_message_received(source_client, message, probe_client) -> None:
+    if source_client is not probe_client or not _demo_directory_probe_is_current(probe_client):
+        return
+    try:
+        payload = Protobuf.extract(message)
+    except Exception:
+        return
+
+    message_name = payload.__class__.__name__
+    stage = str(getattr(probe_client, "_tradeagent_directory_stage", ""))
+
+    if message_name == "ProtoOAApplicationAuthRes":
+        if stage == "app_auth":
+            _demo_directory_probe_send_account_list(probe_client)
+        return
+
+    if message_name == "ProtoOAGetAccountListByAccessTokenRes":
+        if stage == "account_list":
+            accounts = list(getattr(payload, "ctidTraderAccount", []) or [])
+            _apply_account_directory(accounts)
+            print(
+                f"[CTRADER DIRECTORY] demo directory probe returned {len(accounts)} "
+                "token-granted account(s)."
+            )
+            _finish_demo_directory_probe(probe_client)
+        return
+
+    if message_name != "ProtoOAErrorRes":
+        return
+
+    client_msg_id = str(getattr(message, "clientMsgId", None) or "")
+    expected_msg_id = str(
+        getattr(probe_client, "_tradeagent_directory_client_msg_id", "") or ""
+    )
+    matches_request = bool(
+        client_msg_id
+        and expected_msg_id
+        and client_msg_id == expected_msg_id
+    )
+    print(
+        f"[CTRADER DIRECTORY ERROR CONTEXT] "
+        f"client_msg_id={client_msg_id or '<none>'} "
+        f"expected_client_msg_id={expected_msg_id or '<none>'} "
+        f"stage={stage or 'unknown'} matched={matches_request}"
+    )
+    if not matches_request:
+        # cTrader can emit connection-level errors that are not responses to
+        # the probe's current request. Do not tear down account discovery
+        # unless the error is correlated to the outstanding probe request.
+        return
+    error_code = str(getattr(payload, "errorCode", "") or "").strip().upper()
+    description = str(getattr(payload, "description", "") or "").strip()
+    if stage == "app_auth" and error_code in {
+        "ALREADY_LOGGED_IN",
+        "CH_CLIENT_ALREADY_AUTHENTICATED",
+    }:
+        _demo_directory_probe_send_account_list(probe_client)
+        return
+    _finish_demo_directory_probe(
+        probe_client,
+        error=f"{stage or 'unknown'}: cTrader error {error_code} {description}".strip(),
+    )
+
+
+def _demo_directory_probe_connected(connected_client, probe_client):
+    if connected_client is not probe_client or not _demo_directory_probe_is_current(probe_client):
+        return None
+    probe_client._tradeagent_directory_stage = "app_auth"
+    print("[CTRADER DIRECTORY] demo directory probe connected; authorizing application.")
+    req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
+    request_id = _request_client_msg_id("demo-directory-app-auth")
+    probe_client._tradeagent_directory_client_msg_id = request_id
+    return probe_client.send(
+        req,
+        clientMsgId=request_id,
+        responseTimeoutInSeconds=15,
+    ).addCallbacks(
+        lambda _: None,
+        lambda failure: _demo_directory_probe_error(
+            failure,
+            probe_client,
+            stage="app_auth",
+        ),
+    )
+
+
+def _demo_directory_probe_disconnected(disconnected_client, reason, probe_client) -> None:
+    if disconnected_client is probe_client and _demo_directory_probe_is_current(probe_client):
+        _finish_demo_directory_probe(
+            probe_client,
+            error=f"disconnected before account discovery completed: {reason}",
+        )
+
+
+def _start_demo_directory_probe() -> bool:
+    """Refresh the token-granted account directory through cTrader's Demo endpoint."""
+    global _DEMO_DIRECTORY_PROBE_CLIENT
+    if CLIENT_HOST_TYPE != "live" or not getattr(reactor, "running", False):
+        return False
+    with _demo_directory_probe_lock:
+        if _DEMO_DIRECTORY_PROBE_CLIENT is not None:
+            return False
+        probe_client = _new_client("demo")
+        _DEMO_DIRECTORY_PROBE_CLIENT = probe_client
+
+    probe_client.setConnectedCallback(
+        lambda connected_client: _demo_directory_probe_connected(
+            connected_client,
+            probe_client,
+        )
+    )
+    probe_client.setDisconnectedCallback(
+        lambda disconnected_client, reason: _demo_directory_probe_disconnected(
+            disconnected_client,
+            reason,
+            probe_client,
+        )
+    )
+    probe_client.setMessageReceivedCallback(
+        lambda source_client, message: _demo_directory_probe_message_received(
+            source_client,
+            message,
+            probe_client,
+        )
+    )
+    try:
+        probe_client.startService()
+    except Exception as exc:
+        _finish_demo_directory_probe(probe_client, error=str(exc))
+        return False
+    return True
+
+
 def app_auth_cb(_, source_client=None):
     global LAST_AUTH_ATTEMPT_AT, ACCOUNT_IS_DEMO, ACCOUNT_VERIFICATION_ERROR
     if source_client is not None and source_client is not client:
         return None
     active_client = source_client or client
     LAST_AUTH_ATTEMPT_AT = datetime.now(timezone.utc)
+    ACCOUNT_VERIFICATION_ERROR = None
+
+    if CLIENT_HOST_TYPE == "live":
+        # Spotware's own multi-environment sample obtains the token account
+        # directory through the Demo client. Authenticate the selected Live
+        # account first; the Demo-only directory refresh starts after that
+        # succeeds so cross-host authentication is serialized.
+        ACCOUNT_IS_DEMO = False
+        account_id = int(ACCOUNT_ID)
+        req = ProtoOAAccountAuthReq(
+            ctidTraderAccountId=account_id,
+            accessToken=ACCESS_TOKEN,
+        )
+        print(
+            f"[CTRADER AUTH] application authorized host=live; "
+            f"sending account auth id={account_id}."
+        )
+        return active_client.send(
+            req,
+            clientMsgId=_request_client_msg_id("live-account-auth", account_id),
+            responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+        ).addCallbacks(
+            lambda response: account_auth_cb(response, active_client, account_id),
+            lambda failure: _session_error(
+                failure,
+                active_client,
+                account_id,
+                stage=f"cTrader live account auth {account_id}",
+            ),
+        )
+
     AVAILABLE_ACCOUNTS.clear()
     ACCOUNT_IS_DEMO = None
-    ACCOUNT_VERIFICATION_ERROR = None
     req = ProtoOAGetAccountListByAccessTokenReq(
         accessToken=ACCESS_TOKEN,
     )
-    active_client.send(req).addCallbacks(
+    return active_client.send(req).addCallbacks(
         lambda response: account_list_response_cb(response, active_client),
         lambda failure: account_list_error_cb(failure, active_client),
     )
@@ -710,10 +994,20 @@ def _on_connected(connected_client):
     AUTH_ERROR = None
     ACCOUNT_IS_DEMO = None
     ACCOUNT_VERIFICATION_ERROR = None
+    host_type = CLIENT_HOST_TYPE
+    print(f"[CTRADER AUTH] connected host={host_type}; sending application auth.")
     req = ProtoOAApplicationAuthReq(clientId=CLIENT_ID, clientSecret=CLIENT_SECRET)
-    connected_client.send(req).addCallbacks(
+    connected_client.send(
+        req,
+        clientMsgId=_request_client_msg_id(f"{host_type}-application-auth"),
+        responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+    ).addCallbacks(
         lambda response: app_auth_cb(response, connected_client),
-        lambda failure: _session_error(failure, connected_client),
+        lambda failure: _session_error(
+            failure,
+            connected_client,
+            stage=f"cTrader {host_type} application auth",
+        ),
     )
 
 
@@ -819,7 +1113,29 @@ def _log_event(event) -> None:
         print(f"[CTRADER EVENT] {name}: {summary}")
 
 
+def _redact_sensitive_payload(value):
+    """Remove credential material before broker messages are written to logs."""
+    sensitive_keys = {
+        "accesstoken",
+        "refreshtoken",
+        "clientsecret",
+        "authorizationcode",
+    }
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            normalized = str(key).replace("_", "").lower()
+            redacted[key] = "<redacted>" if normalized in sensitive_keys else _redact_sensitive_payload(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_sensitive_payload(item) for item in value)
+    return value
+
+
 def _format_payload(payload) -> str:
+    payload = _redact_sensitive_payload(payload)
     try:
         txt = json.dumps(payload, ensure_ascii=False)
     except Exception:
@@ -842,6 +1158,24 @@ def _configure_client_callbacks(target_client) -> None:
             print(f"[CTRADER EVENT] decode_error: {e}")
             return
         _log_event(event)
+        if event.__class__.__name__ == "ProtoOAErrorRes":
+            client_msg_id = getattr(message, "clientMsgId", None) or "<none>"
+            print(f"[CTRADER ERROR CONTEXT] client_msg_id={client_msg_id}")
+
+        # Spotware's official OpenApiPy samples treat successful account auth
+        # as a broker event. Do not require the SDK request Deferred to resolve:
+        # some Live sessions deliver ProtoOAAccountAuthRes without satisfying
+        # that correlation path.
+        if event.__class__.__name__ == "ProtoOAAccountAuthRes":
+            event_account_id = _account_id_int(
+                getattr(event, "ctidTraderAccountId", None)
+            )
+            if event_account_id == _account_id_int(ACCOUNT_ID):
+                account_auth_cb(
+                    event,
+                    source_client,
+                    event_account_id,
+                )
 
     target_client.setMessageReceivedCallback(_on_message)
 
@@ -902,7 +1236,14 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
                 ctidTraderAccountId=target_id,
                 accessToken=ACCESS_TOKEN,
             )
-            current_client.send(req).addCallbacks(
+            current_client.send(
+                req,
+                clientMsgId=_request_client_msg_id(
+                    f"{target_host}-account-auth",
+                    target_id,
+                ),
+                responseTimeoutInSeconds=_AUTH_RESPONSE_TIMEOUT_SECONDS,
+            ).addCallbacks(
                 lambda response: account_auth_cb(
                     response,
                     current_client,
@@ -912,6 +1253,7 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
                     failure,
                     current_client,
                     target_id,
+                    stage=f"cTrader {target_host} account auth {target_id}",
                 ),
             )
         elif not getattr(current_client, "running", False):
@@ -921,6 +1263,8 @@ def _switch_account_on_reactor(account_id: int, account_type: str) -> None:
         # itself; _on_connected() will authenticate the desired account.
         return
 
+    if target_host == "demo":
+        _cancel_demo_directory_probe()
     next_client = _new_client(target_host)
     _configure_client_callbacks(next_client)
     client = next_client

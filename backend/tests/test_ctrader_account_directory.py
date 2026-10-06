@@ -21,6 +21,99 @@ class _Deferred:
         return self
 
 
+def test_live_app_auth_defers_demo_directory_probe_until_account_auth(monkeypatch) -> None:
+    sent = []
+    probes = []
+    active_client = SimpleNamespace(
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
+    monkeypatch.setattr(ctd, "client", active_client)
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "live")
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47139918)
+    monkeypatch.setattr(ctd, "ACCESS_TOKEN", "test-token")
+    monkeypatch.setattr(ctd, "ACCOUNT_IS_DEMO", None)
+    monkeypatch.setattr(ctd, "AUTHORIZED", False)
+    monkeypatch.setattr(ctd, "AUTH_ERROR", None)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", None)
+    monkeypatch.setattr(ctd, "ACTIVE_HOST_TYPE", None)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_IN_PROGRESS", True)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_TARGET_ID", 47139918)
+    monkeypatch.setattr(ctd, "ACCOUNT_SWITCH_ERROR", None)
+    monkeypatch.setattr(ctd, "ACCOUNT_VERIFICATION_ERROR", None)
+    monkeypatch.setattr(ctd, "LAST_AUTH_ATTEMPT_AT", None)
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+    monkeypatch.setattr(ctd, "_start_demo_directory_probe", lambda: probes.append(True) or True)
+
+    deferred = ctd.app_auth_cb(object(), active_client)
+
+    assert probes == []
+    assert ctd.ACCOUNT_IS_DEMO is False
+    assert len(sent) == 1
+    request, kwargs = sent[0]
+    assert request.ctidTraderAccountId == 47139918
+    assert request.accessToken == ctd.ACCESS_TOKEN
+    assert kwargs["responseTimeoutInSeconds"] == 15
+    assert kwargs["clientMsgId"].startswith("tradeagent:live-account-auth:47139918:")
+    assert deferred is not None
+
+    success, _ = deferred.callbacks
+    success(object())
+
+    assert probes == [True]
+
+
+def test_demo_directory_probe_populates_mixed_token_accounts(monkeypatch) -> None:
+    probe = SimpleNamespace(_tradeagent_directory_stage="account_list")
+    monkeypatch.setattr(ctd, "ACCOUNT_ID", 47139918)
+    monkeypatch.setattr(ctd, "ACTIVE_ACCOUNT_ID", 47139918)
+    monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda _: None)
+
+    class ProtoOAGetAccountListByAccessTokenRes:
+        ctidTraderAccount = [
+            SimpleNamespace(
+                ctidTraderAccountId=47140414,
+                isLive=False,
+                traderLogin=1105460,
+                brokerTitleShort="FP Trading",
+            ),
+            SimpleNamespace(
+                ctidTraderAccountId=47139918,
+                isLive=True,
+                traderLogin=2123962,
+                brokerTitleShort="FP Trading",
+            ),
+        ]
+
+    monkeypatch.setattr(
+        ctd.Protobuf,
+        "extract",
+        lambda _: ProtoOAGetAccountListByAccessTokenRes(),
+    )
+
+    ctd._demo_directory_probe_message_received(probe, object(), probe)
+
+    rows = ctd.get_available_accounts()
+    assert {row["trader_login"] for row in rows} == {1105460, 2123962}
+    live = next(row for row in rows if row["trader_login"] == 2123962)
+    assert live["account_type"] == "live"
+    assert live["active"] is True
+    assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is None
+
+
+def test_demo_directory_probe_only_starts_when_live_transport_is_active(monkeypatch) -> None:
+    monkeypatch.setattr(ctd.reactor, "running", True, raising=False)
+    monkeypatch.setattr(ctd, "CLIENT_HOST_TYPE", "demo")
+    monkeypatch.setattr(
+        ctd,
+        "_new_client",
+        lambda host_type: pytest.fail(f"unexpected directory probe for {host_type}"),
+    )
+
+    assert ctd._start_demo_directory_probe() is False
+
+
 def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(ctd, "ACCOUNT_ID", 47140414)
@@ -53,7 +146,7 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
             ]
         ),
     )
-    monkeypatch.setattr(ctd.client, "send", lambda request: sent.append(request) or _Deferred())
+    monkeypatch.setattr(ctd.client, "send", lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred())
     monkeypatch.setattr(ctd, "AVAILABLE_ACCOUNTS", [])
 
     deferred = ctd.account_list_response_cb(object())
@@ -88,7 +181,8 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
         },
     ]
     assert len(sent) == 1
-    assert sent[0].ctidTraderAccountId == 47140414
+    assert sent[0][0].ctidTraderAccountId == 47140414
+    assert sent[0][1]["responseTimeoutInSeconds"] == 15
 
     success, _ = deferred.callbacks
     success(object())
@@ -98,6 +192,33 @@ def test_account_list_retains_demo_and_live_accounts(monkeypatch) -> None:
     assert active["active"] is True
     assert ctd.ACTIVE_ACCOUNT_ID == 47140414
     assert ctd.ACTIVE_HOST_TYPE == "demo"
+
+
+def test_broker_accounts_endpoint_does_not_invent_selection_from_active_account(monkeypatch) -> None:
+    rows = [
+        CTraderAccount(
+            account_id=1105460,
+            account_type="demo",
+            is_live=False,
+            selected=True,
+            active=True,
+        ),
+        CTraderAccount(
+            account_id=2123962,
+            account_type="live",
+            is_live=True,
+            selected=False,
+            active=False,
+        ),
+    ]
+    monkeypatch.setattr(router_module, "list_accounts", lambda: rows)
+    monkeypatch.setattr(router_module, "_current_config", lambda: EngineConfig())
+
+    result = asyncio.run(router_module.v2_broker_accounts())
+
+    assert [row.account_id for row in result] == [1105460, 2123962]
+    assert [row.active for row in result] == [True, False]
+    assert [row.selected for row in result] == [False, False]
 
 
 def test_broker_accounts_endpoint_overlays_persisted_selection(monkeypatch) -> None:
@@ -260,3 +381,65 @@ def test_select_broker_account_rejects_account_not_in_authorized_directory(monke
         )
 
     assert exc.value.status_code == 404
+
+def test_demo_directory_probe_ignores_uncorrelated_error(monkeypatch) -> None:
+    sent = []
+    stopped = []
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        _tradeagent_directory_client_msg_id="tradeagent:demo-directory-app-auth:none:1",
+        send=lambda request, **kwargs: sent.append((request, kwargs)) or _Deferred(),
+    )
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+
+    class ProtoOAErrorRes:
+        errorCode = "INVALID_REQUEST"
+        description = "Trading account is not authorized"
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: ProtoOAErrorRes())
+
+    unrelated = SimpleNamespace(clientMsgId="2113629339616")
+    ctd._demo_directory_probe_message_received(probe, unrelated, probe)
+
+    assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is probe
+    assert stopped == []
+    assert sent == []
+
+
+def test_demo_directory_probe_matching_error_fails_probe(monkeypatch) -> None:
+    stopped = []
+    request_id = "tradeagent:demo-directory-app-auth:none:1"
+    probe = SimpleNamespace(
+        _tradeagent_directory_stage="app_auth",
+        _tradeagent_directory_client_msg_id=request_id,
+    )
+    monkeypatch.setattr(ctd, "_DEMO_DIRECTORY_PROBE_CLIENT", probe)
+    monkeypatch.setattr(ctd, "_stop_client_service", lambda target: stopped.append(target))
+
+    class ProtoOAErrorRes:
+        errorCode = "INVALID_REQUEST"
+        description = "Bad request"
+
+    monkeypatch.setattr(ctd.Protobuf, "extract", lambda _: ProtoOAErrorRes())
+
+    matching = SimpleNamespace(clientMsgId=request_id)
+    ctd._demo_directory_probe_message_received(probe, matching, probe)
+
+    assert ctd._DEMO_DIRECTORY_PROBE_CLIENT is None
+    assert stopped == [probe]
+
+def test_ctrader_protocol_instances_do_not_share_outbound_queue() -> None:
+    first = ctd._TradeAgentTcpProtocol()
+    second = ctd._TradeAgentTcpProtocol()
+
+    assert first._send_queue is not second._send_queue
+    assert len(first._send_queue) == 0
+    assert len(second._send_queue) == 0
+
+    first._send_queue.append((None, b"demo-probe-request"))
+
+    assert len(first._send_queue) == 1
+    assert len(second._send_queue) == 0
+    assert first._send_task is None
+    assert second._send_task is None

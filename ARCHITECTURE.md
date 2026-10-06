@@ -261,8 +261,10 @@ Market context is embedded in Trade. Calibration and shadow replay are research-
 - selected-versus-active account truth is explicit, and execution fails closed during incomplete account switching or missing broker readiness
 - Demo and Live use the same guarded execution path: verified account currency/equity, symbol metadata, sizing/risk rules, protective stops, cooldowns, trade/position limits, daily-loss controls, reconciliation, recovery, close safety, and durable audit
 - the kill switch and per-symbol trading enablement remain independent execution gates
+- new Live entries add a runtime-only, account-bound Live Trading arm gate; it defaults off, resets on account changes and restarts, and is never required for Demo execution
+- the Live arm gates **new entries only** so an already-open broker-backed position can still be protected, reconciled, and closed safely after a restart/disarm
 
-Use Demo accounts for development, testing, and strategy validation. A selected Live account is not a simulation: if cTrader auto-trade and the symbol's auto-trade control are enabled and the kill switch/safety checks permit execution, TradeAgent can submit real-money orders. Operators remain responsible for broker permissions, account selection, configured risk, and live trading consequences.
+Use Demo accounts for development, testing, and strategy validation. A selected Live account is not a simulation: TradeAgent can submit a new real-money order only when the selected Live account is authenticated/active, cTrader auto-trade and per-symbol auto-trade are enabled, the kill switch/safety checks permit execution, and the current Live account has been explicitly armed in System.
 
 ## Legacy Notes
 

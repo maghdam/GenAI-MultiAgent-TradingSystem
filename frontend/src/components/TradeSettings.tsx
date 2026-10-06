@@ -31,6 +31,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
   const [error, setError] = useState('');
   const [accountVerified, setAccountVerified] = useState(false);
   const [accountType, setAccountType] = useState<'demo' | 'live' | 'unknown'>('unknown');
+  const [liveTradingArmed, setLiveTradingArmed] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -47,6 +48,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
         });
         setAccountVerified(status.broker.account_verified);
         setAccountType(status.broker.account_type);
+        setLiveTradingArmed(status.live_trading_armed);
         setStrategies(strategyList);
         setSymbols((symbolPayload.symbols || []).slice(0, 500));
       })
@@ -152,8 +154,8 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   <span>
                     <strong>System auto-trade</strong>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--ta-text-muted)' }}>
-                      Allow the engine to place automatic orders on the active cTrader account.
-                      Demo and Live use the same safeguards; Live orders can use real funds and also require per-symbol "Auto-trade" below.
+                      Allow the engine to place automatic orders on the selected active cTrader account.
+                      Live orders also require the separate runtime-only Live Trading arm in System plus per-symbol "Auto-trade" below.
                     </span>
                   </span>
                 </label>
@@ -171,7 +173,11 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                 {accountVerified
                   ? (
                     accountType === 'live'
-                      ? 'Connected account: LIVE. cTrader auto-trade can place real-money orders when the kill switch is off and per-symbol Auto-trade is enabled.'
+                      ? (
+                        liveTradingArmed
+                          ? 'Connected account: LIVE · ARMED. Real-money entries still require cTrader auto-trade, kill switch off, and per-symbol Auto-trade.'
+                          : 'Connected account: LIVE · DISARMED. New real-money entries are blocked until Live Trading is explicitly armed in System.'
+                      )
                       : 'Connected account: Demo. Automatic execution still requires System auto-trade and per-symbol Auto-trade.'
                   )
                   : 'Automatic cTrader execution is blocked until the selected account is authenticated and execution-ready.'}

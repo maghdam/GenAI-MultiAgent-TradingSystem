@@ -26,6 +26,10 @@ from backend.services.broker_ledger import (
 )
 from backend.services.broker_position_match import match_broker_position
 from backend.services.financial_units import resolve_monetary_basis
+from backend.services.live_trading_guard import (
+    get_live_trading_armed_account_id,
+    live_entry_block_reason,
+)
 from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
 from backend.services.close_safety import (
     attempt_verified_close,
@@ -916,6 +920,30 @@ def execute_paper_signal(
         source=source,
         monetary_basis=monetary_basis,
     )
+
+    # Live arming gates only *new* real-money entries. Existing broker-backed
+    # positions must remain manageable after a restart/disarm so protection,
+    # reconciliation, and verified close operations are never disabled.
+    if (
+        ctrader_execution
+        and position is None
+        and risk.accepted
+        and risk.intent_type == "open"
+    ):
+        broker = get_broker_status()
+        live_block_reason = live_entry_block_reason(
+            broker.account_type,
+            broker.account_id,
+        )
+        if live_block_reason:
+            risk.accepted = False
+            risk.intent_type = "skip"
+            risk.reasons.append(live_block_reason)
+            risk.details["live_trading_armed"] = False
+            risk.details["live_trading_armed_account_id"] = get_live_trading_armed_account_id()
+            risk.details["active_ctrader_account_id"] = broker.account_id
+            risk.details["active_ctrader_account_type"] = broker.account_type
+
     flipped = False
     intent_quantity = position.quantity if position and position.direction == analysis.signal else trade_quantity
     intent_reasons = list(risk.reasons)

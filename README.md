@@ -18,10 +18,10 @@ The project is intended to show AI product engineering rather than prompt-only e
 ### Trade
 
 <p align="center">
-  <img src="docs/images/Trade_Main.png" alt="Current TradeAgent Trade workspace with market context, chart, signals, positions, intents, and runtime status" width="100%" />
+  <img src="docs/images/Trade_Main.png" alt="Current TradeAgent Trade workspace with cTrader account selection, market context, chart, signals, positions, intents, and runtime status" width="100%" />
 </p>
 <p align="center">
-  <sub>Current trading workspace with live market context, charting, deterministic signal review, positions, intents/incidents, and broker/engine/model status.</sub>
+  <sub>Current trading workspace with direct cTrader account selection, selected-versus-active account truth, Live-money safety state, live market context, charting, deterministic signal review, positions, intents/incidents, and broker/engine/model status.</sub>
 </p>
 
 ### Build & Test
@@ -75,7 +75,7 @@ The project is intended to show AI product engineering rather than prompt-only e
 ### Trade
 
 - live charting, selected-market context, and explicit strategy rules
-- watchlist, symbol, timeframe, and strategy selection
+- watchlist, symbol, timeframe, strategy, and authorized cTrader account selection directly from the Trade workspace
 - signal review, local paper orders/positions, explicitly enabled cTrader orders on the selected account, and trade journal
 - broker, market-data, engine, and model status
 
@@ -140,11 +140,11 @@ This starts:
 
 ### cTrader account setup
 
-Configure one cTrader Open API application/access token, not one environment entry per trading account. The access token supplies the authorized account directory, and TradeAgent discovers the available accounts with their broker-reported Demo/Live type. Select the account from the System dashboard; that selection is persisted in SQLite and restored on restart.
+Configure one cTrader Open API application/access token, not one environment entry per trading account. The access token supplies the authorized account directory, and TradeAgent discovers the available accounts with their broker-reported Demo/Live type. Select the account directly from the Trade toolbar or from System; Trade shows saved selection separately from the currently authenticated Active account and surfaces the Live-money armed/disarmed state. The selection is persisted in SQLite and restored on restart.
 
 `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` remain bootstrap/fallback values for initial discovery or migration. They are not a manual account directory and normally do not need to be changed when switching between authorized accounts in the UI.
 
-> **Trading risk:** use a Demo account for development, testing, and strategy validation. If a Live account is selected and authenticated, enabling cTrader auto-trade plus per-symbol auto-trade with the kill switch off can submit real-money orders. Broker execution still requires account verification, broker monetary/symbol metadata, risk and sizing checks, protective-stop policy, position limits, daily-loss controls, reconciliation, and audit safeguards.
+> **Trading risk:** use a Demo account for development, testing, and strategy validation. A selected/authenticated Live account is **disarmed for new real-money entries by default**. Live entry submission requires cTrader auto-trade, per-symbol auto-trade, the kill switch off, **and an explicit runtime-only Live Trading arm for the currently active Live account**. That arm resets on account changes, engine restart, and backend restart. Existing broker-backed positions remain eligible for protection, reconciliation, and verified-close handling even while new Live entries are disarmed.
 
 ### Manual startup
 

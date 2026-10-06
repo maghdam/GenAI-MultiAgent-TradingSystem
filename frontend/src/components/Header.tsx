@@ -1,4 +1,5 @@
 import AppNav from './AppNav';
+import type { V2CTraderAccount } from '../services/api';
 
 interface StatusChip {
   status: 'ok' | 'bad' | 'wait' | 'warn';
@@ -38,6 +39,11 @@ interface HeaderProps {
   onToggleEngine?: () => void;
   onOpenSettings?: () => void;
   onRefreshStrategies?: () => void;
+  ctraderAccounts?: V2CTraderAccount[];
+  ctraderAccountBusy?: boolean;
+  ctraderAccountSwitchInProgress?: boolean;
+  liveTradingArmed?: boolean;
+  onCTraderAccountChange?: (accountId: number) => void;
   /* new props for the toolbar */
   symbol?: string;
   timeframe?: string;
@@ -67,10 +73,22 @@ export default function Header({
   onToggleEngine,
   onOpenSettings,
   onRefreshStrategies,
+  ctraderAccounts = [],
+  ctraderAccountBusy = false,
+  ctraderAccountSwitchInProgress = false,
+  liveTradingArmed = false,
+  onCTraderAccountChange,
   timeframe,
   onTimeframeChange,
 }: HeaderProps) {
   const resolvedStrategyOptions = Array.from(new Set([...(strategyOptions || []), strategy]));
+  const selectedCTraderAccount = ctraderAccounts.find((account) => account.selected);
+  const activeCTraderAccount = ctraderAccounts.find((account) => account.active);
+  const accountLabel = (account: V2CTraderAccount) => {
+    const broker = account.broker_title || 'cTrader';
+    const login = account.trader_login ?? account.account_id;
+    return `${broker} · ${account.account_type === 'live' ? 'Live' : 'Demo'} · ${login}`;
+  };
 
   const engineLabel = engineStatus
     ? engineStatus.enabled
@@ -167,6 +185,56 @@ export default function Header({
             />
           </label>
         </div>
+
+        {onCTraderAccountChange && (
+          <>
+            <div className="ta-toolbar__divider" />
+            <div className="ta-toolbar__group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--ta-text-secondary)' }}>
+                Account
+                <select
+                  className="ta-select ta-select--sm"
+                  aria-label="cTrader account"
+                  title="Accounts granted to the current cTrader Open API access token"
+                  value={selectedCTraderAccount?.account_id ?? ''}
+                  onChange={(event) => onCTraderAccountChange(Number(event.target.value))}
+                  disabled={ctraderAccountBusy || ctraderAccountSwitchInProgress || ctraderAccounts.length === 0}
+                  style={{ minWidth: '210px' }}
+                >
+                  {!selectedCTraderAccount && <option value="">Select cTrader account</option>}
+                  {ctraderAccounts.map((account) => (
+                    <option key={account.account_id} value={account.account_id}>
+                      {accountLabel(account)}{account.active ? ' · Active' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="ta-status" title="Currently authenticated cTrader transport account.">
+                <span className={`ta-status__dot ${activeCTraderAccount ? 'ta-status__dot--ok' : 'ta-status__dot--wait'}`} />
+                {activeCTraderAccount ? `Active: ${accountLabel(activeCTraderAccount)}` : 'Active: none'}
+              </span>
+              {selectedCTraderAccount?.account_type === 'live' && (
+                <span
+                  className="ta-status"
+                  title={
+                    liveTradingArmed
+                      ? 'Selected Live account is armed for real-money entries; all normal execution gates still apply.'
+                      : 'Selected Live account is disarmed; new real-money entries are blocked until Live Trading is armed in System.'
+                  }
+                >
+                  <span className={`ta-status__dot ${liveTradingArmed ? 'ta-status__dot--bad' : 'ta-status__dot--wait'}`} />
+                  {liveTradingArmed ? 'LIVE MONEY · ARMED' : 'LIVE MONEY · DISARMED'}
+                </span>
+              )}
+              {ctraderAccountSwitchInProgress && (
+                <span className="ta-status">
+                  <span className="ta-status__dot ta-status__dot--wait" />
+                  Switching account…
+                </span>
+              )}
+            </div>
+          </>
+        )}
 
         <div className="ta-toolbar__spacer" />
 
