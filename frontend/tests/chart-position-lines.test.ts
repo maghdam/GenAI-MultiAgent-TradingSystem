@@ -81,8 +81,8 @@ test('pure-paper position uses its tracked entry and protection levels', () => {
     levels.map(({ kind, price, title, source }) => ({ kind, price, title, source })),
     [
       { kind: 'entry', price: 4200, title: 'PAPER SELL 0.1 #77', source: 'paper' },
-      { kind: 'stop_loss', price: 4210, title: 'SL #77', source: 'paper' },
-      { kind: 'take_profit', price: 4180, title: 'TP #77', source: 'paper' },
+      { kind: 'stop_loss', price: 4210, title: 'PAPER SL #77', source: 'paper' },
+      { kind: 'take_profit', price: 4180, title: 'PAPER TP #77', source: 'paper' },
     ],
   );
 });
