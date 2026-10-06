@@ -308,7 +308,12 @@ export default function DashboardPage() {
       {/* ─── Main Layout: Chart + Sidebar ─── */}
       <div className="ta-main">
         <div className="ta-main__chart">
-          <Chart symbol={symbol} timeframe={timeframe} analysis={analysis} />
+          <Chart
+            symbol={symbol}
+            timeframe={timeframe}
+            analysis={analysis}
+            positions={status?.paper_positions ?? []}
+          />
         </div>
         <div className="ta-main__sidebar">
           <SidePanel status={status} onSignalSelected={handleSignalSelect} />
