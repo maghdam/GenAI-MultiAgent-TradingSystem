@@ -167,9 +167,14 @@ export default function DashboardPage() {
     label: status?.runtime.ollama_ready ? 'AI: Ready' : 'AI: Offline',
   };
 
-  const handleRunAnalysis = () => { setSelectedSignal(null); aiOutputRef.current?.runAnalysis(); };
+  const handleRunAnalysis = () => {
+    setSelectedSignal(null);
+    setAnalysis(null);
+    aiOutputRef.current?.runAnalysis();
+  };
   const handleCancelAnalysis = () => { aiOutputRef.current?.cancelAnalysis(); };
   const handlePlaceTrade = () => { aiOutputRef.current?.placeTrade(); };
+  const handleTradeSelectedSignal = () => { aiOutputRef.current?.placeTrade(); };
   const handleAnalysisComplete = (result: AnalysisResult | null) => { setAnalysis(result); setIsAnalyzing(false); };
 
   const handleToggleAgent = async () => {
@@ -222,9 +227,15 @@ export default function DashboardPage() {
   const handleSignalSelect = (signal: AgentSignal) => {
     const nextSymbol = signal.symbol || symbol;
     const nextTimeframe = signal.timeframe || timeframe;
+    const watchItem = status?.config.watchlist.find(
+      (entry) => entry.symbol === nextSymbol && entry.timeframe === nextTimeframe,
+    );
+
     setSymbol(nextSymbol);
     setTimeframe(nextTimeframe);
-    applySymbolSettings(nextSymbol, nextTimeframe);
+    setStrategy(signal.strategy);
+    setLotSize(watchItem?.lot_size ?? status?.config.paper_trade_size ?? lotSize);
+    setAnalysis(null);
     setSelectedSignal(signal);
   };
 
@@ -237,12 +248,24 @@ export default function DashboardPage() {
     setLotSize(item.lot_size ?? status?.config.paper_trade_size ?? 0.01);
   };
 
+  const clearSignalAndAnalysis = () => {
+    setSelectedSignal(null);
+    setAnalysis(null);
+  };
+
+  const handleStrategyChange = (nextStrategy: string) => {
+    clearSignalAndAnalysis();
+    setStrategy(nextStrategy);
+  };
+
   const handleSymbolChange = (nextSymbol: string) => {
+    clearSignalAndAnalysis();
     setSymbol(nextSymbol);
     applySymbolSettings(nextSymbol, timeframe);
   };
 
   const handleTimeframeChange = (nextTimeframe: string) => {
+    clearSignalAndAnalysis();
     setTimeframe(nextTimeframe);
     applySymbolSettings(symbol, nextTimeframe);
   };
@@ -252,7 +275,7 @@ export default function DashboardPage() {
       <Header
         strategy={strategy}
         strategyOptions={strategyOptions}
-        onStrategyChange={setStrategy}
+        onStrategyChange={handleStrategyChange}
         lotSize={lotSize}
         onLotSizeChange={setLotSize}
         fastMode={fastMode}
@@ -267,6 +290,14 @@ export default function DashboardPage() {
         onRunAnalysis={handleRunAnalysis}
         onCancelAnalysis={handleCancelAnalysis}
         onPlaceTrade={handlePlaceTrade}
+        placeTradeDisabled={selectedSignal !== null || analysis === null}
+        placeTradeTitle={
+          selectedSignal
+            ? 'Use the selected signal card on the chart to review and confirm this order.'
+            : analysis
+              ? 'Place trade from the current manual analysis.'
+              : 'Run an analysis before placing a trade.'
+        }
         feedStatus={feedStatus}
         llmStatus={llmStatus}
         onOpenSettings={() => setIsAgentSettingsOpen(true)}
@@ -313,6 +344,11 @@ export default function DashboardPage() {
             timeframe={timeframe}
             analysis={analysis}
             positions={status?.paper_positions ?? []}
+            signals={status?.recent_analyses ?? []}
+            selectedSignal={selectedSignal}
+            tradeQuantity={lotSize}
+            onTradeSelectedSignal={handleTradeSelectedSignal}
+            onClearSelectedSignal={() => setSelectedSignal(null)}
           />
         </div>
         <div className="ta-main__sidebar">

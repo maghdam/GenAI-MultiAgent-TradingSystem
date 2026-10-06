@@ -11,6 +11,11 @@ export function parseBackendUtc(value?: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+export function backendUtcEpochSeconds(value?: string | null): number {
+  const date = parseBackendUtc(value);
+  return date ? Math.floor(date.getTime() / 1000) : 0;
+}
+
 export function formatBackendLocalDateTime(
   value?: string | null,
   options?: Intl.DateTimeFormatOptions,

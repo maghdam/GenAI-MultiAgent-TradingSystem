@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import type { JSX } from 'react';
 
 import { analyzeV2Dashboard, placeV2ManualOrder } from '../services/api';
+import { buildSelectedSignalOrder, selectedSignalToAnalysis } from '../services/chartSignals';
 import type { AgentSignal } from '../types';
 import type { AnalysisResult } from '../types/analysis';
 
@@ -175,42 +176,32 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
 
   useEffect(() => () => resetController(), []);
 
-  useEffect(() => {
-    if (!selectedSignal) return;
-    setState((prev) => {
-      const prior = prev.analysis ?? null;
-      const priorReasons = Array.isArray(prior?.reasons) ? [...(prior!.reasons as string[])] : [];
-      const selReasons = Array.isArray(selectedSignal.reasons) ? [...selectedSignal.reasons] : [];
-      const extracted: AnalysisResult = {
-        signal: selectedSignal.signal ?? prior?.signal ?? null,
-        confidence: selectedSignal.confidence ?? prior?.confidence ?? null,
-        rationale: selectedSignal.rationale ?? prior?.rationale ?? null,
-        reasons: selReasons.length > 0 ? selReasons : priorReasons,
-        entry: prior?.entry ?? null,
-        sl: selectedSignal.sl ?? prior?.sl ?? null,
-        tp: selectedSignal.tp ?? prior?.tp ?? null,
-        model: prior?.model ?? null,
-        generated_at: prior?.generated_at ?? null,
-      };
-      return { ...prev, analysis: extracted };
-    });
-  }, [selectedSignal]);
-
   const placeTrade = useCallback(async () => {
-    const analysis = state.analysis;
-    if (!analysis || !analysis.signal || !symbol) { handleError('No analysis available.'); return; }
-    const signal = (analysis.signal || '').toLowerCase();
-    if (signal === 'no_trade' || signal === 'flat') { handleError('No trade suggested.'); return; }
+    let request: Parameters<typeof placeV2ManualOrder>[0];
 
-    try {
-      const p = {
+    if (selectedSignal) {
+      const selectedRequest = buildSelectedSignalOrder(selectedSignal, lotSize);
+      if (!selectedRequest) {
+        handleError('Selected signal is not actionable or has an invalid quantity.');
+        return;
+      }
+      request = selectedRequest;
+    } else {
+      const analysis = state.analysis;
+      if (!analysis || !analysis.signal || !symbol) { handleError('No analysis available.'); return; }
+      const signal = (analysis.signal || '').toLowerCase();
+      if (signal === 'no_trade' || signal === 'flat') { handleError('No trade suggested.'); return; }
+      request = {
         symbol, timeframe, strategy, signal: signal as 'long' | 'short', quantity: lotSize,
         confidence: typeof analysis.confidence === 'number' ? analysis.confidence : 1,
         entry_price: analysis.entry ?? null, stop_loss: analysis.sl ?? null, take_profit: analysis.tp ?? null,
         reasons: Array.isArray(analysis.reasons) ? analysis.reasons.filter(Boolean) : [],
         rationale: analysis.rationale || '',
       };
-      const response = await placeV2ManualOrder(p);
+    }
+
+    try {
+      const response = await placeV2ManualOrder(request);
       onNotify?.({
         message: response.status === 'executed' ? `Order accepted: ${response.summary}.` : `Order rejected: ${response.summary}.`,
         status: response.status === 'executed' ? 'success' : 'error',
@@ -218,15 +209,15 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
     } catch (error) {
       handleError(error instanceof Error ? error.message : 'Failed to place trade.');
     }
-  }, [state.analysis, symbol, timeframe, strategy, lotSize, handleError, onNotify]);
+  }, [state.analysis, selectedSignal, symbol, timeframe, strategy, lotSize, handleError, onNotify]);
 
   useImperativeHandle(ref, () => ({ runAnalysis, cancelAnalysis, placeTrade }), [runAnalysis, cancelAnalysis, placeTrade]);
 
   /* ─── Render ─── */
   const renderAnalysis = () => {
-    const a = state.analysis;
+    const a = selectedSignal ? selectedSignalToAnalysis(selectedSignal) : state.analysis;
 
-    if (state.loading) {
+    if (!selectedSignal && state.loading) {
       return (
         <div className="ta-panel__body" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '28px' }}>
           <div className="ta-spinner" />
@@ -234,10 +225,10 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
         </div>
       );
     }
-    if (state.cancelled) {
+    if (!selectedSignal && state.cancelled) {
       return <div className="ta-panel__empty">Analysis cancelled</div>;
     }
-    if (state.error) {
+    if (!selectedSignal && state.error) {
       return <div className="ta-panel__empty" style={{ color: 'var(--ta-bear)' }}>{state.error}</div>;
     }
     if (!a) {
@@ -324,9 +315,9 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
     <div className="ta-panel">
       <div className="ta-panel__header">
         <span className="ta-panel__title">Analysis Output</span>
-        {state.analysis?.signal && (
-          <span className={`ta-pill ${state.analysis.signal === 'long' ? 'ta-pill--long' : state.analysis.signal === 'short' ? 'ta-pill--short' : 'ta-pill--no_trade'}`}>
-            {state.analysis.signal}
+        {(selectedSignal?.signal ?? state.analysis?.signal) && (
+          <span className={`ta-pill ${(selectedSignal?.signal ?? state.analysis?.signal) === 'long' ? 'ta-pill--long' : (selectedSignal?.signal ?? state.analysis?.signal) === 'short' ? 'ta-pill--short' : 'ta-pill--no_trade'}`}>
+            {selectedSignal?.signal ?? state.analysis?.signal}
           </span>
         )}
       </div>

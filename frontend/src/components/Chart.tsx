@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart,
+  createSeriesMarkers,
   CandlestickSeries,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
   type Time,
   type IPriceLine,
+  type ISeriesMarkersPluginApi,
+  type SeriesMarker,
   LineStyle,
 } from 'lightweight-charts';
-import { getV2Candles, type Candle, type V2PaperPosition } from '../services/api';
+import { getV2Candles, type Candle, type V2Analysis, type V2PaperPosition } from '../services/api';
 import { buildChartPositionLevels } from '../services/chartPositionLines';
+import { buildChartSignalMarkers, selectedSignalToAnalysis } from '../services/chartSignals';
+import type { AgentSignal } from '../types';
 import type { AnalysisResult } from '../types/analysis';
 
 const CHART_CANDLE_LIMIT = 1500;
@@ -29,6 +34,11 @@ interface ChartProps {
   timeframe: string;
   analysis: AnalysisResult | null;
   positions: V2PaperPosition[];
+  signals: V2Analysis[];
+  selectedSignal: AgentSignal | null;
+  tradeQuantity: number;
+  onTradeSelectedSignal: () => void;
+  onClearSelectedSignal: () => void;
 }
 
 function refreshIntervalForTimeframe(timeframe: string): number {
@@ -60,14 +70,38 @@ function chartErrorMessage(message: string): string {
   return message;
 }
 
-export default function Chart({ symbol, timeframe, analysis, positions }: ChartProps) {
+function formatSignalPrice(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '–';
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
+  return value.toFixed(digits);
+}
+
+function formatSignalTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'Unknown time';
+  return new Date(timestamp * 1000).toLocaleString();
+}
+
+export default function Chart({
+  symbol,
+  timeframe,
+  analysis,
+  positions,
+  signals,
+  selectedSignal,
+  tradeQuantity,
+  onTradeSelectedSignal,
+  onClearSelectedSignal,
+}: ChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const signalMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chartReady, setChartReady] = useState(false);
+  const [tradeReviewOpen, setTradeReviewOpen] = useState(false);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const autoFitKeyRef = useRef('');
   const refreshMs = useMemo(() => refreshIntervalForTimeframe(timeframe), [timeframe]);
@@ -75,11 +109,23 @@ export default function Chart({ symbol, timeframe, analysis, positions }: ChartP
     () => buildChartPositionLevels(positions, symbol),
     [positions, symbol],
   );
+  const signalMarkers = useMemo(
+    () => buildChartSignalMarkers(signals, candles, symbol, timeframe),
+    [signals, candles, symbol, timeframe],
+  );
+  const displayedAnalysis = useMemo(
+    () => selectedSignal ? selectedSignalToAnalysis(selectedSignal) : analysis,
+    [selectedSignal, analysis],
+  );
   const chartKey = `${symbol}:${timeframe}`;
 
   useEffect(() => {
     autoFitKeyRef.current = '';
   }, [chartKey]);
+
+  useEffect(() => {
+    setTradeReviewOpen(false);
+  }, [selectedSignal?.ts, selectedSignal?.symbol, selectedSignal?.timeframe, selectedSignal?.strategy]);
 
   useEffect(() => {
     let disposed = false;
@@ -165,6 +211,7 @@ export default function Chart({ symbol, timeframe, analysis, positions }: ChartP
       wickDownColor: '#ef4444',
       borderVisible: false,
     });
+    signalMarkersRef.current = createSeriesMarkers(candleSeriesRef.current, []);
     setChartReady(true);
 
     const resizeObserver = new ResizeObserver((entries) => {
@@ -177,6 +224,8 @@ export default function Chart({ symbol, timeframe, analysis, positions }: ChartP
 
     return () => {
       resizeObserver.disconnect();
+      signalMarkersRef.current?.detach();
+      signalMarkersRef.current = null;
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -206,6 +255,20 @@ export default function Chart({ symbol, timeframe, analysis, positions }: ChartP
   }, [candles, loading, chartReady, chartKey]);
 
   useEffect(() => {
+    if (!chartReady || !signalMarkersRef.current) return;
+    const markers: SeriesMarker<Time>[] = signalMarkers.map((marker) => ({
+      id: marker.id,
+      time: marker.time as Time,
+      position: marker.position,
+      shape: marker.shape,
+      color: marker.color,
+      text: marker.text,
+      size: 1,
+    }));
+    signalMarkersRef.current.setMarkers(markers);
+  }, [chartReady, signalMarkers]);
+
+  useEffect(() => {
     if (!chartReady || !candleSeriesRef.current) return;
 
     priceLinesRef.current.forEach((line) => candleSeriesRef.current?.removePriceLine(line));
@@ -229,16 +292,17 @@ export default function Chart({ symbol, timeframe, analysis, positions }: ChartP
       if (line) priceLinesRef.current.push(line);
     };
 
-    if (analysis) {
-      const { entry, tp, sl } = analysis;
+    if (displayedAnalysis) {
+      const { entry, tp, sl } = displayedAnalysis;
+      const labelPrefix = selectedSignal ? 'Selected Signal' : 'Signal';
       if (entry != null && Number.isFinite(entry)) {
-        createLine(entry, 'Signal Entry', '#8b5cf6', LineStyle.Solid);
+        createLine(entry, `${labelPrefix} Entry`, '#8b5cf6', LineStyle.Solid);
       }
       if (tp != null && Number.isFinite(tp)) {
-        createLine(tp, 'Signal TP', '#10b981');
+        createLine(tp, `${labelPrefix} TP`, '#10b981');
       }
       if (sl != null && Number.isFinite(sl)) {
-        createLine(sl, 'Signal SL', '#ef4444');
+        createLine(sl, `${labelPrefix} SL`, '#ef4444');
       }
     }
 
@@ -257,13 +321,88 @@ export default function Chart({ symbol, timeframe, analysis, positions }: ChartP
         createLine(level.price, level.title, '#10b981', LineStyle.Dashed);
       }
     }
-  }, [analysis, chartReady, positionLevels]);
+  }, [displayedAnalysis, selectedSignal, chartReady, positionLevels]);
 
   const showOverlay = candles.length === 0 && (loading || !!error || !loading);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+      {selectedSignal && (
+        <div className="ta-chart-signal-card" role="region" aria-label="Selected trading signal">
+          <div className="ta-chart-signal-card__header">
+            <span className={`ta-pill ${selectedSignal.signal === 'long' ? 'ta-pill--long' : selectedSignal.signal === 'short' ? 'ta-pill--short' : 'ta-pill--no_trade'}`}>
+              {selectedSignal.signal === 'long' ? '▲ BUY' : selectedSignal.signal === 'short' ? '▼ SELL' : 'NO TRADE'}
+            </span>
+            <strong>{selectedSignal.symbol} · {selectedSignal.timeframe}</strong>
+            <button
+              type="button"
+              className="ta-chart-signal-card__close"
+              onClick={onClearSelectedSignal}
+              aria-label="Clear selected signal"
+              title="Clear selected signal"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="ta-chart-signal-card__meta">
+            <span>{selectedSignal.strategy.replace(/_/g, ' ')}</span>
+            <span>Strength {Math.round(selectedSignal.confidence * 100)}%</span>
+            <span>{formatSignalTime(selectedSignal.ts)}</span>
+          </div>
+
+          <div className="ta-chart-signal-card__levels">
+            <span>Entry <strong>{formatSignalPrice(selectedSignal.entry)}</strong></span>
+            <span>SL <strong>{formatSignalPrice(selectedSignal.sl)}</strong></span>
+            <span>TP <strong>{formatSignalPrice(selectedSignal.tp)}</strong></span>
+          </div>
+
+          {selectedSignal.reasons.length > 0 && (
+            <div className="ta-chart-signal-card__reason">
+              {selectedSignal.reasons.slice(0, 2).join(' · ')}
+            </div>
+          )}
+
+          {(selectedSignal.signal === 'long' || selectedSignal.signal === 'short') && (
+            tradeReviewOpen ? (
+              <div className="ta-chart-signal-card__confirm">
+                <div>
+                  Submit {selectedSignal.signal.toUpperCase()} {tradeQuantity.toFixed(2)} lots through the normal risk,
+                  account, protection, and Live-arm gates.
+                </div>
+                <div className="ta-chart-signal-card__actions">
+                  <button
+                    type="button"
+                    className="ta-btn ta-btn--success ta-btn--sm"
+                    onClick={() => {
+                      setTradeReviewOpen(false);
+                      onTradeSelectedSignal();
+                    }}
+                  >
+                    Confirm order
+                  </button>
+                  <button
+                    type="button"
+                    className="ta-btn ta-btn--sm"
+                    onClick={() => setTradeReviewOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="ta-btn ta-btn--primary ta-btn--sm ta-chart-signal-card__trade"
+                onClick={() => setTradeReviewOpen(true)}
+              >
+                Review trade signal
+              </button>
+            )
+          )}
+        </div>
+      )}
       {showOverlay && (
         <div className="ta-chart-loading">
           {loading ? (

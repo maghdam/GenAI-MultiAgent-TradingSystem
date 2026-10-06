@@ -302,6 +302,44 @@ Show active TradeAgent positions directly on the Trade dashboard chart, using th
 **Scope boundary**
 This is a read-only Trade-dashboard visualization change. It does not submit/amend/close orders, mutate protection, alter reconciliation or broker identity, change risk/sizing/account selection, arm Live Trading, or modify the global 60% signal-strength threshold.
 
+### 2.7 Chart signal visualization and guarded trade-from-signal
+**Priority:** P1
+**Status:** ✅
+
+Show automatic analysis signals on the Trade chart and allow an operator to inspect and deliberately submit the exact saved signal snapshot.
+
+**Target behavior**
+- [x] Show recent actionable Long/Short analyses as chart markers on the matching symbol/timeframe candle.
+- [x] Keep No Trade analyses out of chart markers to reduce clutter.
+- [x] Clicking a row in the existing Signals panel focuses that exact saved signal on its symbol/timeframe and preserves its strategy.
+- [x] Selected-signal Entry/SL/TP lines use the saved signal snapshot only; do not combine fields with a previous/manual analysis.
+- [x] Fix backend-naive UTC timestamp parsing so saved signal markers land on the correct chart candle.
+- [x] Show a compact selected-signal card with direction, strength, strategy, timestamp, Entry/SL/TP, and rationale.
+- [x] Require a two-step Review -> Confirm interaction before submitting a selected signal from the chart.
+- [x] Build selected-signal orders directly from the exact saved symbol/timeframe/strategy/entry/SL/TP/confidence/reasons snapshot plus the operator-selected lot size.
+- [x] Keep the normal toolbar Place Trade action disabled while a saved signal is selected, preventing a bypass of the chart review step.
+- [x] Preserve all existing backend risk, sizing, account authorization, Demo/Live, Live-arm, protection, and execution gates.
+- [x] Clear stale signal/manual-analysis trade context when the operator changes symbol, timeframe, or strategy.
+- [x] Limit automatic chart markers to the newest 12 matching actionable signals.
+
+**Verification**
+- [x] Focused chart-signal snapshot/marker/order tests pass locally: 6/6.
+- [x] Existing chart-position overlay tests still pass locally: 4/4.
+- [x] Frontend production build passes locally: 704 modules transformed.
+- [x] Browser smoke confirms automatic signal markers, exact clicked-signal Entry/SL/TP display, the selected-signal card, Review -> Confirm staging, Cancel, and clear behavior without submitting an order.
+- [x] Git diff/worktree checks pass on implementation head `ab0bd70`.
+- [x] GitHub CI #420 passes on exact implementation head `ab0bd70`.
+
+**Verification evidence**
+- Local implementation validation on `ab0bd70` passed 6 focused signal tests, 4 existing chart-position regression tests, the TypeScript/Vite production build with 704 modules, clean `git diff --check origin/main...HEAD`, and a clean working tree.
+- The first implementation attempt exposed two real defects locally and in CI #417: a Node ESM test-resolution failure for the datetime helper and a `lightweight-charts` marker-plugin generic mismatch. Both were corrected before acceptance; CI #420 passed the repaired exact head.
+- Browser validation used an existing XAUUSD M5 short signal with 85% strength. The chart showed the historical `SELL 85%` marker, the selected signal card, and exact saved levels (Entry 4155.85, SL 4160.85, TP 4145.86) with matching selected-signal chart lines.
+- The Review step displayed an explicit second-stage confirmation for SHORT 0.01 lots and stated that normal risk, account, protection, and Live-arm gates still apply. The operator used Cancel rather than Confirm order; no broker order was submitted for UI validation.
+- After clearing the selected signal, the card and selected Entry/SL/TP lines disappeared while the historical `SELL 85%` marker remained.
+
+**Scope boundary**
+This item changes frontend signal visualization/selection and routes an explicit confirmed signal through the existing manual-order API. It does not add a new execution endpoint, bypass existing risk/account/Live-arm gates, enable automatic orders, alter broker protection/reconciliation, or modify the global 60% signal-strength threshold.
+
 ---
 
 ## 5. Phase 3 — System page acceptance audit
@@ -1300,6 +1338,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 5.3 threshold sample-sufficiency re-check | Re-run the existing read-only sufficiency screen after additional naturally closed automatic trades while Phase 7 field evidence remained blocked by zero open managed positions | 🟨 0/3 cells sufficient; NAS100 31, US30 31, XAUUSD 48 baseline trades; all cells have 100% R coverage and sufficient win/loss diversity, but minimum sample, 95% margin-of-error, and bucket-coverage gates still fail; threshold stayed 0.60 and no threshold was selected | Evidence-only PR | Keep 60% unchanged; resume Phase 7 disconnect/recovery only when a natural protected Demo position exists |
 | 2026-10-06 | Phase 10.7 Windows Credential Manager hardening | Move cTrader client ID/secret/access token out of plaintext project `.env` into Windows Credential Manager with verified migration, rollback, status, and emergency restore tooling | ✅ 8 credential tests + 56 focused cTrader safety tests + full backend suite; real two-stage migration/restart passed; plaintext secret assignments absent; Demo `44089601` verified/execution-ready and 7-account directory intact using Credential Manager only; CI #409 passed on `9e1b716` | PR #103 / `9e1b716` | Final docs-head validation/CI, merge, sync main, then return to pending Phase 7 protected-position disconnect/recovery only when a natural qualifying Demo position exists |
 | 2026-10-06 | Phase 2.6 chart position / SL / TP overlays | Render actual open-position entry/protection levels on the Trade chart from existing position truth, with strict broker-vs-paper source semantics | ✅ Focused overlay truth tests 4/4, frontend production build 703 modules, clean diff/worktree, CI #413 passed on `b5a673d`; runtime had zero open positions so real browser field observation is deferred until the next natural position | PR #104 / `b5a673d` | Merge after final docs-head validation/CI; preserve browser field observation as post-merge evidence, then implement Phase 2.7 signal visualization/trade-from-signal workflow |
+| 2026-10-06 | Phase 2.7 chart signal visualization and guarded trade-from-signal | Show recent actionable analysis markers, focus exact saved-signal Entry/SL/TP snapshots, and require Review -> Confirm before routing a selected signal through the existing manual-order API | ✅ 6/6 focused signal tests, 4/4 chart-position regression, 704-module production build, clean diff/worktree, browser smoke with existing XAUUSD M5 SELL 85% signal, and CI #420 on `ab0bd70`; no broker order submitted during UI validation | PR #105 / `ab0bd70` | Final docs-head validation/CI, merge, sync main, then resume broker-dependent Phase 7/Phase 2.6 field evidence only when a natural protected Demo position exists |
 
 ---
 
@@ -1539,4 +1578,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Phase 2.6 chart position / SL / TP overlays is implementation-verified on PR #104; the real browser field observation remains deferred until the next natural open position and must not trigger manufactured broker exposure. After PR #104 merges and local `main` is clean/synchronized, the next operator-requested UI item is Phase 2.7: exact signal visualization on the chart with a guarded trade-from-signal workflow. The separate Phase 7 protected-position disconnect/recovery field observation should reuse the next natural qualifying protected Demo position when available. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**Phase 2.7 chart signal visualization and guarded trade-from-signal is implementation- and browser-verified on PR #105. After final docs-head CI, merge and synchronize local `main`. Then return to the exact broker-dependent evidence backlog: reuse the next natural TradeAgent-managed protected Demo position for the pending Phase 7 disconnect/recovery field observation and the deferred Phase 2.6 real broker-backed chart overlay observation; do not manufacture exposure solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**

@@ -11,7 +11,8 @@
         "test:lot-size": "node --experimental-strip-types --test tests/lot-size-input.test.ts",
         "lint": "eslint .",
         "preview": "vite preview",
-        "test:chart": "node --experimental-strip-types --test tests/chart-position-lines.test.ts"
+        "test:chart": "node --experimental-strip-types --test tests/chart-position-lines.test.ts",
+        "test:signals": "node --experimental-strip-types --test tests/chart-signals.test.ts"
     },
     "dependencies": {
         "lightweight-charts": "^5.0.9",
