@@ -15,9 +15,8 @@ from backend.security.credential_store import (  # noqa: E402
     ctrader_credential_status,
     delete_windows_credential,
     migrate_ctrader_secrets_from_env_file,
-    read_windows_credential,
     restore_ctrader_secrets_to_env_file,
-    write_windows_credential,
+    store_ctrader_secrets,
 )
 
 
@@ -52,18 +51,7 @@ def _set_interactive() -> None:
             raise CredentialStoreError(f"{name} must not be empty.")
         entered[name] = value
 
-    for name, value in entered.items():
-        write_windows_credential(name, value)
-
-    failed = [
-        name
-        for name, value in entered.items()
-        if read_windows_credential(name) != value
-    ]
-    if failed:
-        raise CredentialStoreError(
-            "Credential write verification failed for: " + ", ".join(failed)
-        )
+    store_ctrader_secrets(entered)
     print("Stored and verified all cTrader credentials in Windows Credential Manager.")
 
 
