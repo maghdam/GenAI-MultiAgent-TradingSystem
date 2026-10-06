@@ -1,4 +1,5 @@
 import type { AgentSignal } from '../types';
+import { parseBackendUtc } from '../utils/datetime';
 import { authFetch } from './http';
 
 export interface Candle {
@@ -597,7 +598,7 @@ const responseErrorMessage = async (response: Response, fallback: string): Promi
 };
 
 export const toAgentSignal = (analysis: V2Analysis): AgentSignal => ({
-  ts: Math.floor(new Date(analysis.created_at).getTime() / 1000),
+  ts: Math.floor((parseBackendUtc(analysis.created_at)?.getTime() ?? 0) / 1000),
   symbol: analysis.symbol,
   timeframe: analysis.timeframe,
   signal: analysis.signal,
