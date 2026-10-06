@@ -1265,6 +1265,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 7 real cTrader Demo partial-close field observation | Close the remaining Phase 7 field-evidence checkbox by reusing the already-preserved normal partial-close observation without manufacturing a second trade | ✅ XAUUSD local `109` / broker `57783302`: `0.10 → 0.05` lots, `36.29 CHF` from `ctrader_deal_partial`, `partial_close_synced`, exact authoritative `0.05` closed/required lots, canonical `id_match`, residual 100% protected; local staging validation passed on `341ab60`; PR CI #400 passed backend + frontend | PR #100 | Final docs-only validation/CI, merge, sync local main, then perform the still-pending Phase 7 protected-position disconnect/recovery field observation only when a safe qualifying TradeAgent-managed Demo position exists |
 | 2026-10-06 | Phase 2.5 cTrader-style lot-size entry | Replace misleading four-decimal Trade setup lot entry with two-decimal cTrader-style input formatting while preserving backend broker-contract validation | ✅ Focused frontend lot-size test 3/3 + production build (702 modules) + clean diff/worktree + browser smoke showing correct two-decimal UI; PR CI #404 passed on implementation head `02997a0` | PR #101 / `02997a0` | Final docs-only validation/CI, merge, sync local main, then resume the pending Phase 7 protected-position disconnect field observation only when a natural qualifying Demo position exists |
 | 2026-10-06 | Phase 5.3 threshold sample-sufficiency re-check | Re-run the existing read-only sufficiency screen after additional naturally closed automatic trades while Phase 7 field evidence remained blocked by zero open managed positions | 🟨 0/3 cells sufficient; NAS100 31, US30 31, XAUUSD 48 baseline trades; all cells have 100% R coverage and sufficient win/loss diversity, but minimum sample, 95% margin-of-error, and bucket-coverage gates still fail; threshold stayed 0.60 and no threshold was selected | Evidence-only PR | Keep 60% unchanged; resume Phase 7 disconnect/recovery only when a natural protected Demo position exists |
+| 2026-10-06 | Phase 10.7 Windows Credential Manager hardening | Move cTrader client ID/secret/access token out of plaintext project `.env` into Windows Credential Manager with verified migration, rollback, status, and emergency restore tooling | ✅ 8 credential tests + 56 focused cTrader safety tests + full backend suite; real two-stage migration/restart passed; plaintext secret assignments absent; Demo `44089601` verified/execution-ready and 7-account directory intact using Credential Manager only; CI #409 passed on `9e1b716` | PR #103 / `9e1b716` | Final docs-head validation/CI, merge, sync main, then return to pending Phase 7 protected-position disconnect/recovery only when a natural qualifying Demo position exists |
 
 ---
 
@@ -1463,7 +1464,7 @@ A real operator review on 2026-10-05 confirmed that the verified cTrader account
 This item changes account-directory refresh behavior, Trade/System UX, and the fail-closed eligibility gate for new Live entries. It does not change persisted account selection, Demo↔Live transport replacement, broker credentials, existing position protection/reconciliation/close safety, sizing/risk limits, or the global 0.60 signal-strength threshold. The account directory reflects only accounts granted to the current cTrader Open API access token. Live arming is deliberately runtime-only and account-bound; it must not silently persist through backend restart or account changes.
 
 ### 10.7 Windows Credential Manager for cTrader secrets
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 **Trigger**
 The operator explicitly requested stronger local protection after Live-account support was enabled. The current ignored `backend/.env` prevents normal Git commits but still leaves the cTrader client secret/access token in a plaintext project file.
@@ -1481,14 +1482,21 @@ The operator explicitly requested stronger local protection after Live-account s
 - [x] Preserve the existing `*.env` Git ignore rule; no credential value is introduced into tracked source, SQLite, logs, or API responses.
 
 **Verification**
-- [ ] Focused credential-store/migration tests pass locally on Windows.
-- [ ] Focused cTrader account/auth safety regression passes locally.
-- [ ] Full backend regression suite passes locally.
-- [ ] Real Windows migration copies the three current cTrader credentials into Credential Manager and reports manager precedence without displaying values.
-- [ ] After verified migration, `backend/.env` contains no `CTRADER_CLIENT_ID`, `CTRADER_CLIENT_SECRET`, or `CTRADER_ACCESS_TOKEN` assignment while retaining bootstrap/runtime settings.
-- [ ] Backend restart authenticates the existing Demo account successfully using Credential Manager with the plaintext cTrader secrets absent from `.env`.
-- [ ] `git check-ignore backend/.env`, scope/whitespace checks, and clean working-tree checks pass.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused credential-store/migration tests pass locally on Windows: 8/8.
+- [x] Focused cTrader account/auth safety regression passes locally: 56/56.
+- [x] Full backend regression suite passes locally.
+- [x] Real Windows migration copied the three current cTrader credentials into Credential Manager, verified every write/read round trip, and reported manager precedence without displaying values.
+- [x] After verified migration, `backend/.env` contains no `CTRADER_CLIENT_ID`, `CTRADER_CLIENT_SECRET`, or `CTRADER_ACCESS_TOKEN` assignment while retaining bootstrap/runtime settings.
+- [x] Backend restart with the engine disabled authenticated Demo account `44089601` using Credential Manager only: socket connected, account type `demo`, account verified, execution ready, and the authorized account directory still returned all 7 accounts including the granted Live account.
+- [x] `git check-ignore backend/.env`, scope/whitespace checks, and clean working-tree checks pass.
+- [x] GitHub CI #409 passed on implementation head `9e1b716`.
+
+**Verification evidence**
+- Stage 1 local validation on `9e1b716`: exact branch/head confirmed, nine-file implementation scope, clean `git diff --check`, ignored/untracked real `backend/.env`, 8 credential tests, 56 focused cTrader safety tests, full backend suite, and clean worktree.
+- Stage 2 copied the existing three cTrader secrets into Windows Credential Manager without scrubbing the fallback file; status reported `windows_credential_manager=present`, `env_file=present`, and `effective_source=windows_credential_manager` for all three.
+- Stage 3 restarted the normal local stack while the engine remained disabled and the plaintext fallback was still present; Demo `44089601` authenticated/verified/execution-ready and all seven authorized accounts were discoverable.
+- Stage 4 stopped the local stack, re-verified the Credential Manager values, scrubbed only the three cTrader secret assignments from `backend/.env`, confirmed each assignment absent, restarted the normal stack, and again verified Demo `44089601` connected/verified/execution-ready with all seven accounts discovered. Final credential status reported `env_file=absent` and `effective_source=windows_credential_manager` for all three.
+- The local `backend/.env` remains present for non-secret bootstrap/runtime settings and remains ignored by Git. No credential value was printed, committed, stored in SQLite, or exposed through the API.
 
 **Scope boundary**
 This item changes only local secret storage/loading and operator tooling/documentation. It does not rotate/re-authorize the cTrader token, alter authorized accounts, change account selection, arm Live Trading, route orders, change risk/sizing/protection/reconciliation behavior, or modify the global 60% signal-strength threshold.
@@ -1497,4 +1505,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Phase 10.7 Windows Credential Manager hardening is the active operator-requested item while the Phase 7 protected-position disconnect/recovery field observation remains blocked by zero open managed positions. Validate the credential migration and backend restart without printing or committing any secret. After Phase 10.7 is verified and merged, return to the Phase 7 field observation only when a natural qualifying protected Demo position exists. Phase 5.3 still has 0 of 3 qualifying cells, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**Phase 10.7 Windows Credential Manager hardening is verified on PR #103: the three cTrader secrets now live in Windows Credential Manager, the plaintext assignments are absent from the ignored local `backend/.env`, and a real backend restart authenticated Demo `44089601` with the full 7-account directory using Credential Manager only. After PR #103 merges and local `main` is clean/synchronized, return to the exact unfinished Phase 7 cTrader disconnect/recovery observation only when a natural TradeAgent-managed protected Demo position exists; do not manufacture a trade solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
