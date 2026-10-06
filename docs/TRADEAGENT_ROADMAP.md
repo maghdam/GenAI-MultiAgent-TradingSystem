@@ -852,7 +852,11 @@ Simulate deliberately:
     - [x] Focused partial-close / ledger / reconciliation / close-safety / restart / execution regression set passed locally.
     - [x] Full backend suite passed locally on `37b60dd`.
     - [x] GitHub CI #137 on `37b60dd` passed backend tests + frontend restart/build.
-    - [ ] Real cTrader demo partial-close field observation remains pending until a safe qualifying TradeAgent-managed open demo position exists.
+    - [ ] Real cTrader demo partial-close field observation — evidence staged for final verification; checkbox intentionally remains pending until this docs-only branch passes local validation and GitHub CI.
+      - Preserved 2026-10-06 field evidence: normal TradeAgent-managed XAUUSD local `109` / broker `57783302` on verified Demo account `44089601` was partially closed from `0.10` to `0.05` lots through cTrader, leaving the same canonical broker position open at `0.05` lots.
+      - TradeAgent synchronized realized P&L `36.29 CHF` from authoritative broker deal history with `realized_pnl_source=ctrader_deal_partial`; the audit recorded `status=partial_close_synced`, `inserted_deals=1`, `total_closed_lots=0.05`, `required_closed_lots=0.05`, and `tracked_initial_quantity=0.1`.
+      - Reconciliation remained `id_match`, and the residual broker position remained fully protected with 100% protection coverage.
+      - This is the same preserved broker observation already verified for Phase 1.4 in PR #99; no second partial close or manufactured broker exposure is required for the Phase 7 field-observation checkbox.
 - [x] SQLite busy/locked.
   - [x] Lock/busy failures roll back cleanly and are reported distinctly.
   - [x] Pre-submit persistence failure prevents any demo broker submission.
