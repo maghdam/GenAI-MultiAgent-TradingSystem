@@ -152,7 +152,13 @@ Recent execution intent details showed `account_currency=USD` and `starting_equi
 - [x] Multiple closing deals are weighted/summed correctly in automated tests.
 - [x] Commission/swap/conversion fees are reflected in broker net P&L.
 - [x] Broker deal IDs are ingested idempotently so a deal cannot be counted twice.
-- [ ] Real cTrader demo partial-close field verification (waiting for the next normal TradeAgent-managed open position).
+- [ ] Real cTrader demo partial-close field verification.
+  - 2026-10-06 evidence candidate captured on normal TradeAgent-managed XAUUSD local `109` / broker `57783302` on verified Demo account `44089601`.
+  - Broker quantity was `0.10`; the operator partially closed exactly `0.05` through cTrader, leaving `0.05` open on the same canonical broker position ID.
+  - TradeAgent synchronized the residual tracker to quantity `0.05`, realized P&L `36.29 CHF`, and `realized_pnl_source=ctrader_deal_partial`.
+  - The partial-close audit recorded `status=partial_close_synced`, `previous_quantity=0.1`, `remaining_quantity=0.05`, `inserted_deals=1`, `total_closed_lots=0.05`, `required_closed_lots=0.05`, and `tracked_initial_quantity=0.1`.
+  - Reconciliation remained healthy with `id_match`, and the residual broker position remained fully protected with 100% protection coverage.
+  - Keep this checkbox unchecked until this docs-only evidence PR passes local validation and GitHub CI.
 
 ---
 
@@ -1423,4 +1429,4 @@ This item changes account-directory refresh behavior, Trade/System UX, and the f
 
 ## 15. Next item
 
-**Phase 2.3 real broker-truth field evidence is verified in PR #98. After PR #98 merges and local `main` is clean/synchronized, resume the remaining evidence-dependent roadmap checks from normal Demo use. The remaining broker-position field observations are Phase 1.4 / Phase 7 real partial-close behavior and Phase 7 cTrader disconnect/recovery with an open protected TradeAgent-managed position; handle only one qualifying item at a time and do not manufacture a trade solely for testing. If no qualifying position is available, let Phase 5.3 sample evidence accumulate naturally. Keep the global 60% signal-strength threshold unchanged until the existing Phase 5.3 sufficiency screen qualifies.**
+**Phase 1.4 real cTrader Demo partial-close evidence is staged from the 2026-10-06 XAUUSD field observation. Validate this docs-only evidence PR locally and in GitHub CI; only then mark Phase 1.4 verified, update its status/work log, and merge. Keep the separate Phase 7 partial-close field-observation checkbox pending during this item so the roadmap continues one item at a time. After Phase 1.4 is merged and local `main` is clean/synchronized, reuse the same preserved field evidence for the matching Phase 7 documentation item before moving to the protected-position disconnect/recovery observation. Do not manufacture a trade solely for testing. Let Phase 5.3 evidence accumulate naturally and keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
