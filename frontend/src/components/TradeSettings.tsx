@@ -9,6 +9,12 @@ import {
   type V2StrategyInfo,
   type V2WatchlistItem,
 } from '../services/api';
+import {
+  CTRADER_LOT_INPUT_MIN,
+  CTRADER_LOT_INPUT_STEP,
+  formatCTraderLotInput,
+  normalizeCTraderLotInput,
+} from '../services/lotSizeInput';
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
@@ -18,7 +24,7 @@ const newWatchItem = (strategy: string, lotSize: number): V2WatchlistItem => ({
   strategy,
   enabled: true,
   trading_enabled: false,
-  lot_size: lotSize,
+  lot_size: normalizeCTraderLotInput(lotSize),
   params: {},
 });
 
@@ -43,7 +49,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
           ...status.config,
           watchlist: status.config.watchlist.map((item) => ({
             ...item,
-            lot_size: item.lot_size ?? status.config.paper_trade_size,
+            lot_size: normalizeCTraderLotInput(item.lot_size ?? status.config.paper_trade_size),
           })),
         });
         setAccountVerified(status.broker.account_verified);
@@ -200,15 +206,16 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   <input
                     className="ta-input ta-input--mono ta-input--lot"
                     type="number"
-                    min="0.0001"
-                    max="100"
-                    step="0.01"
-                    title="Order size in lots"
+                    min={CTRADER_LOT_INPUT_MIN}
+                    step={CTRADER_LOT_INPUT_STEP}
+                    title="Order size in lots (cTrader-style two-decimal entry; broker limits are validated at execution)"
                     aria-label={`Lot size for ${item.symbol}`}
-                    value={item.lot_size ?? config.paper_trade_size}
+                    defaultValue={formatCTraderLotInput(item.lot_size ?? config.paper_trade_size)}
                     onChange={(event) => {
                       const value = Number(event.target.value);
-                      if (Number.isFinite(value) && value > 0) updateWatchItem(index, { lot_size: value });
+                      if (Number.isFinite(value) && value >= CTRADER_LOT_INPUT_MIN) {
+                        updateWatchItem(index, { lot_size: value });
+                      }
                     }}
                   />
                   <label className="ta-watch-control" title="Permit automatic order execution for this symbol">
