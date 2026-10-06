@@ -253,13 +253,17 @@ Test every operator control against backend behavior.
 - [x] Recover.
 - [x] Reconcile.
 - [ ] Restart backend while broker position is open.
+  - 2026-10-06 field-evidence candidate captured; keep unchecked until this docs-only evidence PR passes local validation and GitHub CI.
+  - Pre-restart, two normal TradeAgent-managed Demo positions were canonical and broker-protected: US30 local `108` / broker `57782376` and XAUUSD local `109` / broker `57783302`, both `id_match`, with 2/2 fully protected and 100% coverage.
+  - The backend process was stopped and relaunched through `run-backend-local.cmd`. Startup briefly reported unavailable lot-size metadata before loading complete broker contract metadata, then re-authorized Demo account `44089601`.
+  - Follow-up API confirmation after startup showed engine scanning, account authorized/verified/execution-ready, 6460 symbols loaded, and the same two broker position IDs still canonical, `protected`, and `id_match` with broker SL/TP preserved.
 
 **Verification**
 - [x] Focused lifecycle/API tests.
 - [x] Local full backend regression suite.
 - [x] Local frontend production build.
 - [x] GitHub CI.
-- [ ] Real cTrader demo field check: restart the backend while a normal TradeAgent-managed broker position is open and confirm recovery/reconciliation preserves broker identity and protection truth.
+- [ ] Real cTrader demo field check: restart the backend while a normal TradeAgent-managed broker position is open and confirm recovery/reconciliation preserves broker identity and protection truth. Evidence candidate captured 2026-10-06; final verification awaits local validation + CI on the evidence PR.
 
 ### 3.2 Safety controls
 - [x] Kill switch.
@@ -712,7 +716,7 @@ Simulate deliberately:
     - [x] 53 focused restart / reconciler / engine / Phase 7 status tests passed locally.
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #106 on implementation head `4b6286a` passed backend tests + frontend production build.
-    - [ ] Real backend-restart-with-open-position field observation is pending. The latest real candidate probe found 0 broker positions and 0 local open trackers, so no qualifying TradeAgent-managed demo position was available; no trade was manufactured for testing.
+    - [ ] Real backend-restart-with-open-position field observation: 2026-10-06 candidate evidence now exists from US30 broker `57782376` and XAUUSD broker `57783302`. Both were canonical + fully protected before backend restart and both were recovered afterward as `id_match` + `protected` on verified Demo account `44089601`. Keep unchecked until the docs-only evidence PR passes local validation and GitHub CI.
 - [x] Frontend restart.
   - [x] Frontend mount/reload is read-only with respect to backend engine/config/order state; mutating actions remain behind explicit operator controls.
   - [x] Dashboard status and strategy reads settle independently so one transient failure does not discard the other successful response.
