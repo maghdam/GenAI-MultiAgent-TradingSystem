@@ -47,6 +47,7 @@ export function buildChartPositionLevels(
       ? String(position.broker_position_id)
       : String(position.id);
     const label = positionLabel(position, source);
+    const protectionLabelPrefix = source === 'paper' ? 'PAPER ' : '';
 
     const entry = finitePrice(
       brokerBacked ? position.broker_entry_price : position.entry_price,
@@ -73,7 +74,7 @@ export function buildChartPositionLevels(
         key: `${source}:${identity}:sl`,
         kind: 'stop_loss',
         price: stopLoss,
-        title: `SL #${identity}`,
+        title: `${protectionLabelPrefix}SL #${identity}`,
         direction: position.direction,
         source,
       });
@@ -83,7 +84,7 @@ export function buildChartPositionLevels(
         key: `${source}:${identity}:tp`,
         kind: 'take_profit',
         price: takeProfit,
-        title: `TP #${identity}`,
+        title: `${protectionLabelPrefix}TP #${identity}`,
         direction: position.direction,
         source,
       });
