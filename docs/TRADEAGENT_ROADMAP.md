@@ -213,6 +213,10 @@ Show:
 **Verification**
 - [x] Focused broker-truth/API tests, full backend suite, frontend production build, and CI.
 - [ ] Real cTrader field observation on the next normal TradeAgent-managed open demo position.
+  - 2026-10-06 evidence candidate captured on naturally opened XAUUSD local `107` / broker `57779123` on verified Demo account `44089601`.
+  - The enriched position exposed quantity `0.1`, tracked entry `4131.68`, broker entry `4131.83`, broker SL `4135.97`, broker TP `4123.1`, account currency `CHF`, protection `protected`, broker sync `id_match`, and broker snapshot timestamp `2026-10-06T06:43:58.676505`.
+  - The immediately preceding protection-health observation reported broker truth/execution ready, 1/1 assessable position fully protected, and 100% protection coverage for the same broker position.
+  - Keep this checkbox unchecked until this docs-only evidence PR passes local validation and GitHub CI.
 
 ### 2.4 Journal filtering / drill-down
 **Priority:** P2  
@@ -1418,4 +1422,4 @@ This item changes account-directory refresh behavior, Trade/System UX, and the f
 
 ## 15. Next item
 
-**The real backend-restart-with-open-position evidence is verified in PR #97. After PR #97 merges and local `main` is clean/synchronized, close the already-captured Phase 2.3 real cTrader broker-truth observation as the next smallest evidence-only item; no new trade is required for that documentation step. After that, continue normal Demo use and wait for naturally qualifying positions for the still-pending Phase 1.4 / Phase 7 partial-close and protected-position disconnect field observations. Do not manufacture a trade solely for testing. Let Phase 5.3 sample evidence accumulate naturally and keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
+**Phase 2.3 broker-truth field evidence is staged from the 2026-10-06 natural XAUUSD observation. Validate this docs-only evidence PR locally and in GitHub CI; only then mark the Phase 2.3 real-field checkbox verified, update the work log, and merge. After Phase 2.3 is merged and local `main` is clean/synchronized, continue normal Demo use and wait for naturally qualifying positions for the still-pending Phase 1.4 / Phase 7 partial-close and protected-position disconnect field observations. Do not manufacture a trade solely for testing. Let Phase 5.3 sample evidence accumulate naturally and keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
