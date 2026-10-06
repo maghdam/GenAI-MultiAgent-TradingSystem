@@ -1371,6 +1371,92 @@ a:hover { color: #a5b4fc; }
   font-weight: 500;
 }
 
+.ta-chart-signal-card {
+  position: absolute;
+  top: 14px;
+  right: 72px;
+  width: min(360px, calc(100% - 96px));
+  padding: 12px;
+  border: 1px solid var(--ta-border);
+  border-radius: var(--ta-radius-md);
+  background: rgba(11, 16, 29, 0.94);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
+  z-index: 3;
+}
+
+.ta-chart-signal-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ta-chart-signal-card__header strong {
+  color: var(--ta-text-heading);
+  font-size: 12px;
+}
+
+.ta-chart-signal-card__close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ta-text-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.ta-chart-signal-card__meta,
+.ta-chart-signal-card__levels,
+.ta-chart-signal-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ta-chart-signal-card__meta {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ta-text-muted);
+}
+
+.ta-chart-signal-card__levels {
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: var(--ta-radius-sm);
+  background: rgba(99, 102, 241, 0.08);
+  font-family: var(--ta-font-mono);
+  font-size: 11px;
+}
+
+.ta-chart-signal-card__levels strong {
+  color: var(--ta-text-heading);
+}
+
+.ta-chart-signal-card__reason {
+  margin-top: 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ta-text-secondary);
+}
+
+.ta-chart-signal-card__trade {
+  margin-top: 10px;
+}
+
+.ta-chart-signal-card__confirm {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px solid var(--ta-border-dim);
+  border-radius: var(--ta-radius-sm);
+  color: var(--ta-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ta-chart-signal-card__actions {
+  margin-top: 8px;
+}
+
 /* ============================================================
    SYMBOL SELECTOR
    ============================================================ */
