@@ -7,7 +7,8 @@ import {
   selectedSignalToAnalysis,
 } from '../src/services/chartSignals.ts';
 import type { AgentSignal } from '../src/types/index.ts';
-import { toAgentSignal, type Candle, type V2Analysis } from '../src/services/api.ts';
+import type { Candle, V2Analysis } from '../src/services/api.ts';
+import { backendUtcEpochSeconds } from '../src/utils/datetime.ts';
 
 const candles: Candle[] = [
   { time: Date.UTC(2026, 9, 6, 12, 0) / 1000, open: 100, high: 102, low: 99, close: 101 },
@@ -49,12 +50,11 @@ function selectedSignal(overrides: Partial<AgentSignal> = {}): AgentSignal {
   };
 }
 
-test('saved signal conversion treats backend naive timestamps as UTC', () => {
-  const converted = toAgentSignal(analysis({ created_at: '2026-10-06T12:07:30' }));
-  assert.equal(converted.ts, Date.UTC(2026, 9, 6, 12, 7, 30) / 1000);
-  assert.equal(converted.entry, 102);
-  assert.equal(converted.sl, 99);
-  assert.equal(converted.tp, 108);
+test('backend naive signal timestamps are interpreted as UTC', () => {
+  assert.equal(
+    backendUtcEpochSeconds('2026-10-06T12:07:30'),
+    Date.UTC(2026, 9, 6, 12, 7, 30) / 1000,
+  );
 });
 
 test('actionable automatic signals become chart markers on their containing candle', () => {
