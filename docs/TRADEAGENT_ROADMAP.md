@@ -249,6 +249,25 @@ Drill-down:
 - [x] Local full backend regression suite.
 - [x] GitHub CI frontend production build + full backend suite.
 
+### 2.5 cTrader-style lot-size entry
+**Priority:** P1  
+**Status:** 🟨 local validation pending
+
+Keep Trade setup lot entry visually consistent with cTrader while leaving broker/account/symbol contract enforcement in the backend.
+
+**Implemented**
+- [x] Replace the misleading four-decimal UI minimum `0.0001` with the normal two-decimal lot-entry floor/step `0.01`.
+- [x] Render configured lot values in cTrader-style two-decimal form such as `0.01`, `0.10`, and `1.00`.
+- [x] Normalize legacy sub-`0.01` Trade setup values to `0.01` in the editable UI model.
+- [x] Do not hard-code broker-specific symbol minima into the display; existing backend broker contract validation remains authoritative at execution.
+- [x] Remove the misleading universal frontend `max=100` constraint because broker maxima are contract-specific.
+
+**Verification**
+- [ ] Focused frontend lot-size test.
+- [ ] Local frontend production build.
+- [ ] Local browser smoke check in Trade setup.
+- [ ] GitHub CI.
+
 ---
 
 ## 5. Phase 3 — System page acceptance audit
