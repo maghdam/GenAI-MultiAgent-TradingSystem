@@ -252,14 +252,18 @@ Test every operator control against backend behavior.
 - [x] One-shot scan.
 - [x] Recover.
 - [x] Reconcile.
-- [ ] Restart backend while broker position is open.
+- [x] Restart backend while broker position is open.
+  - Verified 2026-10-06 with two normal TradeAgent-managed Demo positions: US30 local `108` / broker `57782376` and XAUUSD local `109` / broker `57783302`.
+  - Pre-restart, both positions were canonical `id_match`, broker-protected, and the protection report measured 2/2 fully protected with 100% coverage.
+  - The backend process was stopped and relaunched through `run-backend-local.cmd`. Startup briefly reported unavailable lot-size metadata before loading complete broker contract metadata, then re-authorized Demo account `44089601`.
+  - Post-restart API confirmation showed engine enabled/scanning, account authorized/verified/execution-ready, 6460 symbols loaded, and the same two broker position IDs still canonical, `protected`, and `id_match` with broker SL/TP preserved.
 
 **Verification**
 - [x] Focused lifecycle/API tests.
 - [x] Local full backend regression suite.
 - [x] Local frontend production build.
 - [x] GitHub CI.
-- [ ] Real cTrader demo field check: restart the backend while a normal TradeAgent-managed broker position is open and confirm recovery/reconciliation preserves broker identity and protection truth.
+- [x] Real cTrader demo field check: backend restart occurred while two normal TradeAgent-managed broker positions were open; both identities and broker protection truth survived recovery. Local docs-only validation passed on staging head `b2048b4`, and PR #97 CI #391 passed the full backend/frontend CI contract before this verification update.
 
 ### 3.2 Safety controls
 - [x] Kill switch.
@@ -700,7 +704,7 @@ Simulate deliberately:
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #103 on implementation head `ea4f899` passed backend tests + frontend production build.
     - [ ] Real protected-position disconnect/recovery field observation is pending. Candidate probe found 0 broker positions and 0 local open trackers, so no qualifying TradeAgent-managed protected demo position was available; no trade was manufactured for testing.
-- [ ] Backend restart with broker position open.
+- [x] Backend restart with broker position open.
   - [x] Startup recovery keeps the existing cTrader-first boot order and runs tracker recovery before local open-position reconciliation.
   - [x] A broker position is recoverable only through a TradeAgent open intent whose broker position ID, symbol, and direction match the live broker row.
   - [x] Normal recovery requires an executed open intent; the only failed-intent exception is an explicitly retained still-open fail-safe case with `tracking_retained=true` and no successful fail-safe close.
@@ -712,7 +716,7 @@ Simulate deliberately:
     - [x] 53 focused restart / reconciler / engine / Phase 7 status tests passed locally.
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #106 on implementation head `4b6286a` passed backend tests + frontend production build.
-    - [ ] Real backend-restart-with-open-position field observation is pending. The latest real candidate probe found 0 broker positions and 0 local open trackers, so no qualifying TradeAgent-managed demo position was available; no trade was manufactured for testing.
+    - [x] Real backend-restart-with-open-position field observation passed 2026-10-06: US30 broker `57782376` and XAUUSD broker `57783302` were canonical + fully protected before restart and recovered afterward as the same `id_match` + `protected` positions on verified Demo account `44089601`. Local staging validation passed on `b2048b4`; PR #97 CI #391 passed backend + frontend before final verification.
 - [x] Frontend restart.
   - [x] Frontend mount/reload is read-only with respect to backend engine/config/order state; mutating actions remain behind explicit operator controls.
   - [x] Dashboard status and strategy reads settle independently so one transient failure does not discard the other successful response.
@@ -1094,9 +1098,9 @@ TradeAgent is considered **demo-runtime validated** when all of the following ar
 - [x] Broker account currency/equity drive demo monetary risk controls.
   - Verified from Phase 1.3 real-field evidence plus current implementation continuity: the cTrader demo account was verified as CHF with a real broker balance/equity snapshot, while `resolve_monetary_basis()` keeps configurable `paper_config` equity exclusive to pure-paper mode and requires verified broker currency plus positive equity in demo mode, failing closed otherwise.
   - Daily-loss budget, risk-per-trade amount, and demo auto-sizing all use the broker monetary basis; the current workflow verifies CHF 20,000 at 0.5% risk produces CHF 100 risk and the expected account-currency-valued quantity, including cross-currency conversion. PR #18 CI #19 passed the original hardening, post-merge CI #227 passed on `2160709`, local roadmap/scope/whitespace validation passed on `813bcea`, and PR CI #228 passed backend + frontend on that staged-evidence head.
-- [ ] Restart/recovery with open positions is verified.
-  - Acceptance audit pending real open-position field evidence: PR #53 and the current resilience suite verify durable SQLite reopen, canonical tracker/intent recovery, broker-confirmed handoff recovery exactly once, protection resumption on the persisted broker position ID, idempotent broker ledger state, and persistent duplicate-order blocking across restart; final PR #53 CI #149 and post-merge CI #230 passed backend + frontend.
-  - Phase 3.1 and Phase 7 still explicitly require a real backend restart while a normal TradeAgent-managed cTrader demo position is actually open. The latest candidate field probe found 0 broker positions and 0 local open trackers, so no qualifying field observation exists yet; keep this checkbox pending and do not manufacture a trade solely for acceptance.
+- [x] Restart/recovery with open positions is verified.
+  - PR #53 and the current resilience suite verify durable SQLite reopen, canonical tracker/intent recovery, broker-confirmed handoff recovery exactly once, protection resumption on the persisted broker position ID, idempotent broker ledger state, and persistent duplicate-order blocking across restart; final PR #53 CI #149 and post-merge CI #230 passed backend + frontend.
+  - Real cTrader Demo field verification completed 2026-10-06: the backend was restarted while US30 broker `57782376` and XAUUSD broker `57783302` were both open, canonical, and fully protected. After startup recovery, Demo account `44089601` was authorized/verified/execution-ready, the engine was scanning, and both same broker IDs remained `id_match` + `protected` with broker SL/TP truth preserved. PR #97 staging head `b2048b4` passed local docs-only validation and CI #391 before this acceptance checkbox was closed.
 - [x] Safety controls are acceptance-tested.
   - Verified from Phase 3.2 / PR #25 plus current failure-mode regression coverage: kill switch, minimum confidence, cooldown, maximum daily trades, maximum open positions, maximum positions per symbol, daily loss limit, required protective stops, session filter, and per-symbol automatic-trading permission are directly acceptance-tested; PR #25 CI #44/#45 passed focused safety tests plus full backend/frontend validation.
   - Current demo-account safety tests reject live-account authorization/routing and require verified demo readiness, while Phase 7 resilience acceptance covers ambiguous order acknowledgements, rejected protection amendments, rejected/ambiguous broker closes, stale/malformed data, disconnects, SQLite persistence faults, and duplicate-submission suppression. Post-merge CI #233 passed on `fad6185`, local roadmap/scope/whitespace validation passed on `4f22aa7`, and PR CI #234 passed backend + frontend on that staged-evidence head. Separately pending real-field observations remain tracked under their own acceptance/phase items and are not silently closed by this acceptance result.
@@ -1212,6 +1216,7 @@ Add one row after every completed task.
 | 2026-10-04 | Phase 10.4 cTrader account-neutral execution | Generalize the guarded cTrader execution path from Demo-specific semantics to the explicitly selected authenticated Demo or Live account without weakening risk/protection/reconciliation safeguards | ✅ Initial local regression exposed stale demo-only fixtures and a real monetary-snapshot Demo guard; repaired final head `a6941c0` passed focused regression, full backend suite, frontend build, clean tree/diff checks, and PR CI #320 | PR #93 / `a6941c0` | Proceed to Phase 10.5 documentation and operator/risk disclaimer cleanup |
 | 2026-10-04 | Phase 10.5 documentation and operator disclaimer | Align README, architecture, environment bootstrap guidance, operations, generated-strategy security, and architecture diagram with the account-neutral Demo/Live execution model and explicit Live-risk warning | ✅ Local documentation consistency checks + full backend regression + frontend production build passed on `257e90b`; working tree/diff clean; PR CI #323 passed | PR #94 / `257e90b` | Phase 10 implementation complete; require final docs-only CI, merge, sync local main, then gather remaining broker-position/sample evidence naturally |
 | 2026-10-06 | Phase 10.6 Trade-dashboard cTrader selector + Live arming + transport isolation | Expose authorized Demo/Live account selection on Trade, preserve selected-vs-active truth, add runtime-only Live arming, serialize cross-host auth/directory refresh, redact auth logs, and isolate OpenApiPy TCP queues per connection | ✅ Focused cTrader suite + full backend regression passed locally on `91cdf9e`; real Demo `44089601` → Live `48922568` → Demo smoke passed with Live disarmed and 7-account Demo-directory refresh clean; PR CI #388 passed backend + frontend | PR #96 / `91cdf9e` | Merge after final docs-only CI, sync local main, then resume only the remaining evidence-dependent roadmap checks without manufacturing trades or changing the 60% threshold |
+| 2026-10-06 | Real backend restart with open broker positions | Restart the backend through the normal launcher while two canonical, fully protected Demo positions are open, then verify the same broker IDs and protection truth after recovery | ✅ US30 `57782376` + XAUUSD `57783302` recovered as `id_match` + `protected`; Demo `44089601` authorized/verified/execution-ready; local docs-only staging validation passed on `b2048b4`; PR CI #391 passed backend + frontend | PR #97 | Final docs-only validation/CI, merge, sync local main, then close the already-captured Phase 2.3 real broker-truth observation as the next smallest evidence item |
 
 ---
 
@@ -1413,4 +1418,4 @@ This item changes account-directory refresh behavior, Trade/System UX, and the f
 
 ## 15. Next item
 
-**Phase 10.6 is verified. After PR #96 merges and local `main` is clean/synchronized, resume the remaining evidence-dependent roadmap checks rather than inventing a new development phase. The next qualifying normal TradeAgent-managed broker position should be used to collect the still-pending broker-position/protection/restart/partial-close field evidence across Phases 1.4, 2.3, 3.1, and 7; do not manufacture a trade solely for testing. If no qualifying broker position exists, continue normal use and let Phase 5.3 sample evidence accumulate naturally. Keep the global 60% signal-strength threshold unchanged until the existing Phase 5.3 sufficiency screen qualifies.**
+**The real backend-restart-with-open-position evidence is verified in PR #97. After PR #97 merges and local `main` is clean/synchronized, close the already-captured Phase 2.3 real cTrader broker-truth observation as the next smallest evidence-only item; no new trade is required for that documentation step. After that, continue normal Demo use and wait for naturally qualifying positions for the still-pending Phase 1.4 / Phase 7 partial-close and protected-position disconnect field observations. Do not manufacture a trade solely for testing. Let Phase 5.3 sample evidence accumulate naturally and keep the global 60% signal-strength threshold unchanged until its existing sufficiency screen qualifies.**
