@@ -180,11 +180,12 @@ const AIOutput = forwardRef<AIOutputHandle, AIOutputProps>(function AIOutput(
     let request: Parameters<typeof placeV2ManualOrder>[0];
 
     if (selectedSignal) {
-      request = buildSelectedSignalOrder(selectedSignal, lotSize);
-      if (!request) {
+      const selectedRequest = buildSelectedSignalOrder(selectedSignal, lotSize);
+      if (!selectedRequest) {
         handleError('Selected signal is not actionable or has an invalid quantity.');
         return;
       }
+      request = selectedRequest;
     } else {
       const analysis = state.analysis;
       if (!analysis || !analysis.signal || !symbol) { handleError('No analysis available.'); return; }
