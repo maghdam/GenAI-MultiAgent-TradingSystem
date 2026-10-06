@@ -32,6 +32,8 @@ interface HeaderProps {
   onRunAnalysis: () => void;
   onCancelAnalysis: () => void;
   onPlaceTrade: () => void;
+  placeTradeDisabled?: boolean;
+  placeTradeTitle?: string;
   feedStatus?: StatusChip;
   llmStatus?: StatusChip;
   engineStatus: DashboardEngineStatus | null;
@@ -66,6 +68,8 @@ export default function Header({
   onRunAnalysis,
   onCancelAnalysis,
   onPlaceTrade,
+  placeTradeDisabled = false,
+  placeTradeTitle = 'Place trade from the current analysis',
   feedStatus = DEFAULT_FEED_STATUS,
   llmStatus = DEFAULT_LLM_STATUS,
   engineStatus,
@@ -262,7 +266,13 @@ export default function Header({
           <button className="ta-btn ta-btn--primary ta-btn--sm" type="button" onClick={onRunAnalysis} disabled={isAnalyzing}>
             {isAnalyzing ? '⟳ Analyzing…' : '⚡ Analyze'}
           </button>
-          <button className="ta-btn ta-btn--success ta-btn--sm" type="button" onClick={onPlaceTrade} disabled={isAnalyzing}>
+          <button
+            className="ta-btn ta-btn--success ta-btn--sm"
+            type="button"
+            onClick={onPlaceTrade}
+            disabled={isAnalyzing || placeTradeDisabled}
+            title={placeTradeTitle}
+          >
             ↗ Place Trade
           </button>
         </div>
