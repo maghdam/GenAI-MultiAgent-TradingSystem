@@ -414,6 +414,7 @@ def recover_tradeagent_closed_history(
             "recovered": 0,
             "already_tracked": 0,
             "still_open": 0,
+            "external_ignored": 0,
             "ready": False,
             "reason": "cTrader account is not execution-ready yet.",
         }
@@ -425,6 +426,7 @@ def recover_tradeagent_closed_history(
             "recovered": 0,
             "already_tracked": 0,
             "still_open": 0,
+            "external_ignored": 0,
             "ready": False,
             "reason": "Verified cTrader account currency is unavailable.",
         }
