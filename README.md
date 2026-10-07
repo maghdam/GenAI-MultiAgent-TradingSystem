@@ -24,6 +24,13 @@ The project is intended to show AI product engineering rather than prompt-only e
   <sub>Current trading workspace with direct cTrader account selection, selected-versus-active account truth, Live-money safety state, live market context, charting, deterministic signal review, positions, intents/incidents, and broker/engine/model status.</sub>
 </p>
 
+<p align="center">
+  <img src="docs/images/Trade_Main_2.png" alt="TradeAgent chart-native signal review with exact Entry, stop-loss, take-profit, signal strength, and guarded Confirm or Cancel order controls" width="100%" />
+</p>
+<p align="center">
+  <sub>Chart-native signal review: actionable signals are plotted on their candles, the selected signal overlays its exact saved Entry, SL, and TP levels, and the operator can explicitly Confirm or Cancel submission even while the automated engine is stopped. Confirmed orders still pass through the normal risk, account, protection, and Live-arm gates.</sub>
+</p>
+
 ### Build & Test
 
 <p align="center">
@@ -76,7 +83,8 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 - live charting, selected-market context, and explicit strategy rules
 - watchlist, symbol, timeframe, strategy, and authorized cTrader account selection directly from the Trade workspace
-- signal review, local paper orders/positions, explicitly enabled cTrader orders on the selected account, and trade journal
+- chart-native actionable signal markers with exact Entry/SL/TP review and guarded operator Confirm/Cancel submission, alongside separately enabled automated execution
+- local paper orders/positions, explicitly enabled cTrader orders on the selected account, and trade journal
 - broker, market-data, engine, and model status
 
 ### Build & Test
