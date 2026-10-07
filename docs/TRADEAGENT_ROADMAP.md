@@ -506,7 +506,7 @@ Consolidate the mature System functionality into a calm operator console instead
 - [x] Replace the oversized System hero and duplicated status cards with one compact status overview.
 - [x] Remove writable cTrader account selection from System; account changes remain on Trade while System shows read-only selected/active truth and mismatch warnings.
 - [x] Consolidate readiness into one runtime card with the failing reason visible and full checks available on demand.
-- [x] Keep Start/Stop and one-shot scan prominent; move Reconcile, Recover, and Restart into secondary actions.
+- [x] Keep engine Start/Stop on the Trade workspace only; System shows read-only engine state, keeps one-shot scan as a diagnostic action, and moves Reconcile, Recover, and Restart into secondary actions.
 - [x] Replace the always-open safety form with a compact saved-settings summary plus an explicit Edit settings modal.
 - [x] Preserve runtime-only Live Trading arm/disarm behavior and all existing eligibility guards.
 - [x] Consolidate Decision audit, Trade audit, Engine events, Current incidents, and Incident history into one fixed-height tabbed activity panel.
