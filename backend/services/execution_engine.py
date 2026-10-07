@@ -120,22 +120,40 @@ def _broker_position_id(row: dict[str, object]) -> int | None:
     return value if value > 0 else None
 
 
-def _ctrader_new_entry_inventory_gate() -> tuple[bool, dict[str, object], str | None]:
+def _ctrader_new_entry_inventory_gate(
+    *,
+    broker_rows: list[dict[str, object]] | None = None,
+    broker_inventory_error: str | None = None,
+) -> tuple[bool, dict[str, object], str | None]:
     """Fail closed when broker exposure is not fully represented by local trackers."""
-    try:
-        broker_rows = [dict(row) for row in (list_positions() or [])]
-    except Exception as exc:
+    if broker_inventory_error is not None:
         details = {
             "broker_inventory_available": False,
             "broker_submission_suppressed": True,
             "automatic_adoption": False,
-            "error": str(exc),
+            "error": broker_inventory_error,
         }
         return (
             False,
             details,
             "cTrader broker position inventory is unavailable; new entries are blocked until broker truth can be verified.",
         )
+
+    if broker_rows is None:
+        try:
+            broker_rows = [dict(row) for row in (list_positions() or [])]
+        except Exception as exc:
+            details = {
+                "broker_inventory_available": False,
+                "broker_submission_suppressed": True,
+                "automatic_adoption": False,
+                "error": str(exc),
+            }
+            return (
+                False,
+                details,
+                "cTrader broker position inventory is unavailable; new entries are blocked until broker truth can be verified.",
+            )
 
     try:
         local_rows = list_paper_positions("open")
@@ -1018,16 +1036,64 @@ def execute_paper_signal(
             risk.details["active_ctrader_account_id"] = broker.account_id
             risk.details["active_ctrader_account_type"] = broker.account_type
 
-    # A broker position that is not represented by a canonical local tracker is
-    # unresolved account exposure. New entries must fail closed until that
-    # exposure is reconciled; existing tracked positions remain manageable.
+    entry_baseline_rows: list[dict[str, object]] | None = None
+    entry_baseline_error: str | None = None
+
+    # Resolve any already-durable ambiguous/submission-reserved handoff before
+    # evaluating unrelated broker exposure. These states represent a prior
+    # TradeAgent submission whose broker identity must be reconciled first.
     if (
         ctrader_execution
         and position is None
         and risk.accepted
         and risk.intent_type == "open"
     ):
-        inventory_ok, inventory_details, inventory_reason = _ctrader_new_entry_inventory_gate()
+        unresolved_ack = _unresolved_order_ack_timeout(
+            analysis.symbol,
+            analysis.timeframe,
+        )
+        if unresolved_ack is not None:
+            unresolved_details = (
+                unresolved_ack.details if isinstance(unresolved_ack.details, dict) else {}
+            )
+            if unresolved_details.get("outcome_state") == "submission_reserved":
+                return _resolve_reserved_ctrader_submission(unresolved_ack)
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=unresolved_ack.id,
+                status="blocked",
+                summary=(
+                    "Automatic cTrader order blocked because a prior post-submission "
+                    "outcome or broker-confirmed tracking handoff is unresolved. "
+                    "Reconcile broker truth before any new order is allowed."
+                ),
+                mode=_ctrader_execution_mode(),
+                broker_position_id=(
+                    int((unresolved_details.get("broker_order") or {}).get("position_id") or 0)
+                    or None
+                ),
+                retryable=False,
+            )
+
+    # Capture broker truth exactly once for a fresh cTrader entry. The same
+    # snapshot is used both for the untracked-exposure gate and as the durable
+    # pre-submit baseline for acknowledgement-timeout reconciliation.
+    if (
+        ctrader_execution
+        and position is None
+        and risk.accepted
+        and risk.intent_type == "open"
+    ):
+        try:
+            entry_baseline_rows = [dict(row) for row in (list_positions() or [])]
+        except Exception as exc:
+            entry_baseline_rows = []
+            entry_baseline_error = str(exc)
+
+        inventory_ok, inventory_details, inventory_reason = _ctrader_new_entry_inventory_gate(
+            broker_rows=entry_baseline_rows,
+            broker_inventory_error=entry_baseline_error,
+        )
         risk.details["broker_entry_inventory"] = inventory_details
         if not inventory_ok:
             reason = inventory_reason or (
@@ -1064,39 +1130,6 @@ def execute_paper_signal(
         intent_reasons = [*sizing.reasons, *intent_reasons]
     if quantity_decision.details.get("quantity_normalized"):
         intent_reasons = [*quantity_decision.reasons, *intent_reasons]
-
-    if (
-        ctrader_execution
-        and position is None
-        and risk.accepted
-        and risk.intent_type == "open"
-    ):
-        unresolved_ack = _unresolved_order_ack_timeout(
-            analysis.symbol,
-            analysis.timeframe,
-        )
-        if unresolved_ack is not None:
-            unresolved_details = (
-                unresolved_ack.details if isinstance(unresolved_ack.details, dict) else {}
-            )
-            if unresolved_details.get("outcome_state") == "submission_reserved":
-                return _resolve_reserved_ctrader_submission(unresolved_ack)
-            return ExecutionResult(
-                action_taken=False,
-                intent_id=unresolved_ack.id,
-                status="blocked",
-                summary=(
-                    "Automatic cTrader order blocked because a prior post-submission "
-                    "outcome or broker-confirmed tracking handoff is unresolved. "
-                    "Reconcile broker truth before any new order is allowed."
-                ),
-                mode=_ctrader_execution_mode(),
-                broker_position_id=(
-                    int((unresolved_details.get("broker_order") or {}).get("position_id") or 0)
-                    or None
-                ),
-                retryable=False,
-            )
 
     decision_evidence = {
         **(sizing.details if sizing else {}),
@@ -1447,12 +1480,15 @@ def execute_paper_signal(
     unprotected_close_phase: str | None = None
     ack_timeout_reconciled = False
     if ctrader_execution:
-        baseline_rows: list[dict[str, object]] = []
-        baseline_error: str | None = None
-        try:
-            baseline_rows = [dict(row) for row in (list_positions() or [])]
-        except Exception as exc:
-            baseline_error = str(exc)
+        baseline_rows: list[dict[str, object]] = (
+            list(entry_baseline_rows) if entry_baseline_rows is not None else []
+        )
+        baseline_error: str | None = entry_baseline_error
+        if entry_baseline_rows is None and baseline_error is None:
+            try:
+                baseline_rows = [dict(row) for row in (list_positions() or [])]
+            except Exception as exc:
+                baseline_error = str(exc)
         baseline_ids = {
             position_id
             for row in baseline_rows
