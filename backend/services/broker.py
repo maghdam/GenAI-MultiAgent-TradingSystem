@@ -144,6 +144,21 @@ def close_demo_position(**kwargs) -> Dict[str, Any]:
     return close_position(**kwargs)
 
 
+
+def get_account_trade_history(
+    *,
+    from_time: datetime,
+    to_time: datetime,
+) -> List[Dict[str, Any]]:
+    return _timed_broker_call(
+        "get_account_trade_history",
+        lambda: adapter.get_account_trade_history(
+            from_time=from_time,
+            to_time=to_time,
+        ),
+    )
+
+
 def get_position_close_deals(
     position_id: int,
     *,
