@@ -213,6 +213,25 @@ def test_unique_persisted_client_id_restores_original_metadata(monkeypatch) -> N
     assert row.execution_source == "manual"
 
 
+
+def test_external_broker_history_is_never_adopted(monkeypatch) -> None:
+    candidate = _candidate(
+        broker_position_id=57868693,
+        client_order_id="manual-ctrader-order",
+    )
+    _ready_history(monkeypatch, candidate)
+
+    result = broker_ledger.recover_tradeagent_closed_history(
+        window_days=30,
+        now=datetime.fromisoformat("2026-10-07T12:00:00"),
+    )
+
+    assert result["recovered"] == 0
+    assert result["external_ignored"] == 1
+    assert list_paper_positions("closed") == []
+    assert list_trade_audits(20) == []
+
+
 def test_ctrader_client_order_ids_are_unique_across_runtime_generations() -> None:
     first = execution_engine._new_ctrader_client_msg_id(844)
     second = execution_engine._new_ctrader_client_msg_id(844)
