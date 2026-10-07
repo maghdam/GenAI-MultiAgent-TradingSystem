@@ -1,9 +1,22 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { getV2OrderIntents, getV2TradeAudit, type V2OrderIntent, type V2TradeAudit } from '../services/api';
+import {
+  getV2JournalExport,
+  getV2OrderIntents,
+  getV2TradeAudit,
+  type V2JournalExportRow,
+  type V2OrderIntent,
+  type V2TradeAudit,
+} from '../services/api';
+import {
+  filterJournalTrades,
+  journalTradeSource,
+  summarizeJournalTrades,
+} from '../services/journalTrades';
 import { formatBackendLocalDateTime, parseBackendUtc } from '../utils/datetime';
 import { describeJournalRealizedResult } from '../services/journalExplainability';
 
-type JournalCategory = 'all' | 'execution' | 'rejected' | 'protection';
+type JournalCategory = 'trades' | 'all' | 'execution' | 'rejected' | 'protection';
+type AuditJournalCategory = Exclude<JournalCategory, 'trades'>;
 type JournalSource = 'all' | 'broker' | 'paper';
 
 function formatTimestamp(value: string | null): string {
@@ -18,6 +31,25 @@ function formatPnl(value: unknown): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '–';
   const prefix = value > 0 ? '+' : '';
   return `${prefix}${value.toFixed(2)}`;
+}
+
+function formatPrice(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '–';
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 5,
+  }).format(value);
+}
+
+function formatQuantity(value: number): string {
+  if (!Number.isFinite(value)) return '–';
+  return value.toFixed(2);
+}
+
+function executionSourceLabel(value: V2JournalExportRow['execution_source']): string {
+  if (value === 'manual') return 'Manual confirm';
+  if (value === 'auto') return 'Automated';
+  return 'Origin unknown';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,11 +67,11 @@ function localDateKey(value: string): string {
 
 function auditSource(trade: V2TradeAudit, intent?: V2OrderIntent): 'broker' | 'paper' {
   const eventType = (trade.event_type || '').toLowerCase();
-  if (eventType.startsWith('ctrader_demo_')) return 'broker';
+  if (eventType.startsWith('ctrader_')) return 'broker';
 
   const details = [trade.details, intent?.details].filter(isRecord);
   for (const detail of details) {
-    if (detail.execution_mode === 'ctrader_demo') return 'broker';
+    if (detail.execution_mode === 'ctrader_demo' || detail.execution_mode === 'ctrader_live') return 'broker';
     if (
       isRecord(detail.broker_order)
       || isRecord(detail.broker_close)
@@ -53,7 +85,11 @@ function auditSource(trade: V2TradeAudit, intent?: V2OrderIntent): 'broker' | 'p
   return 'paper';
 }
 
-function matchesCategory(trade: V2TradeAudit, intent: V2OrderIntent | undefined, category: JournalCategory): boolean {
+function matchesCategory(
+  trade: V2TradeAudit,
+  intent: V2OrderIntent | undefined,
+  category: AuditJournalCategory,
+): boolean {
   if (category === 'all') return true;
 
   const eventType = (trade.event_type || '').toLowerCase();
@@ -78,6 +114,7 @@ function matchesCategory(trade: V2TradeAudit, intent: V2OrderIntent | undefined,
     'partial_close',
     'protective_exit',
     'close_reconciled',
+    'order_executed',
   ];
   return intent?.status === 'executed' || executionTokens.some((token) => eventType.includes(token));
 }
@@ -124,11 +161,12 @@ function prettyDetails(value: Record<string, unknown>): string {
 }
 
 export default function Journal() {
+  const [trades, setTrades] = useState<V2JournalExportRow[] | null>(null);
   const [entries, setEntries] = useState<V2TradeAudit[] | null>(null);
   const [intents, setIntents] = useState<V2OrderIntent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState<JournalCategory>('all');
+  const [category, setCategory] = useState<JournalCategory>('trades');
   const [symbol, setSymbol] = useState('all');
   const [strategy, setStrategy] = useState('all');
   const [date, setDate] = useState('');
@@ -139,14 +177,17 @@ export default function Journal() {
   const load = async () => {
     try {
       setError(null);
-      const [audits, orderIntents] = await Promise.all([
+      const [completedTrades, audits, orderIntents] = await Promise.all([
+        getV2JournalExport({ allTime: true }),
         getV2TradeAudit(100),
         getV2OrderIntents(100),
       ]);
+      setTrades(completedTrades.rows);
       setEntries(audits);
       setIntents(orderIntents);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load journal.');
+      setTrades([]);
       setEntries([]);
       setIntents([]);
     } finally {
@@ -167,15 +208,28 @@ export default function Journal() {
   }, [intents]);
 
   const symbols = useMemo(
-    () => [...new Set((entries ?? []).map((entry) => entry.symbol).filter(Boolean))].sort(),
-    [entries],
+    () => [...new Set([
+      ...(trades ?? []).map((trade) => trade.symbol),
+      ...(entries ?? []).map((entry) => entry.symbol),
+    ].filter(Boolean))].sort(),
+    [trades, entries],
   );
   const strategies = useMemo(
-    () => [...new Set((entries ?? []).map((entry) => entry.strategy).filter(Boolean))].sort(),
-    [entries],
+    () => [...new Set([
+      ...(trades ?? []).map((trade) => trade.strategy),
+      ...(entries ?? []).map((entry) => entry.strategy),
+    ].filter(Boolean))].sort(),
+    [trades, entries],
   );
 
+  const filteredTrades = useMemo(
+    () => filterJournalTrades(trades ?? [], { symbol, strategy, date, source }),
+    [trades, symbol, strategy, date, source],
+  );
+  const tradeSummary = useMemo(() => summarizeJournalTrades(filteredTrades), [filteredTrades]);
+
   const filteredEntries = useMemo(() => {
+    if (category === 'trades') return [];
     return (entries ?? []).filter((trade) => {
       const intent = trade.intent_id != null ? intentById.get(trade.intent_id) : undefined;
       if (!matchesCategory(trade, intent, category)) return false;
@@ -188,20 +242,61 @@ export default function Journal() {
   }, [entries, intentById, category, symbol, strategy, date, source]);
 
   const resetFilters = () => {
-    setCategory('all');
+    setCategory('trades');
     setSymbol('all');
     setStrategy('all');
     setDate('');
     setSource('all');
   };
 
-  const renderBody = () => {
+  const renderTradeBody = () => {
     if (loading) {
+      return <tr><td colSpan={9} className="ta-journal__message">Loading completed trades…</td></tr>;
+    }
+    if (error) {
       return (
-        <tr><td colSpan={8} className="ta-journal__message">
-          Loading journal…
+        <tr><td colSpan={9} className="ta-journal__message ta-journal__message--error">
+          {error}
         </td></tr>
       );
+    }
+    if (!trades || trades.length === 0) {
+      return <tr><td colSpan={9} className="ta-journal__message">No completed trades recorded yet</td></tr>;
+    }
+    if (filteredTrades.length === 0) {
+      return <tr><td colSpan={9} className="ta-journal__message">No completed trades match the active filters</td></tr>;
+    }
+
+    return filteredTrades.map((trade) => {
+      const pnlClass = trade.realized_pnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad';
+      const executionVenue = journalTradeSource(trade) === 'broker' ? 'Broker' : 'Paper';
+      return (
+        <tr key={trade.row_id} title={trade.broker_identity_detail || undefined}>
+          <td>{formatTimestamp(trade.closed_at_utc)}</td>
+          <td style={{ fontWeight: 600 }}>{trade.symbol}</td>
+          <td>{trade.direction.toUpperCase()}</td>
+          <td>{formatQuantity(trade.quantity)}</td>
+          <td>{formatPrice(trade.entry_price)}</td>
+          <td>{formatPrice(trade.exit_price)}</td>
+          <td
+            className={pnlClass}
+            title={trade.realized_pnl_basis === 'broker_deals' ? 'Authoritative cTrader broker-deal P&L' : 'Local paper estimate'}
+          >
+            {formatPnl(trade.realized_pnl)} {trade.account_currency}
+          </td>
+          <td>
+            <span>{executionVenue}</span>
+            <span className="ta-journal__subtle"> · {executionSourceLabel(trade.execution_source)}</span>
+          </td>
+          <td className="ta-cell--truncate" title={trade.strategy}>{trade.strategy}</td>
+        </tr>
+      );
+    });
+  };
+
+  const renderAuditBody = () => {
+    if (loading) {
+      return <tr><td colSpan={8} className="ta-journal__message">Loading audit events…</td></tr>;
     }
     if (error) {
       return (
@@ -211,18 +306,10 @@ export default function Journal() {
       );
     }
     if (!entries || entries.length === 0) {
-      return (
-        <tr><td colSpan={8} className="ta-journal__message">
-          No audit records yet
-        </td></tr>
-      );
+      return <tr><td colSpan={8} className="ta-journal__message">No audit records yet</td></tr>;
     }
     if (filteredEntries.length === 0) {
-      return (
-        <tr><td colSpan={8} className="ta-journal__message">
-          No journal records match the active filters
-        </td></tr>
-      );
+      return <tr><td colSpan={8} className="ta-journal__message">No audit records match the active filters</td></tr>;
     }
 
     return filteredEntries.map((trade) => {
@@ -329,22 +416,26 @@ export default function Journal() {
     });
   };
 
-  const total = entries?.length ?? 0;
-  const visible = loading || error ? total : filteredEntries.length;
+  const isTradeView = category === 'trades';
+  const total = isTradeView ? (trades?.length ?? 0) : (entries?.length ?? 0);
+  const visible = loading || error
+    ? total
+    : isTradeView ? filteredTrades.length : filteredEntries.length;
 
   return (
     <div className="ta-panel">
       <div className="ta-panel__header">
         <span className="ta-panel__title">Trade Journal</span>
-        {entries && <span className="ta-panel__count">{visible}/{total}</span>}
+        {(trades || entries) && <span className="ta-panel__count">{visible}/{total}</span>}
       </div>
 
       <div className="ta-journal-filters">
         <label>
           <span>View</span>
           <select value={category} onChange={(event) => setCategory(event.target.value as JournalCategory)}>
-            <option value="all">All events</option>
-            <option value="execution">Execution only</option>
+            <option value="trades">Completed trades</option>
+            <option value="all">All audit events</option>
+            <option value="execution">Execution events</option>
             <option value="rejected">Rejected signals</option>
             <option value="protection">Protection incidents</option>
           </select>
@@ -367,7 +458,7 @@ export default function Journal() {
         </label>
 
         <label>
-          <span>Date</span>
+          <span>Close date</span>
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </label>
 
@@ -383,21 +474,52 @@ export default function Journal() {
         <button type="button" onClick={resetFilters}>Reset</button>
       </div>
 
+      {isTradeView && (
+        <div className="ta-journal-totals" aria-label="Filtered completed trade summary">
+          <span><strong>{tradeSummary.count}</strong> completed {tradeSummary.count === 1 ? 'trade' : 'trades'}</span>
+          {tradeSummary.totals.length > 0 ? tradeSummary.totals.map((totalItem) => (
+            <span
+              key={totalItem.currency}
+              className={totalItem.realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
+            >
+              Realized <strong>{formatPnl(totalItem.realizedPnl)} {totalItem.currency}</strong>
+            </span>
+          )) : (
+            <span className="ta-journal__subtle">Realized –</span>
+          )}
+          <span className="ta-journal__subtle">Blank date = all recorded history</span>
+        </div>
+      )}
+
       <div className="ta-table-wrap" style={{ maxHeight: '420px', overflowY: 'auto' }}>
         <table className="ta-table">
           <thead>
-            <tr>
-              <th>Time</th>
-              <th>Symbol</th>
-              <th>TF</th>
-              <th>Event</th>
-              <th>Strategy</th>
-              <th>Pos</th>
-              <th>P&L</th>
-              <th>Summary</th>
-            </tr>
+            {isTradeView ? (
+              <tr>
+                <th>Close time</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>Realized P&amp;L</th>
+                <th>Execution</th>
+                <th>Strategy</th>
+              </tr>
+            ) : (
+              <tr>
+                <th>Time</th>
+                <th>Symbol</th>
+                <th>TF</th>
+                <th>Event</th>
+                <th>Strategy</th>
+                <th>Pos</th>
+                <th>P&amp;L</th>
+                <th>Summary</th>
+              </tr>
+            )}
           </thead>
-          <tbody>{renderBody()}</tbody>
+          <tbody>{isTradeView ? renderTradeBody() : renderAuditBody()}</tbody>
         </table>
       </div>
     </div>

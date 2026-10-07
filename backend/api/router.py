@@ -783,15 +783,25 @@ async def v2_strategy_performance(
 @router.get("/reports/journal-export", response_model=JournalExportResponse)
 async def v2_journal_export(
     days: int = Query(default=30, ge=1, le=365),
+    all_time: bool = False,
 ) -> JournalExportResponse:
-    return await asyncio.to_thread(build_journal_export, window_days=days)
+    return await asyncio.to_thread(
+        build_journal_export,
+        window_days=days,
+        all_time=all_time,
+    )
 
 
 @router.get("/reports/journal-export.csv")
 async def v2_journal_export_csv(
     days: int = Query(default=30, ge=1, le=365),
+    all_time: bool = False,
 ) -> Response:
-    report = await asyncio.to_thread(build_journal_export, window_days=days)
+    report = await asyncio.to_thread(
+        build_journal_export,
+        window_days=days,
+        all_time=all_time,
+    )
     content = render_journal_export_csv(report)
     return Response(
         content=content,

@@ -888,6 +888,28 @@ a:hover { color: #a5b4fc; }
   background: var(--ta-bg-hover);
 }
 
+.ta-journal-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ta-border-dim);
+  background: rgba(255, 255, 255, 0.012);
+  color: var(--ta-text-secondary);
+  font-size: 12px;
+}
+
+.ta-journal-totals strong {
+  font-family: var(--ta-font-mono);
+}
+
+.ta-journal__subtle {
+  color: var(--ta-text-muted);
+  font-size: 11px;
+}
+
 .ta-journal-row {
   cursor: pointer;
 }

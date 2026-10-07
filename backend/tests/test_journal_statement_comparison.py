@@ -16,6 +16,7 @@ from backend.storage.db import get_db
 from backend.storage.repositories import (
     add_trade_audit,
     close_paper_position,
+    create_order_intent,
     list_trade_audits,
     open_paper_position,
     record_broker_deals,
@@ -41,13 +42,14 @@ def _closed_trade(
     closed_at: datetime | None = None,
     realized_pnl: float = 0.0,
     broker_position_id: int | None = None,
+    quantity: float = 1.0,
 ):
     position = open_paper_position(
         symbol=symbol,
         timeframe=timeframe,
         strategy=strategy,
         direction=direction,
-        quantity=1.0,
+        quantity=quantity,
         entry_price=100.0,
         stop_loss=99.0,
         take_profit=102.0,
@@ -101,12 +103,28 @@ def test_journal_export_prefers_broker_deals_and_preserves_audit_trace(monkeypat
         realized_pnl=99.0,
         closed_at=NOW - timedelta(hours=1),
     )
+    intent = create_order_intent(
+        symbol="NAS100",
+        timeframe="M5",
+        strategy="breakout",
+        direction="long",
+        intent_type="open",
+        status="executed",
+        confidence=0.9,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        quantity=1.0,
+        rationale="manual fixture",
+        details={"source": "manual"},
+    )
     add_trade_audit(
-        event_type="fixture_open",
+        event_type="ctrader_order_executed",
         symbol="NAS100",
         timeframe="M5",
         strategy="breakout",
         position_id=position.id,
+        intent_id=intent.id,
         summary="fixture audit one",
         details={},
     )
@@ -158,6 +176,8 @@ def test_journal_export_prefers_broker_deals_and_preserves_audit_trace(monkeypat
     assert row.realized_pnl == pytest.approx(2.5)
     assert row.realized_pnl_basis == "broker_deals"
     assert row.broker_deal_count == 2
+    assert row.quantity == pytest.approx(1.0)
+    assert row.execution_source == "manual"
     assert row.opened_at_utc.tzinfo == UTC
     assert row.closed_at_utc.tzinfo == UTC
 
@@ -490,6 +510,27 @@ def test_statement_identity_failures_are_unresolved_without_double_counting_loca
     assert any("missing_statement_identity" in item for item in reasons)
 
 
+def test_journal_export_all_time_includes_trades_outside_bounded_window(monkeypatch) -> None:
+    _clock(monkeypatch, NOW - timedelta(days=500))
+    old_trade = _closed_trade(
+        symbol="US30",
+        quantity=0.1,
+        realized_pnl=-1.5,
+        closed_at=NOW - timedelta(days=400),
+    )
+
+    bounded = build_journal_export(window_days=365, now=NOW)
+    all_time = build_journal_export(now=NOW, all_time=True)
+
+    assert bounded.row_count == 0
+    assert all_time.all_time is True
+    assert all_time.window_days is None
+    assert all_time.window_start_utc is None
+    assert all_time.row_count == 1
+    assert all_time.rows[0].local_position_id == old_trade.id
+    assert all_time.rows[0].quantity == pytest.approx(0.1)
+
+
 def test_journal_export_uses_utc_window_for_offset_timestamps(monkeypatch) -> None:
     plus_two = timezone(timedelta(hours=2))
     _clock(monkeypatch, NOW - timedelta(days=2))
@@ -563,6 +604,7 @@ def test_journal_export_and_statement_comparison_api_are_read_only(monkeypatch) 
 
     with TestClient(app) as client:
         export_response = client.get("/api/reports/journal-export?days=30")
+        all_time_response = client.get("/api/reports/journal-export?all_time=true")
         csv_response = client.get("/api/reports/journal-export.csv?days=30")
         compare_response = client.post(
             "/api/reports/statement-comparison",
@@ -577,6 +619,9 @@ def test_journal_export_and_statement_comparison_api_are_read_only(monkeypatch) 
     after = _counts()
     assert export_response.status_code == 200
     assert export_response.json()["row_count"] == 1
+    assert all_time_response.status_code == 200
+    assert all_time_response.json()["all_time"] is True
+    assert all_time_response.json()["row_count"] == 1
     assert csv_response.status_code == 200
     assert csv_response.headers["content-type"].startswith("text/csv")
     assert "tradeagent-journal.csv" in csv_response.headers["content-disposition"]

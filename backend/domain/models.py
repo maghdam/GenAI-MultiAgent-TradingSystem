@@ -662,6 +662,7 @@ class StrategyPerformanceResponse(BaseModel):
 
 
 JournalPnlBasis = Literal["broker_deals", "paper_estimate"]
+JournalExecutionSource = Literal["manual", "auto", "unknown"]
 
 
 class JournalExportRow(BaseModel):
@@ -676,6 +677,8 @@ class JournalExportRow(BaseModel):
     timeframe: str
     strategy: str
     direction: Literal["long", "short"]
+    quantity: float
+    execution_source: JournalExecutionSource = "unknown"
     opened_at_utc: datetime
     closed_at_utc: datetime
     entry_price: float
@@ -688,9 +691,10 @@ class JournalExportRow(BaseModel):
 
 
 class JournalExportResponse(BaseModel):
-    window_days: int
-    window_start_utc: datetime
+    window_days: Optional[int] = None
+    window_start_utc: Optional[datetime] = None
     window_end_utc: datetime
+    all_time: bool = False
     row_count: int
     account_currencies: List[str] = Field(default_factory=list)
     rows: List[JournalExportRow] = Field(default_factory=list)
