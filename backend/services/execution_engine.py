@@ -57,7 +57,7 @@ from backend.storage.repositories import (
 
 def _new_ctrader_client_msg_id(intent_id: int) -> str:
     """Return a broker client-order id that stays unique across runtime databases."""
-    return f"tradeagent-intent-{int(intent_id)}-{uuid4().hex[:12]}"
+    return f"tradeagent-intent-{int(intent_id)}-{uuid4().hex[:20]}"
 
 
 @dataclass
