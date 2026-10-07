@@ -1,5 +1,5 @@
 import type { V2JournalExportRow } from './api';
-import { parseBackendUtc } from '../utils/datetime';
+import { parseBackendUtc } from '../utils/datetime.ts';
 
 export type JournalTradeSource = 'all' | 'broker' | 'paper';
 
