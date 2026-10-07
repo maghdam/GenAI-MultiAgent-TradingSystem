@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -43,30 +44,52 @@ def build_journal_export(
     *,
     window_days: int = 30,
     now: datetime | None = None,
+    all_time: bool = False,
 ) -> JournalExportResponse:
     """Build one deterministic journal row per persisted closed position."""
 
-    bounded_days = _bounded_days(window_days)
+    bounded_days = None if all_time else _bounded_days(window_days)
     window_end = _utc_naive(now or _now_utc())
-    window_start = window_end - timedelta(days=bounded_days)
+    window_start = (
+        None
+        if bounded_days is None
+        else window_end - timedelta(days=bounded_days)
+    )
 
     with get_db() as db:
-        positions = db.execute(
-            """
-            SELECT
-                id, symbol, timeframe, strategy, direction,
-                entry_price, opened_at, closed_at, exit_price,
-                realized_pnl, close_reason, account_currency,
-                broker_position_id
-            FROM paper_positions
-            WHERE status = 'closed'
-              AND closed_at IS NOT NULL
-              AND julianday(closed_at) >= julianday(?)
-              AND julianday(closed_at) < julianday(?)
-            ORDER BY julianday(closed_at), id
-            """,
-            (window_start.isoformat(), window_end.isoformat()),
-        ).fetchall()
+        if all_time:
+            positions = db.execute(
+                """
+                SELECT
+                    id, symbol, timeframe, strategy, direction, quantity,
+                    entry_price, opened_at, closed_at, exit_price,
+                    realized_pnl, close_reason, account_currency,
+                    broker_position_id
+                FROM paper_positions
+                WHERE status = 'closed'
+                  AND closed_at IS NOT NULL
+                  AND julianday(closed_at) < julianday(?)
+                ORDER BY julianday(closed_at), id
+                """,
+                (window_end.isoformat(),),
+            ).fetchall()
+        else:
+            positions = db.execute(
+                """
+                SELECT
+                    id, symbol, timeframe, strategy, direction, quantity,
+                    entry_price, opened_at, closed_at, exit_price,
+                    realized_pnl, close_reason, account_currency,
+                    broker_position_id
+                FROM paper_positions
+                WHERE status = 'closed'
+                  AND closed_at IS NOT NULL
+                  AND julianday(closed_at) >= julianday(?)
+                  AND julianday(closed_at) < julianday(?)
+                ORDER BY julianday(closed_at), id
+                """,
+                (window_start.isoformat(), window_end.isoformat()),
+            ).fetchall()
 
         position_ids = [int(row["id"]) for row in positions]
         deals: list[Any] = []
@@ -86,7 +109,7 @@ def build_journal_export(
             ).fetchall()
             audits = db.execute(
                 f"""
-                SELECT id, position_id
+                SELECT id, position_id, intent_id, event_type
                 FROM trade_audit
                 WHERE position_id IN ({placeholders})
                 ORDER BY position_id, id
@@ -94,13 +117,60 @@ def build_journal_export(
                 tuple(position_ids),
             ).fetchall()
 
+            opening_intent_ids = sorted(
+                {
+                    int(row["intent_id"])
+                    for row in audits
+                    if row["intent_id"] is not None
+                    and str(row["event_type"]) in {
+                        "ctrader_order_executed",
+                        "paper_signal_open",
+                        "ctrader_order_ack_timeout_tracking_retained",
+                        "ctrader_unprotected_tracking_retained",
+                    }
+                }
+            )
+            intents: list[Any] = []
+            if opening_intent_ids:
+                intent_placeholders = ",".join("?" for _ in opening_intent_ids)
+                intents = db.execute(
+                    f"""
+                    SELECT id, details_json
+                    FROM order_intents
+                    WHERE id IN ({intent_placeholders})
+                    """,
+                    tuple(opening_intent_ids),
+                ).fetchall()
+        else:
+            intents = []
+
     deals_by_position: dict[int, list[Any]] = defaultdict(list)
     for row in deals:
         deals_by_position[int(row["local_position_id"])].append(row)
 
     audits_by_position: dict[int, list[int]] = defaultdict(list)
+    opening_intents_by_position: dict[int, list[int]] = defaultdict(list)
+    opening_event_types = {
+        "ctrader_order_executed",
+        "paper_signal_open",
+        "ctrader_order_ack_timeout_tracking_retained",
+        "ctrader_unprotected_tracking_retained",
+    }
     for row in audits:
-        audits_by_position[int(row["position_id"])].append(int(row["id"]))
+        position_id = int(row["position_id"])
+        audits_by_position[position_id].append(int(row["id"]))
+        if row["intent_id"] is not None and str(row["event_type"]) in opening_event_types:
+            opening_intents_by_position[position_id].append(int(row["intent_id"]))
+
+    source_by_intent: dict[int, str] = {}
+    for row in intents:
+        try:
+            details = json.loads(row["details_json"] or "{}")
+        except Exception:
+            details = {}
+        source = str(details.get("source") or "").strip().lower() if isinstance(details, dict) else ""
+        if source in {"manual", "auto"}:
+            source_by_intent[int(row["id"])] = source
 
     export_rows: list[JournalExportRow] = []
     currencies: set[str] = set()
@@ -153,6 +223,13 @@ def build_journal_export(
         currency = str(position["account_currency"] or "USD").upper()
         currencies.add(currency)
 
+        linked_sources = {
+            source_by_intent[int(intent_id)]
+            for intent_id in opening_intents_by_position.get(position_id, [])
+            if int(intent_id) in source_by_intent
+        }
+        execution_source = next(iter(linked_sources)) if len(linked_sources) == 1 else "unknown"
+
         export_rows.append(
             JournalExportRow(
                 row_id=f"local_position:{position_id}",
@@ -166,6 +243,8 @@ def build_journal_export(
                 timeframe=str(position["timeframe"]).upper(),
                 strategy=str(position["strategy"]),
                 direction=str(position["direction"]),
+                quantity=float(position["quantity"]),
+                execution_source=execution_source,
                 opened_at_utc=_parse_instant(str(position["opened_at"])),
                 closed_at_utc=_parse_instant(str(position["closed_at"])),
                 entry_price=float(position["entry_price"]),
@@ -188,8 +267,9 @@ def build_journal_export(
 
     return JournalExportResponse(
         window_days=bounded_days,
-        window_start_utc=_utc_aware(window_start),
+        window_start_utc=_utc_aware(window_start) if window_start is not None else None,
         window_end_utc=_utc_aware(window_end),
+        all_time=all_time,
         row_count=len(export_rows),
         account_currencies=sorted(currencies),
         rows=export_rows,
@@ -216,6 +296,8 @@ def render_journal_export_csv(report: JournalExportResponse) -> str:
             "timeframe",
             "strategy",
             "direction",
+            "quantity",
+            "execution_source",
             "opened_at_utc",
             "closed_at_utc",
             "entry_price",
@@ -240,6 +322,8 @@ def render_journal_export_csv(report: JournalExportResponse) -> str:
                 row.timeframe,
                 row.strategy,
                 row.direction,
+                row.quantity,
+                row.execution_source,
                 row.opened_at_utc.astimezone(UTC).isoformat().replace("+00:00", "Z"),
                 row.closed_at_utc.astimezone(UTC).isoformat().replace("+00:00", "Z"),
                 row.entry_price,
