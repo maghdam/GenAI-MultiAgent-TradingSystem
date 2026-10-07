@@ -24,6 +24,7 @@ from backend.storage.repositories import (
     list_incidents,
     list_order_intents,
     list_paper_positions,
+    open_paper_position,
 )
 
 
@@ -234,12 +235,23 @@ def test_unique_new_broker_position_reconciles_without_resubmission(monkeypatch)
     _mock_demo_ready(monkeypatch)
 
     baseline = {
-        "symbol": "XAUUSD",
-        "direction": "buy",
-        "volume_lots": 0.25,
-        "entry_price": 98.0,
+        "symbol": "US30",
+        "direction": "sell",
+        "volume_lots": 0.10,
+        "entry_price": 51_500.0,
         "position_id": 100,
     }
+    open_paper_position(
+        symbol="US30",
+        timeframe="M5",
+        strategy="breakout",
+        direction="short",
+        quantity=0.10,
+        entry_price=51_500.0,
+        stop_loss=51_550.0,
+        take_profit=51_400.0,
+        broker_position_id=100,
+    )
     confirmed = {
         "symbol": "XAUUSD",
         "direction": "buy",
@@ -270,10 +282,10 @@ def test_unique_new_broker_position_reconciles_without_resubmission(monkeypatch)
     assert result.broker_position_id == 321
 
     positions = list_paper_positions("open")
-    assert len(positions) == 1
-    assert positions[0].broker_position_id == 321
-    assert positions[0].entry_price == pytest.approx(100.4)
-    assert positions[0].quantity == pytest.approx(0.25)
+    opened = next(position for position in positions if position.broker_position_id == 321)
+    assert opened.entry_price == pytest.approx(100.4)
+    assert opened.quantity == pytest.approx(0.25)
+    assert any(position.broker_position_id == 100 for position in positions)
 
     intent = list_order_intents(10)[0]
     assert intent.status == "failed"
