@@ -379,23 +379,31 @@ This item changes the journal/read-model only. It does not synthesize missing br
 
 ### 2.9 Canonical broker-history completeness and missing-close reconciliation
 **Priority:** P1
-**Status:** ⏳ Next
+**Status:** 🧪 Ready for local validation
 
 Investigate and repair the exact identity/persistence path that allowed a real cTrader close to be absent from the canonical TradeAgent completed-position ledger.
 
+**Confirmed field diagnosis**
+- [x] cTrader position `57868693`, opening order `73809759`, and closing deal `63499285` identify the missing XAUUSD `0.10` lot / `-20.39 CHF` close exactly.
+- [x] The opening broker order carries legacy TradeAgent client id `tradeagent-intent-844`, proving TradeAgent origin rather than external/manual cTrader activity.
+- [x] Active SQLite intent `844` is a different 2026-09-25 XAUUSD trade linked to broker position `57330292`; the target broker position/deal is absent from the active DB and all surviving repository-local runtime DBs.
+- [x] Therefore the legacy `tradeagent-intent-{local_integer_id}` marker can collide across runtime/database generations. The missing trade's original auto-vs-manual metadata cannot be proved from surviving local state and must remain explicit `unknown` rather than inferred from symbol, quantity, price, or time.
+
 **Target behavior**
-- [ ] Diagnose the missing 2026-10-07 XAUUSD `0.10` lot / `-20.39 CHF` close using local intent, audit, position, broker-deal, and broker-history identity evidence.
-- [ ] Determine whether the trade originated from TradeAgent manual-confirm execution, automatic execution, or external broker activity; do not guess from symbol/time alone.
-- [ ] If the trade is TradeAgent-originated, recover/link it only through exact broker position/deal identity and make the repair idempotent across restart/reconcile.
-- [ ] Never adopt unrelated external/manual cTrader trades into the TradeAgent canonical ledger merely because symbol, direction, quantity, or timestamps look similar.
-- [ ] After repair, the same-date Completed trades view and filtered realized total must agree with cTrader History for TradeAgent-managed trades.
-- [ ] Add focused regression coverage for the confirmed root cause and identity-safe recovery path.
+- [x] Read bounded account order/deal history and admit recovery only when the exact broker opening order carries a TradeAgent client-order marker.
+- [x] Persist a missing closed trade only by immutable broker position/deal identity; repeated reconciliation is idempotent.
+- [x] If an exact durable local intent is still linkable by persisted client id or broker position id, restore its strategy/timeframe/manual-auto metadata; otherwise preserve transparent recovered/unknown metadata.
+- [x] Never adopt unrelated external/manual cTrader trades merely because symbol, direction, quantity, price, or timestamps look similar.
+- [x] Harden new broker submissions with a persisted `tradeagent-intent-{intent_id}-{80-bit suffix}` client id so independent runtime DBs cannot reuse the same broker client-order identity.
+- [x] Recovered broker deals remain authoritative for realized P&L and flow through the existing Completed trades Journal.
+- [x] Add focused regression coverage for legacy numeric-id collision, exact metadata linkage, external-history rejection, idempotence, Journal visibility, and future client-id uniqueness.
 
 **Acceptance**
-- [ ] Read-only evidence probe identifies the missing trade's exact broker/local lineage before code changes.
-- [ ] Focused tests reproduce the defect and pass after the smallest coherent repair.
-- [ ] Full backend regression suite and frontend production build pass.
-- [ ] Real 2026-10-07 field re-check confirms the recovered trade appears exactly once with authoritative broker P&L.
+- [x] Read-only evidence probes identify the missing broker/local lineage and the surviving-runtime DB collision before code changes.
+- [ ] Focused Phase 2.9 tests pass locally.
+- [ ] Existing ACK/restart/reconciliation regression passes locally.
+- [ ] Full backend regression suite and frontend production build pass locally.
+- [ ] Real 2026-10-07 reconcile re-check recovers broker position `57868693` exactly once and the Completed trades view shows 4 broker trades totaling `-17.91 CHF`.
 - [ ] GitHub CI passes on the exact implementation head.
 
 ---
@@ -1659,4 +1667,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**After PR #108 is merged and local `main` is synchronized, start Phase 2.9 with a read-only lineage probe for the missing 2026-10-07 XAUUSD `0.10` lot / `-20.39 CHF` cTrader close. Inspect the persisted local position, order-intent, trade-audit, broker-deal, and broker-history identities before changing code. Determine whether it was TradeAgent manual-confirm, automatic, or external broker activity; never adopt a broker trade by symbol/time/quantity similarity alone. The target is exact-identity, idempotent recovery so TradeAgent-managed completed trades agree with cTrader History. Deferred protected-position disconnect/recovery and Phase 2.6 broker-overlay observations still wait for a natural qualifying position. Phase 5.3 remains 0 of 3 sufficient; keep the global 60% signal-strength threshold unchanged.**
+**Validate Phase 2.9 on PR #109 / branch `fix/phase-2-9-broker-history-recovery`. Run the focused orphan-recovery tests first, then the ACK/restart/reconciliation regression, then `python scripts/validate.py`. After automated checks pass, restart the app on this branch and POST `/api/engine/reconcile`; verify broker position `57868693` is recovered exactly once, broker deal `63499285` is authoritative, and the 2026-10-07 Completed trades filter shows 4 broker trades totaling `-17.91 CHF`. Do not mark Phase 2.9 verified or merge until local field validation and GitHub CI both pass. Deferred protected-position disconnect/recovery and Phase 2.6 broker-overlay observations still wait for a natural qualifying position. Phase 5.3 remains 0 of 3 sufficient; keep the global 60% signal-strength threshold unchanged.**
