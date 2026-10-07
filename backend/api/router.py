@@ -1307,6 +1307,7 @@ async def v2_engine_reconcile() -> dict:
             "recovered": 0,
             "already_tracked": 0,
             "still_open": 0,
+            "external_ignored": 0,
             "ready": False,
         }
         history = {
