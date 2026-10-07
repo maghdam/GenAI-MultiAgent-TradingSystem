@@ -101,8 +101,8 @@ test('completed trade summary counts rows and never mixes account currencies', (
   ]);
 
   assert.equal(summary.count, 3);
-  assert.deepEqual(summary.totals, [
-    { currency: 'CHF', realizedPnl: -16.03 },
-    { currency: 'USD', realizedPnl: 2.5 },
-  ]);
+  assert.equal(summary.totals.length, 2);
+  assert.equal(summary.totals[0]?.currency, 'CHF');
+  assert.ok(Math.abs((summary.totals[0]?.realizedPnl ?? 0) - (-16.03)) < 1e-9);
+  assert.deepEqual(summary.totals[1], { currency: 'USD', realizedPnl: 2.5 });
 });
