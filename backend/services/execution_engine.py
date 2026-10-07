@@ -46,6 +46,7 @@ from backend.storage.repositories import (
     create_order_intent,
     get_open_position,
     list_order_intents,
+    list_paper_positions,
     log_incident,
     open_paper_position,
     update_order_intent_status,
@@ -117,6 +118,97 @@ def _broker_position_id(row: dict[str, object]) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _ctrader_new_entry_inventory_gate(
+    *,
+    broker_rows: list[dict[str, object]] | None = None,
+    broker_inventory_error: str | None = None,
+) -> tuple[bool, dict[str, object], str | None]:
+    """Fail closed when broker exposure is not fully represented by local trackers."""
+    if broker_inventory_error is not None:
+        details = {
+            "broker_inventory_available": False,
+            "broker_submission_suppressed": True,
+            "automatic_adoption": False,
+            "error": broker_inventory_error,
+        }
+        return (
+            False,
+            details,
+            "cTrader broker position inventory is unavailable; new entries are blocked until broker truth can be verified.",
+        )
+
+    if broker_rows is None:
+        try:
+            broker_rows = [dict(row) for row in (list_positions() or [])]
+        except Exception as exc:
+            details = {
+                "broker_inventory_available": False,
+                "broker_submission_suppressed": True,
+                "automatic_adoption": False,
+                "error": str(exc),
+            }
+            return (
+                False,
+                details,
+                "cTrader broker position inventory is unavailable; new entries are blocked until broker truth can be verified.",
+            )
+
+    try:
+        local_rows = list_paper_positions("open")
+    except Exception as exc:
+        details = {
+            "broker_inventory_available": True,
+            "local_tracker_inventory_available": False,
+            "broker_submission_suppressed": True,
+            "automatic_adoption": False,
+            "error": str(exc),
+        }
+        return (
+            False,
+            details,
+            "Local broker-tracker inventory is unavailable; new cTrader entries are blocked until position identity can be verified.",
+        )
+
+    tracked_ids = sorted(
+        {
+            int(position.broker_position_id)
+            for position in local_rows
+            if position.broker_position_id is not None and int(position.broker_position_id) > 0
+        }
+    )
+    broker_ids: list[int] = []
+    missing_id_count = 0
+    for row in broker_rows:
+        position_id = _broker_position_id(row)
+        if position_id is None:
+            missing_id_count += 1
+            continue
+        broker_ids.append(position_id)
+
+    broker_ids = sorted(set(broker_ids))
+    tracked_id_set = set(tracked_ids)
+    untracked_ids = [position_id for position_id in broker_ids if position_id not in tracked_id_set]
+    details = {
+        "broker_inventory_available": True,
+        "local_tracker_inventory_available": True,
+        "broker_open_position_count": len(broker_rows),
+        "broker_open_position_ids": broker_ids,
+        "local_open_tracker_count": len(local_rows),
+        "local_tracked_broker_position_ids": tracked_ids,
+        "untracked_broker_position_ids": untracked_ids,
+        "broker_positions_missing_id": missing_id_count,
+        "broker_submission_suppressed": bool(untracked_ids or missing_id_count),
+        "automatic_adoption": False,
+    }
+    if untracked_ids or missing_id_count:
+        return (
+            False,
+            details,
+            "Untracked cTrader broker exposure exists; new entries are blocked until reconciliation resolves broker identity.",
+        )
+    return True, details, None
 
 
 def _matching_new_broker_positions(
@@ -944,14 +1036,12 @@ def execute_paper_signal(
             risk.details["active_ctrader_account_id"] = broker.account_id
             risk.details["active_ctrader_account_type"] = broker.account_type
 
-    flipped = False
-    intent_quantity = position.quantity if position and position.direction == analysis.signal else trade_quantity
-    intent_reasons = list(risk.reasons)
-    if sizing:
-        intent_reasons = [*sizing.reasons, *intent_reasons]
-    if quantity_decision.details.get("quantity_normalized"):
-        intent_reasons = [*quantity_decision.reasons, *intent_reasons]
+    entry_baseline_rows: list[dict[str, object]] | None = None
+    entry_baseline_error: str | None = None
 
+    # Resolve any already-durable ambiguous/submission-reserved handoff before
+    # evaluating unrelated broker exposure. These states represent a prior
+    # TradeAgent submission whose broker identity must be reconciled first.
     if (
         ctrader_execution
         and position is None
@@ -984,6 +1074,62 @@ def execute_paper_signal(
                 ),
                 retryable=False,
             )
+
+    # Capture broker truth exactly once for a fresh cTrader entry. The same
+    # snapshot is used both for the untracked-exposure gate and as the durable
+    # pre-submit baseline for acknowledgement-timeout reconciliation.
+    if (
+        ctrader_execution
+        and position is None
+        and risk.accepted
+        and risk.intent_type == "open"
+    ):
+        try:
+            entry_baseline_rows = [dict(row) for row in (list_positions() or [])]
+        except Exception as exc:
+            entry_baseline_rows = []
+            entry_baseline_error = str(exc)
+
+        inventory_ok, inventory_details, inventory_reason = _ctrader_new_entry_inventory_gate(
+            broker_rows=entry_baseline_rows,
+            broker_inventory_error=entry_baseline_error,
+        )
+        risk.details["broker_entry_inventory"] = inventory_details
+        if not inventory_ok:
+            reason = inventory_reason or (
+                "cTrader broker exposure is unresolved; new entries are blocked until broker identity is verified."
+            )
+            risk.accepted = False
+            risk.intent_type = "skip"
+            risk.reasons = [reason, *risk.reasons]
+            incident_code = (
+                "ctrader_untracked_broker_exposure_blocks_entry"
+                if inventory_details.get("broker_inventory_available")
+                and inventory_details.get("local_tracker_inventory_available", True)
+                else "ctrader_broker_inventory_unavailable_blocks_entry"
+            )
+            log_incident(
+                "error",
+                incident_code,
+                f"Blocked new cTrader entry for {analysis.symbol}:{analysis.timeframe}.",
+                {
+                    **inventory_details,
+                    "symbol": analysis.symbol.upper(),
+                    "timeframe": analysis.timeframe.upper(),
+                    "strategy": analysis.strategy,
+                    "action_required": (
+                        "Resolve or close untracked broker exposure and rerun reconciliation before enabling new entries."
+                    ),
+                },
+            )
+
+    flipped = False
+    intent_quantity = position.quantity if position and position.direction == analysis.signal else trade_quantity
+    intent_reasons = list(risk.reasons)
+    if sizing:
+        intent_reasons = [*sizing.reasons, *intent_reasons]
+    if quantity_decision.details.get("quantity_normalized"):
+        intent_reasons = [*quantity_decision.reasons, *intent_reasons]
 
     decision_evidence = {
         **(sizing.details if sizing else {}),
@@ -1334,12 +1480,15 @@ def execute_paper_signal(
     unprotected_close_phase: str | None = None
     ack_timeout_reconciled = False
     if ctrader_execution:
-        baseline_rows: list[dict[str, object]] = []
-        baseline_error: str | None = None
-        try:
-            baseline_rows = [dict(row) for row in (list_positions() or [])]
-        except Exception as exc:
-            baseline_error = str(exc)
+        baseline_rows: list[dict[str, object]] = (
+            list(entry_baseline_rows) if entry_baseline_rows is not None else []
+        )
+        baseline_error: str | None = entry_baseline_error
+        if entry_baseline_rows is None and baseline_error is None:
+            try:
+                baseline_rows = [dict(row) for row in (list_positions() or [])]
+            except Exception as exc:
+                baseline_error = str(exc)
         baseline_ids = {
             position_id
             for row in baseline_rows

@@ -813,6 +813,26 @@ Simulate deliberately:
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #103 on implementation head `ea4f899` passed backend tests + frontend production build.
     - [ ] Real protected-position disconnect/recovery field observation is pending. Candidate probe found 0 broker positions and 0 local open trackers, so no qualifying TradeAgent-managed protected demo position was available; no trade was manufactured for testing.
+  - [x] Blocking repair: untracked broker exposure must fail closed for new cTrader entries.
+    - [x] Real baseline captured 2026-10-07 after stale-runtime recovery: verified Demo account `44089601` reported 2 broker positions while canonical local state tracked only XAUUSD local `115` / broker `57871070`; protection health reported 1 ignored broker position and repeated `ctrader_untracked_broker_position` incidents identified broker `57868693`.
+    - [x] New-entry execution now compares all broker position IDs with canonical local broker-position IDs before broker submission.
+    - [x] Any untracked broker position, broker position without a valid ID, unavailable broker inventory, or unavailable local tracker inventory blocks the new entry before broker submission.
+    - [x] The block records broker/local inventory evidence, suppresses automatic adoption, and persists an actionable incident plus normal rejected decision/intent evidence.
+    - [x] Existing managed positions remain outside the new-entry gate so protection, reconciliation, target maintenance, and verified close behavior remain available.
+    - [x] Fresh-entry broker inventory is captured once and reused as the durable acknowledgement-timeout baseline so the safety gate cannot consume or reorder broker snapshots needed by existing ambiguity/recovery logic.
+    - [x] Already-durable unresolved submission/ACK handoffs are resolved before unrelated untracked-exposure screening, preserving duplicate-order suppression and canonical recovery semantics.
+    - Verification:
+      - [x] 5 focused untracked-exposure resilience tests passed locally.
+      - [x] ACK/persistence regression passed locally: 16/16.
+      - [x] Focused Phase 7 / execution / reconciliation regression passed locally: 42/42.
+      - [x] Full backend regression suite passed locally.
+      - [x] Frontend production build passed locally: 704 modules transformed.
+      - [x] Git diff/worktree checks passed on implementation head `b6033b9`.
+      - [x] GitHub CI #426 passed on exact implementation head `b6033b9`.
+    - Verification notes:
+      - Initial implementation head `9df4994` failed CI #423 and local regression because it performed an additional broker-position read ahead of the established ACK/persistence machinery; this consumed deterministic broker snapshots too early and changed several resilience-test outcomes.
+      - The repaired implementation reuses the single pre-submit broker snapshot, preserves unresolved submission/ACK precedence, fixes the new test mocks, and passed all local/CI gates on `b6033b9`.
+      - During final local validation the engine remained disabled and broker status reported 0 open positions, so no disconnect/recovery field observation was attempted and no new exposure was manufactured for testing.
 - [x] Backend restart with broker position open.
   - [x] Startup recovery keeps the existing cTrader-first boot order and runs tracker recovery before local open-position reconciliation.
   - [x] A broker position is recoverable only through a TradeAgent open intent whose broker position ID, symbol, and direction match the live broker row.
@@ -1339,6 +1359,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 10.7 Windows Credential Manager hardening | Move cTrader client ID/secret/access token out of plaintext project `.env` into Windows Credential Manager with verified migration, rollback, status, and emergency restore tooling | ✅ 8 credential tests + 56 focused cTrader safety tests + full backend suite; real two-stage migration/restart passed; plaintext secret assignments absent; Demo `44089601` verified/execution-ready and 7-account directory intact using Credential Manager only; CI #409 passed on `9e1b716` | PR #103 / `9e1b716` | Final docs-head validation/CI, merge, sync main, then return to pending Phase 7 protected-position disconnect/recovery only when a natural qualifying Demo position exists |
 | 2026-10-06 | Phase 2.6 chart position / SL / TP overlays | Render actual open-position entry/protection levels on the Trade chart from existing position truth, with strict broker-vs-paper source semantics | ✅ Focused overlay truth tests 4/4, frontend production build 703 modules, clean diff/worktree, CI #413 passed on `b5a673d`; runtime had zero open positions so real browser field observation is deferred until the next natural position | PR #104 / `b5a673d` | Merge after final docs-head validation/CI; preserve browser field observation as post-merge evidence, then implement Phase 2.7 signal visualization/trade-from-signal workflow |
 | 2026-10-06 | Phase 2.7 chart signal visualization and guarded trade-from-signal | Show recent actionable analysis markers, focus exact saved-signal Entry/SL/TP snapshots, and require Review -> Confirm before routing a selected signal through the existing manual-order API | ✅ 6/6 focused signal tests, 4/4 chart-position regression, 704-module production build, clean diff/worktree, browser smoke with existing XAUUSD M5 SELL 85% signal, and CI #420 on `ab0bd70`; no broker order submitted during UI validation | PR #105 / `ab0bd70` | Final docs-head validation/CI, merge, sync main, then resume broker-dependent Phase 7/Phase 2.6 field evidence only when a natural protected Demo position exists |
+| 2026-10-07 | Phase 7 untracked broker exposure fail-closed entry gate | Block fresh cTrader entries whenever broker exposure is not fully represented by canonical local broker-position IDs, while preserving existing managed-position maintenance/recovery paths | ✅ Real stale-runtime baseline captured 2 broker positions vs 1 canonical tracker; repaired gate passed 5/5 focused tests, 16/16 ACK/persistence regression, 42/42 Phase 7/execution/reconciliation regression, full backend suite, 704-module frontend build, clean diff/worktree, and exact-head CI #426 on `b6033b9` | PR #106 / `b6033b9` | Final docs-head validation/CI, merge, sync main; keep engine off until broker/local exposure is clean; resume real protected-position disconnect/recovery only on the next natural qualifying position |
 
 ---
 
@@ -1578,4 +1599,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Phase 2.7 chart signal visualization and guarded trade-from-signal is implementation- and browser-verified on PR #105. After final docs-head CI, merge and synchronize local `main`. Then return to the exact broker-dependent evidence backlog: reuse the next natural TradeAgent-managed protected Demo position for the pending Phase 7 disconnect/recovery field observation and the deferred Phase 2.6 real broker-backed chart overlay observation; do not manufacture exposure solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**The Phase 7 blocking repair for untracked broker exposure is implementation-verified on PR #106: fresh cTrader entries now fail closed whenever broker exposure is not fully represented by canonical local IDs, while managed-position maintenance/recovery remains available. After final docs-head CI, merge and synchronize local `main`. The separate real protected-position disconnect/recovery field observation and deferred Phase 2.6 real broker-backed chart overlay observation remain pending until the next natural qualifying TradeAgent-managed protected Demo position; do not manufacture exposure solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
