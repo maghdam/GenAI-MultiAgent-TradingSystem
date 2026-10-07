@@ -498,7 +498,7 @@ Test every operator control against backend behavior.
 
 ### 3.5 Compact System operations console
 **Priority:** P2
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 Consolidate the mature System functionality into a calm operator console instead of a long diagnostic document.
 
@@ -514,11 +514,21 @@ Consolidate the mature System functionality into a calm operator console instead
 - [x] Preserve all backend broker, risk, execution, persistence, reconciliation, and readiness semantics.
 
 **Acceptance**
-- [ ] Focused System console tests pass locally.
-- [ ] Frontend production build passes locally.
-- [ ] Browser smoke confirms compact desktop layout, safety edit/save/cancel, activity tabs, readiness expansion, and engine action hierarchy.
-- [ ] Full canonical validation passes locally.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused System console tests pass locally: 3/3.
+- [x] Frontend production build passes locally: 706 modules transformed.
+- [x] Browser smoke confirms the compact desktop layout, read-only account truth, readiness expansion, secondary recovery actions, activity tabs, and the Safety settings modal; Cancel closes without saving.
+- [x] Engine Start/Stop is exposed only on Trade; System remains a read-only engine-status and diagnostic/recovery surface.
+- [x] Full canonical validation passes locally on implementation head `81cd46a`: complete backend suite plus 706-module frontend production build.
+- [x] Git diff/worktree checks are clean on `81cd46a`.
+- [x] GitHub CI #443 passes on exact implementation head `81cd46a`.
+
+**Verification evidence**
+- The redesigned System page fits the normal operator state into a compact overview, two primary operational panels, and one fixed-height activity area instead of a long stack of full-width diagnostic sections.
+- The duplicate cTrader account selector was removed from System; the active Demo account remains visible as read-only truth and account changes stay on Trade.
+- The duplicate engine Start/Stop control was removed from System after browser review confirmed Trade already owns the same engine endpoints.
+- Safety configuration is summarized by default and edited only through an explicit modal; the existing Live-arm eligibility behavior remains unchanged.
+- Current incidents, engine events, trade audit, decisions, and warning/error history share one tabbed diagnostic area; routine informational history is excluded from the operator incident-history tab.
+- The browser correctly surfaced a real stale-market warning while the engine was scanning, demonstrating that the compact layout preserves truthful degraded-state visibility rather than hiding it.
 
 **Scope boundary**
 This is a frontend information-architecture and presentation change. It does not change broker account selection APIs, cTrader transport, risk calculations, execution policy, engine lifecycle semantics, Live-arm eligibility, persistence, reconciliation, or the global 60% signal-strength threshold.
@@ -1466,6 +1476,7 @@ Add one row after every completed task.
 | 2026-10-07 | README chart-native signal gallery | Add `Trade_Main_2.png` to Product Gallery → Trade and document chart-native actionable signal markers, exact saved Entry/SL/TP review, and guarded operator Confirm/Cancel submission distinct from separately enabled automated execution | ✅ Local docs validation confirmed exact image reference, tracked 267090-byte PNG, README wording, clean whitespace/worktree; CI #429 passed on `520aea6` | PR #107 / `520aea6` | Final docs-head validation/CI, merge, sync main; roadmap execution sequence remains unchanged |
 | 2026-10-07 | Phase 2.8 canonical completed-trade Journal | Replace audit-event-default Journal with a canonical closed-position ledger, all-history/date/source filters, execution origin, and per-currency filtered realized totals | ✅ 10/10 backend Journal tests + 6/6 frontend Journal tests + full backend regression + 705-module frontend build + clean tree/diff + CI #433; browser/API check exposed 3 canonical rows / +2.48 CHF versus 4 cTrader closes / -17.91 CHF | PR #108 / `4009e4c` | Phase 2.9: diagnose the missing XAUUSD 0.10 lot / -20.39 CHF broker close by exact identity before any repair |
 | 2026-10-07 | Phase 2.9 exact broker-history orphan recovery | Recover TradeAgent-originated closed cTrader positions missing from the active canonical ledger by exact opening marker + immutable broker position/deal identity; keep unknown legacy metadata explicit and make future client-order IDs globally unique across runtime DB generations | ✅ 4/4 focused recovery tests + 36/36 ACK/restart/reconciliation regression + full backend suite + 705-module frontend build + clean diff/worktree + CI #437; real reconcile recovered target broker position `57868693` / deal `63499285` exactly once, second run recovered 0, and Journal matched cTrader at 4 trades / -17.91 CHF; 23 exact-identity historical broker orphans were restored in the first bounded sweep | PR #109 / `82f14d0` | Final docs-head CI, merge, sync main; next natural protected TradeAgent-managed position can satisfy pending Phase 2.6 overlay and Phase 7 disconnect/recovery field observations |
+| 2026-10-07 | Phase 3.5 compact System operations console | Replace the long System document layout with a compact health/safety/diagnostics console, remove duplicate account and engine controls, summarize safety by default, and consolidate operational history into tabs | ✅ 3/3 focused System tests + 706-module frontend build + full canonical validation + clean diff/worktree + browser smoke of compact layout/readiness/actions/activity/Safety modal; exact-head CI #443 passed on `81cd46a` | PR #110 / `81cd46a` | Final docs-head CI, merge, sync main; resume production-style Demo operation and gather remaining broker-position/sample evidence naturally |
 
 ---
 
@@ -1705,4 +1716,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**After PR #109 is merged and local `main` is synchronized, do not manufacture new broker exposure. The next actionable evidence item is the next natural TradeAgent-managed protected cTrader position: use it to complete the pending Phase 2.6 browser Entry/SL/TP overlay observation and the Phase 7 protected-position disconnect/recovery field observation against the same canonical broker position identity. Phase 5.3 remains evidence-gated at 0 of 3 sufficient cells; keep the global 60% signal-strength threshold unchanged until the sample screen passes.**
+**After PR #110 is merged and local `main` is synchronized, use TradeAgent as the operating system rather than starting another speculative development phase. Begin each session with the compact System health/safety check, keep account selection and engine Start/Stop on Trade, and use Build & Test for strategy research. Do not manufacture broker exposure: the next natural TradeAgent-managed protected cTrader position should satisfy the pending Phase 2.6 browser Entry/SL/TP overlay observation and Phase 7 protected-position disconnect/recovery field observation against the same canonical broker identity. Phase 5.3 remains evidence-gated at 0 of 3 sufficient cells; keep the global 60% signal-strength threshold unchanged until the sample screen passes.**
