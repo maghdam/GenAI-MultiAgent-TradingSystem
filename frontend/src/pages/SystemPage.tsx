@@ -11,8 +11,6 @@ import {
   scanV2Engine,
   setV2Config,
   setV2LiveTradingArm,
-  startV2Engine,
-  stopV2Engine,
   type V2Config,
   type V2CTraderAccount,
   type V2Status,
@@ -32,7 +30,7 @@ export default function SystemPage() {
   const [status, setStatus] = useState<V2Status | null>(null);
   const [accounts, setAccounts] = useState<V2CTraderAccount[]>([]);
   const [draft, setDraft] = useState<V2Config | null>(null);
-  const [busy, setBusy] = useState<'save' | 'live-arm' | 'engine' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
+  const [busy, setBusy] = useState<'save' | 'live-arm' | 'restart' | 'scan' | 'recover' | 'reconcile' | ''>('');
   const [error, setError] = useState('');
   const [showReadiness, setShowReadiness] = useState(false);
   const [showSafetyEditor, setShowSafetyEditor] = useState(false);
@@ -97,9 +95,6 @@ export default function SystemPage() {
     }
   };
 
-  const toggleEngine = () => {
-    void run('engine', () => status?.config.enabled ? stopV2Engine() : startV2Engine());
-  };
 
   const save = async () => {
     if (!draft) return;
@@ -294,17 +289,10 @@ export default function SystemPage() {
               </div>
 
               <div className="system-engine-actions">
-                <button
-                  className={`ta-btn ${status?.config.enabled ? 'ta-btn--danger' : 'ta-btn--primary'}`}
-                  type="button"
-                  onClick={toggleEngine}
-                  disabled={busy !== ''}
-                >
-                  {busy === 'engine' ? 'Updating…' : status?.config.enabled ? 'Stop engine' : 'Start engine'}
-                </button>
-                <button className="ta-btn" type="button" onClick={() => void run('scan', scanV2Engine)} disabled={busy !== ''}>
+                <button className="ta-btn ta-btn--primary" type="button" onClick={() => void run('scan', scanV2Engine)} disabled={busy !== ''}>
                   {busy === 'scan' ? 'Scanning…' : 'Run one scan'}
                 </button>
+                <Link className="ta-btn ta-btn--ghost" to="/">Engine control in Trade</Link>
                 <button className="ta-btn ta-btn--ghost" type="button" onClick={() => setShowReadiness((value) => !value)}>
                   {showReadiness ? 'Hide checks' : 'Show checks'}
                 </button>
