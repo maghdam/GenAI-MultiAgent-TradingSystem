@@ -1494,7 +1494,7 @@ def execute_paper_signal(
             for row in baseline_rows
             if (position_id := _broker_position_id(row)) is not None
         }
-        client_msg_id = f"tradeagent-intent-{intent.id}"
+        client_msg_id = f"tradeagent-intent-{intent.id}-{uuid4().hex[:12]}"
         try:
             update_order_intent_status(
                 intent.id,
