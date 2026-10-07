@@ -264,6 +264,44 @@ export interface V2TradeAudit {
   details: Record<string, unknown>;
 }
 
+export type V2JournalExecutionSource = 'manual' | 'auto' | 'unknown';
+
+export interface V2JournalExportRow {
+  row_id: string;
+  local_position_id: number;
+  broker_position_id?: number | null;
+  broker_identity_status: 'resolved' | 'not_applicable' | 'conflict';
+  broker_identity_detail: string;
+  broker_deal_ids: number[];
+  audit_event_ids: number[];
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  direction: 'long' | 'short';
+  quantity: number;
+  execution_source: V2JournalExecutionSource;
+  opened_at_utc: string;
+  closed_at_utc: string;
+  entry_price: number;
+  exit_price?: number | null;
+  account_currency: string;
+  realized_pnl: number;
+  realized_pnl_basis: 'broker_deals' | 'paper_estimate';
+  broker_deal_count: number;
+  close_reason?: string | null;
+}
+
+export interface V2JournalExportResponse {
+  window_days?: number | null;
+  window_start_utc?: string | null;
+  window_end_utc: string;
+  all_time: boolean;
+  row_count: number;
+  account_currencies: string[];
+  rows: V2JournalExportRow[];
+  message: string;
+}
+
 export interface V2Runtime {
   running: boolean;
   loop_active: boolean;
@@ -996,6 +1034,19 @@ export const getV2TradeAudit = async (limit = 20): Promise<V2TradeAudit[]> => {
   const response = await authFetch(`/api/paper/audit?limit=${limit}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch trade audit: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const getV2JournalExport = async (
+  options: { allTime?: boolean; days?: number } = {},
+): Promise<V2JournalExportResponse> => {
+  const params = new URLSearchParams();
+  params.set('days', String(options.days ?? 30));
+  if (options.allTime) params.set('all_time', 'true');
+  const response = await authFetch(`/api/reports/journal-export?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch completed trade journal: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
