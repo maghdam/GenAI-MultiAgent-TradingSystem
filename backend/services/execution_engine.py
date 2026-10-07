@@ -46,6 +46,7 @@ from backend.storage.repositories import (
     create_order_intent,
     get_open_position,
     list_order_intents,
+    list_paper_positions,
     log_incident,
     open_paper_position,
     update_order_intent_status,
@@ -117,6 +118,79 @@ def _broker_position_id(row: dict[str, object]) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _ctrader_new_entry_inventory_gate() -> tuple[bool, dict[str, object], str | None]:
+    """Fail closed when broker exposure is not fully represented by local trackers."""
+    try:
+        broker_rows = [dict(row) for row in (list_positions() or [])]
+    except Exception as exc:
+        details = {
+            "broker_inventory_available": False,
+            "broker_submission_suppressed": True,
+            "automatic_adoption": False,
+            "error": str(exc),
+        }
+        return (
+            False,
+            details,
+            "cTrader broker position inventory is unavailable; new entries are blocked until broker truth can be verified.",
+        )
+
+    try:
+        local_rows = list_paper_positions("open")
+    except Exception as exc:
+        details = {
+            "broker_inventory_available": True,
+            "local_tracker_inventory_available": False,
+            "broker_submission_suppressed": True,
+            "automatic_adoption": False,
+            "error": str(exc),
+        }
+        return (
+            False,
+            details,
+            "Local broker-tracker inventory is unavailable; new cTrader entries are blocked until position identity can be verified.",
+        )
+
+    tracked_ids = sorted(
+        {
+            int(position.broker_position_id)
+            for position in local_rows
+            if position.broker_position_id is not None and int(position.broker_position_id) > 0
+        }
+    )
+    broker_ids: list[int] = []
+    missing_id_count = 0
+    for row in broker_rows:
+        position_id = _broker_position_id(row)
+        if position_id is None:
+            missing_id_count += 1
+            continue
+        broker_ids.append(position_id)
+
+    broker_ids = sorted(set(broker_ids))
+    tracked_id_set = set(tracked_ids)
+    untracked_ids = [position_id for position_id in broker_ids if position_id not in tracked_id_set]
+    details = {
+        "broker_inventory_available": True,
+        "local_tracker_inventory_available": True,
+        "broker_open_position_count": len(broker_rows),
+        "broker_open_position_ids": broker_ids,
+        "local_open_tracker_count": len(local_rows),
+        "local_tracked_broker_position_ids": tracked_ids,
+        "untracked_broker_position_ids": untracked_ids,
+        "broker_positions_missing_id": missing_id_count,
+        "broker_submission_suppressed": bool(untracked_ids or missing_id_count),
+        "automatic_adoption": False,
+    }
+    if untracked_ids or missing_id_count:
+        return (
+            False,
+            details,
+            "Untracked cTrader broker exposure exists; new entries are blocked until reconciliation resolves broker identity.",
+        )
+    return True, details, None
 
 
 def _matching_new_broker_positions(
@@ -943,6 +1017,45 @@ def execute_paper_signal(
             risk.details["live_trading_armed_account_id"] = get_live_trading_armed_account_id()
             risk.details["active_ctrader_account_id"] = broker.account_id
             risk.details["active_ctrader_account_type"] = broker.account_type
+
+    # A broker position that is not represented by a canonical local tracker is
+    # unresolved account exposure. New entries must fail closed until that
+    # exposure is reconciled; existing tracked positions remain manageable.
+    if (
+        ctrader_execution
+        and position is None
+        and risk.accepted
+        and risk.intent_type == "open"
+    ):
+        inventory_ok, inventory_details, inventory_reason = _ctrader_new_entry_inventory_gate()
+        risk.details["broker_entry_inventory"] = inventory_details
+        if not inventory_ok:
+            reason = inventory_reason or (
+                "cTrader broker exposure is unresolved; new entries are blocked until broker identity is verified."
+            )
+            risk.accepted = False
+            risk.intent_type = "skip"
+            risk.reasons.append(reason)
+            incident_code = (
+                "ctrader_untracked_broker_exposure_blocks_entry"
+                if inventory_details.get("broker_inventory_available")
+                and inventory_details.get("local_tracker_inventory_available", True)
+                else "ctrader_broker_inventory_unavailable_blocks_entry"
+            )
+            log_incident(
+                "error",
+                incident_code,
+                f"Blocked new cTrader entry for {analysis.symbol}:{analysis.timeframe}.",
+                {
+                    **inventory_details,
+                    "symbol": analysis.symbol.upper(),
+                    "timeframe": analysis.timeframe.upper(),
+                    "strategy": analysis.strategy,
+                    "action_required": (
+                        "Resolve or close untracked broker exposure and rerun reconciliation before enabling new entries."
+                    ),
+                },
+            )
 
     flipped = False
     intent_quantity = position.quantity if position and position.direction == analysis.signal else trade_quantity
