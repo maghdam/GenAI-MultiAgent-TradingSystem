@@ -117,7 +117,7 @@ def _patch_new_entry_dependencies(monkeypatch) -> None:
     monkeypatch.setattr(
         execution_engine,
         "evaluate_order_quantity",
-        lambda **kwargs: QuantityDecision(
+        lambda *args, **kwargs: QuantityDecision(
             accepted=True,
             requested_quantity=0.10,
             final_quantity=0.10,
@@ -315,7 +315,7 @@ def test_existing_managed_position_maintenance_is_not_blocked_by_untracked_expos
     monkeypatch.setattr(
         execution_engine,
         "evaluate_order_quantity",
-        lambda **kwargs: QuantityDecision(
+        lambda *args, **kwargs: QuantityDecision(
             accepted=True,
             requested_quantity=0.01,
             final_quantity=0.01,
