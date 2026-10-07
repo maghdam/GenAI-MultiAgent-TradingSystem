@@ -292,7 +292,6 @@ export default function SystemPage() {
                 <button className="ta-btn ta-btn--primary" type="button" onClick={() => void run('scan', scanV2Engine)} disabled={busy !== ''}>
                   {busy === 'scan' ? 'Scanning…' : 'Run one scan'}
                 </button>
-                <Link className="ta-btn ta-btn--ghost" to="/">Engine control in Trade</Link>
                 <button className="ta-btn ta-btn--ghost" type="button" onClick={() => setShowReadiness((value) => !value)}>
                   {showReadiness ? 'Hide checks' : 'Show checks'}
                 </button>
