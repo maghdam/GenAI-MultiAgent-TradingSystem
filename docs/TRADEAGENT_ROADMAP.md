@@ -342,6 +342,34 @@ This item changes frontend signal visualization/selection and routes an explicit
 
 ---
 
+### 2.8 Canonical completed-trade ledger and filtered realized totals
+**Priority:** P1
+**Status:** 🧪 Ready for local validation
+
+Separate actual completed trades from the audit/event stream so the operator can answer which trades actually happened, how many, and what was realized without signal/rejection/protection noise.
+
+**Target behavior**
+- [x] Make **Completed trades** the default Trade Journal view while retaining the existing audit-event diagnostic views.
+- [x] Source completed rows from persisted closed TradeAgent positions rather than the latest-100 audit-event window.
+- [x] Preserve broker-deal realized P&L when linked broker deals exist; keep pure-paper estimates explicit.
+- [x] Include quantity and manual/automatic opening origin when the opening intent is traceable.
+- [x] Support all-recorded-history retrieval for the completed-trade view.
+- [x] Filter completed trades by symbol, strategy, local close date, and broker/paper source.
+- [x] Show filtered completed-trade count and realized P&L totals without combining account currencies.
+
+**Verification**
+- [ ] Focused backend journal-export tests pass locally.
+- [ ] Focused frontend journal tests pass locally.
+- [ ] Full backend regression suite passes locally.
+- [ ] Frontend production build passes locally.
+- [ ] Browser check compares the 2026-10-07 cTrader History with the same-date Completed trades view.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item changes the journal/read-model only. It does not synthesize missing broker trades or alter execution/risk/protection behavior. A broker trade still absent from Completed trades is a separate canonical persistence/reconciliation defect.
+
+---
+
 ## 5. Phase 3 — System page acceptance audit
 
 Test every operator control against backend behavior.
@@ -1600,4 +1628,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**The Phase 7 blocking repair for untracked broker exposure is implementation-verified on PR #106: fresh cTrader entries now fail closed whenever broker exposure is not fully represented by canonical local IDs, while managed-position maintenance/recovery remains available. After final docs-head CI, merge and synchronize local `main`. The separate real protected-position disconnect/recovery field observation and deferred Phase 2.6 real broker-backed chart overlay observation remain pending until the next natural qualifying TradeAgent-managed protected Demo position; do not manufacture exposure solely for testing. Phase 5.3 remains 0 of 3 sufficient, so no threshold-comparison study is authorized and the global 60% signal-strength threshold remains unchanged.**
+**Validate Phase 2.8 on PR #108 / branch `fix/phase-2-8-journal-trade-ledger`: run the focused backend/frontend journal tests, full backend regression, frontend production build, then compare the 2026-10-07 Completed trades view with cTrader History. If cTrader still shows a trade absent from Completed trades, treat that as a separate canonical persistence/reconciliation defect rather than a UI filtering issue. Do not mark Phase 2.8 verified or merge until local validation and GitHub CI both pass. The deferred protected-position disconnect/recovery and Phase 2.6 broker-overlay observations still wait for a natural qualifying position. Phase 5.3 remains 0 of 3 sufficient; keep the global 60% signal-strength threshold unchanged.**
