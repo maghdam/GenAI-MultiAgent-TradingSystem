@@ -1035,7 +1035,7 @@ def execute_paper_signal(
             )
             risk.accepted = False
             risk.intent_type = "skip"
-            risk.reasons.append(reason)
+            risk.reasons = [reason, *risk.reasons]
             incident_code = (
                 "ctrader_untracked_broker_exposure_blocks_entry"
                 if inventory_details.get("broker_inventory_available")
