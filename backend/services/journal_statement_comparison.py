@@ -127,6 +127,7 @@ def build_journal_export(
                         "paper_signal_open",
                         "ctrader_order_ack_timeout_tracking_retained",
                         "ctrader_unprotected_tracking_retained",
+        "ctrader_closed_orphan_recovered",
                     }
                 }
             )
@@ -155,6 +156,7 @@ def build_journal_export(
         "paper_signal_open",
         "ctrader_order_ack_timeout_tracking_retained",
         "ctrader_unprotected_tracking_retained",
+        "ctrader_closed_orphan_recovered",
     }
     for row in audits:
         position_id = int(row["position_id"])
