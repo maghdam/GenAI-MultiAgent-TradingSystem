@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict
 
 from backend.domain.models import PaperPosition
 from backend.services.broker import (
+    get_account_trade_history,
+    get_broker_account_snapshot,
     get_broker_status,
     get_closed_position_summary,
     get_position_close_deals,
+    list_positions,
 )
 from backend.storage.repositories import (
+    add_trade_audit,
     broker_realized_pnl_for_position,
     close_paper_position,
     list_broker_deals,
@@ -16,6 +21,7 @@ from backend.storage.repositories import (
     list_paper_positions,
     list_trade_audits,
     record_broker_deals,
+    recover_closed_broker_position,
     reconcile_closed_paper_position_from_broker,
     set_paper_position_broker_id,
     update_open_paper_position_from_broker_partial,
@@ -359,6 +365,200 @@ def close_local_position_after_broker_close(
         reason,
         realized_pnl_source="paper_estimate",
     )
+
+
+
+def _history_intent_match(candidate: Dict[str, Any]):
+    """Resolve only an exact durable local identity for one broker-history row."""
+    broker_position_id = int(candidate.get("broker_position_id") or 0)
+    client_order_id = str(candidate.get("client_order_id") or "")
+    symbol = str(candidate.get("symbol") or "").upper()
+    direction = str(candidate.get("direction") or "")
+
+    matches = []
+    for intent in list_order_intents(10000):
+        if intent.intent_type != "open":
+            continue
+        if intent.symbol.upper() != symbol or intent.direction != direction:
+            continue
+        details = intent.details if isinstance(intent.details, dict) else {}
+        exact_client_id = str(details.get("client_msg_id") or "") == client_order_id
+        broker_order = details.get("broker_order")
+        exact_broker_id = False
+        if isinstance(broker_order, dict):
+            try:
+                exact_broker_id = int(broker_order.get("position_id") or 0) == broker_position_id
+            except (TypeError, ValueError):
+                exact_broker_id = False
+        if exact_client_id or exact_broker_id:
+            matches.append(intent)
+
+    return matches[0] if len(matches) == 1 else None
+
+
+def recover_tradeagent_closed_history(
+    *,
+    window_days: int = 30,
+    now: datetime | None = None,
+) -> Dict[str, Any]:
+    """Recover broker-only closed trades proven to have been opened by TradeAgent.
+
+    Admission requires the exact cTrader opening order to carry a TradeAgent
+    client-order marker and the immutable broker position/deal identities.
+    Symbol/time/quantity/price similarity is never used for adoption.
+    """
+    status = get_broker_status()
+    if not status.execution_ready:
+        return {
+            "checked": 0,
+            "recovered": 0,
+            "already_tracked": 0,
+            "still_open": 0,
+            "ready": False,
+            "reason": "cTrader account is not execution-ready yet.",
+        }
+
+    snapshot = get_broker_account_snapshot()
+    if not snapshot.verified:
+        return {
+            "checked": 0,
+            "recovered": 0,
+            "already_tracked": 0,
+            "still_open": 0,
+            "ready": False,
+            "reason": "Verified cTrader account currency is unavailable.",
+        }
+
+    window_days = max(1, min(90, int(window_days)))
+    window_end = now or datetime.now(UTC)
+    if window_end.tzinfo is None:
+        window_end = window_end.replace(tzinfo=UTC)
+    else:
+        window_end = window_end.astimezone(UTC)
+    window_start = window_end - timedelta(days=window_days)
+
+    candidates = get_account_trade_history(
+        from_time=window_start,
+        to_time=window_end,
+    )
+    tracked_ids = {
+        int(position.broker_position_id)
+        for position in list_paper_positions()
+        if position.broker_position_id is not None
+        and int(position.broker_position_id) > 0
+    }
+    open_broker_ids = {
+        int(row.get("position_id") or 0)
+        for row in (list_positions() or [])
+        if int(row.get("position_id") or 0) > 0
+    }
+
+    recovered = 0
+    already_tracked = 0
+    still_open = 0
+    recovered_position_ids: list[int] = []
+    for candidate in candidates:
+        broker_position_id = int(candidate.get("broker_position_id") or 0)
+        if broker_position_id <= 0:
+            continue
+        if broker_position_id in tracked_ids:
+            already_tracked += 1
+            continue
+        if broker_position_id in open_broker_ids:
+            still_open += 1
+            continue
+
+        deals = list(candidate.get("deals") or [])
+        if not deals:
+            continue
+
+        matching_intent = _history_intent_match(candidate)
+        details = (
+            matching_intent.details
+            if matching_intent is not None and isinstance(matching_intent.details, dict)
+            else {}
+        )
+        lifecycle_hash = None
+        lifecycle = details.get("strategy_lifecycle")
+        if isinstance(lifecycle, dict) and lifecycle.get("governed"):
+            lifecycle_hash = str(lifecycle.get("version_hash") or "").strip() or None
+
+        quantity = float(candidate.get("quantity_lots") or 0.0)
+        if quantity <= 0:
+            quantity = sum(float(item.get("closed_volume_lots") or 0.0) for item in deals)
+        if quantity <= 0:
+            continue
+
+        position, created = recover_closed_broker_position(
+            broker_position_id=broker_position_id,
+            symbol=str(candidate.get("symbol") or "").upper(),
+            timeframe=(
+                matching_intent.timeframe
+                if matching_intent is not None
+                else "UNKNOWN"
+            ),
+            strategy=(
+                matching_intent.strategy
+                if matching_intent is not None
+                else "ctrader_recovered"
+            ),
+            direction=str(candidate.get("direction") or ""),
+            quantity=quantity,
+            entry_price=float(candidate.get("entry_price") or 0.0),
+            exit_price=float(candidate.get("exit_price") or 0.0),
+            opened_at=candidate["opened_at"],
+            closed_at=candidate["closed_at"],
+            account_currency=str(snapshot.currency or "UNKNOWN").upper(),
+            deals=deals,
+            stop_loss=matching_intent.stop_loss if matching_intent is not None else None,
+            take_profit=matching_intent.take_profit if matching_intent is not None else None,
+            lifecycle_version_hash=lifecycle_hash,
+        )
+        if not created:
+            tracked_ids.add(broker_position_id)
+            already_tracked += 1
+            continue
+
+        source = str(details.get("source") or "unknown").lower()
+        if source not in {"manual", "auto"}:
+            source = "unknown"
+        add_trade_audit(
+            event_type="ctrader_closed_orphan_recovered",
+            symbol=position.symbol,
+            timeframe=position.timeframe,
+            strategy=position.strategy,
+            position_id=position.id,
+            intent_id=matching_intent.id if matching_intent is not None else None,
+            summary="Recovered a closed TradeAgent-originated cTrader position from exact broker history.",
+            details={
+                "broker_position_id": broker_position_id,
+                "opening_order_id": candidate.get("opening_order_id"),
+                "client_order_id": candidate.get("client_order_id"),
+                "broker_deal_ids": [
+                    int(item.get("deal_id") or 0)
+                    for item in deals
+                    if int(item.get("deal_id") or 0) > 0
+                ],
+                "identity_basis": "ctrader_opening_client_order_id+broker_position_id+deal_ids",
+                "local_intent_linked": matching_intent is not None,
+                "execution_source": source,
+                "metadata_recovered": matching_intent is not None,
+                "automatic_adoption": False,
+            },
+        )
+        tracked_ids.add(broker_position_id)
+        recovered += 1
+        recovered_position_ids.append(position.id)
+
+    return {
+        "checked": len(candidates),
+        "recovered": recovered,
+        "already_tracked": already_tracked,
+        "still_open": still_open,
+        "ready": True,
+        "recovered_position_ids": recovered_position_ids,
+        "identity_policy": "exact_tradeagent_client_order_marker_and_broker_position_deals",
+    }
 
 
 def reconcile_closed_history(limit: int = 100) -> Dict[str, Any]:
