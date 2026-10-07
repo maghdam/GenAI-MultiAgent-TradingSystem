@@ -813,6 +813,19 @@ Simulate deliberately:
     - [x] Full backend suite passed locally.
     - [x] GitHub CI #103 on implementation head `ea4f899` passed backend tests + frontend production build.
     - [ ] Real protected-position disconnect/recovery field observation is pending. Candidate probe found 0 broker positions and 0 local open trackers, so no qualifying TradeAgent-managed protected demo position was available; no trade was manufactured for testing.
+  - [ ] Blocking repair: untracked broker exposure must fail closed for new cTrader entries.
+    - [x] Real baseline captured 2026-10-07 after stale-runtime recovery: verified Demo account `44089601` reported 2 broker positions while canonical local state tracked only XAUUSD local `115` / broker `57871070`; protection health reported 1 ignored broker position and repeated `ctrader_untracked_broker_position` incidents identified broker `57868693`.
+    - [x] New-entry execution now compares all broker position IDs with canonical local broker-position IDs before broker submission.
+    - [x] Any untracked broker position, broker position without a valid ID, unavailable broker inventory, or unavailable local tracker inventory blocks the new entry before broker submission.
+    - [x] The block records broker/local inventory evidence, suppresses automatic adoption, and persists an actionable incident plus normal rejected decision/intent evidence.
+    - [x] Existing managed positions remain outside the new-entry gate so protection, reconciliation, target maintenance, and verified close behavior remain available.
+    - Verification:
+      - [ ] 5 focused untracked-exposure resilience tests pass locally.
+      - [ ] Focused Phase 7 / execution / reconciliation regression passes locally.
+      - [ ] Full backend regression suite passes locally.
+      - [ ] Frontend production build passes locally.
+      - [ ] Git diff/worktree checks pass.
+      - [ ] GitHub CI passes on the exact implementation head.
 - [x] Backend restart with broker position open.
   - [x] Startup recovery keeps the existing cTrader-first boot order and runs tracker recovery before local open-position reconciliation.
   - [x] A broker position is recoverable only through a TradeAgent open intent whose broker position ID, symbol, and direction match the live broker row.
