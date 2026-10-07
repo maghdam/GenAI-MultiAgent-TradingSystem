@@ -1466,6 +1466,144 @@ def list_broker_deals(
     return [dict(row) for row in rows]
 
 
+
+def recover_closed_broker_position(
+    *,
+    broker_position_id: int,
+    symbol: str,
+    timeframe: str,
+    strategy: str,
+    direction: str,
+    quantity: float,
+    entry_price: float,
+    exit_price: float,
+    opened_at: datetime,
+    closed_at: datetime,
+    account_currency: str,
+    deals: list[dict[str, Any]],
+    stop_loss: float | None = None,
+    take_profit: float | None = None,
+    lifecycle_version_hash: str | None = None,
+) -> tuple[PaperPosition, bool]:
+    """Persist one exact-identity broker-history recovery atomically.
+
+    Idempotence is keyed by the immutable cTrader broker position id. This
+    helper never searches by symbol, direction, quantity, price, or timestamps.
+    """
+    broker_position_id = int(broker_position_id)
+    if broker_position_id <= 0:
+        raise ValueError("broker_position_id must be positive")
+
+    normalized_symbol = str(symbol or "").strip().upper()
+    if not normalized_symbol:
+        raise ValueError("symbol is required")
+
+    opened_text = opened_at.isoformat()
+    closed_text = closed_at.isoformat()
+    realized_pnl = sum(float(item.get("net_profit") or 0.0) for item in deals)
+    now = _utcnow().isoformat()
+
+    with get_db() as db:
+        existing = db.execute(
+            """
+            SELECT *
+            FROM paper_positions
+            WHERE broker_position_id = ?
+            ORDER BY id
+            LIMIT 1
+            """,
+            (broker_position_id,),
+        ).fetchone()
+        if existing is not None:
+            return _row_to_position(existing), False
+
+        cur = db.execute(
+            """
+            INSERT INTO paper_positions(
+                symbol, timeframe, strategy, lifecycle_version_hash,
+                direction, quantity, status, entry_price, current_price,
+                stop_loss, take_profit, opened_at, closed_at, exit_price,
+                realized_pnl, unrealized_pnl, close_reason, account_currency,
+                cash_per_price_unit_per_lot, instrument_spec_source,
+                broker_position_id, realized_pnl_source
+            )
+            VALUES(?, ?, ?, ?, ?, ?, 'closed', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 1.0, ?, ?, ?)
+            """,
+            (
+                normalized_symbol,
+                str(timeframe or "UNKNOWN").upper(),
+                str(strategy or "ctrader_recovered"),
+                lifecycle_version_hash,
+                str(direction),
+                float(quantity),
+                float(entry_price),
+                float(exit_price),
+                stop_loss,
+                take_profit,
+                opened_text,
+                closed_text,
+                float(exit_price),
+                float(realized_pnl),
+                "broker_history_recovered",
+                str(account_currency or "UNKNOWN").upper(),
+                "ctrader_history_recovery",
+                broker_position_id,
+                "ctrader_deal",
+            ),
+        )
+        local_position_id = int(cur.lastrowid)
+
+        for deal in deals:
+            deal_id = int(deal.get("deal_id") or 0)
+            if deal_id <= 0:
+                continue
+            execution_at = deal.get("execution_at")
+            if getattr(execution_at, "isoformat", None):
+                execution_at = execution_at.isoformat()
+            execution_at = str(execution_at or closed_text)
+            closed_volume_lots = deal.get("closed_volume_lots")
+            db.execute(
+                """
+                INSERT OR IGNORE INTO broker_deals(
+                    deal_id, broker_position_id, local_position_id, symbol,
+                    account_currency, execution_price, execution_at,
+                    closed_volume_api, closed_volume_lots, gross_profit, swap,
+                    commission, pnl_conversion_fee, net_profit, created_at, source
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ctrader_history_recovery')
+                """,
+                (
+                    deal_id,
+                    broker_position_id,
+                    local_position_id,
+                    normalized_symbol,
+                    str(account_currency or "UNKNOWN").upper(),
+                    float(deal.get("execution_price") or 0.0),
+                    execution_at,
+                    float(deal.get("closed_volume_api") or 0.0),
+                    (
+                        float(closed_volume_lots)
+                        if closed_volume_lots is not None
+                        else None
+                    ),
+                    float(deal.get("gross_profit") or 0.0),
+                    float(deal.get("swap") or 0.0),
+                    float(deal.get("commission") or 0.0),
+                    float(deal.get("pnl_conversion_fee") or 0.0),
+                    float(deal.get("net_profit") or 0.0),
+                    now,
+                ),
+            )
+
+        db.commit()
+        row = db.execute(
+            "SELECT * FROM paper_positions WHERE id = ?",
+            (local_position_id,),
+        ).fetchone()
+
+    return _row_to_position(row), True
+
+
 def record_broker_deals(
     *,
     local_position_id: int,

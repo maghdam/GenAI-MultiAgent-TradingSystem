@@ -19,6 +19,8 @@ from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAAmendPositionSLTPReq,
     ProtoOAClosePositionReq,
     ProtoOADealListByPositionIdReq,
+    ProtoOADealListReq,
+    ProtoOAOrderListReq,
 )
 from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
     ProtoOAOrderType,
@@ -1747,6 +1749,55 @@ def get_deals_by_position_id(position_id: int, *, from_timestamp: int | None = N
         raise RuntimeError(f"cTrader deal history failed: {code} {description}".strip())
 
     return list(getattr(event, "deal", []) or [])
+
+
+def get_account_deals(*, from_timestamp: int, to_timestamp: int, max_rows: int = 500):
+    """Return raw cTrader account deals for a bounded history window."""
+    start_ms = max(0, int(from_timestamp))
+    now_ms = int(time.time() * 1000)
+    end_ms = min(now_ms, max(0, int(to_timestamp)), 2_147_483_646_000)
+    if end_ms < start_ms:
+        start_ms, end_ms = end_ms, start_ms
+
+    req = ProtoOADealListReq(
+        ctidTraderAccountId=ACCOUNT_ID,
+        fromTimestamp=start_ms,
+        toTimestamp=end_ms,
+        maxRows=max(1, min(1000, int(max_rows))),
+    )
+    raw = wait_for_deferred(client.send(req, responseTimeoutInSeconds=20), timeout=25)
+    if isinstance(raw, dict) and raw.get("status") == "failed":
+        raise RuntimeError(f"cTrader account deal history failed: {raw.get('error') or 'unknown error'}")
+    event = Protobuf.extract(raw)
+    if getattr(event, "__class__", type("x", (object,), {})).__name__ == "ProtoOAErrorRes" or hasattr(event, "errorCode"):
+        code = getattr(event, "errorCode", "ERR")
+        description = getattr(event, "description", "")
+        raise RuntimeError(f"cTrader account deal history failed: {code} {description}".strip())
+    return list(getattr(event, "deal", []) or [])
+
+
+def get_account_orders(*, from_timestamp: int, to_timestamp: int):
+    """Return raw cTrader account orders for a bounded history window."""
+    start_ms = max(0, int(from_timestamp))
+    now_ms = int(time.time() * 1000)
+    end_ms = min(now_ms, max(0, int(to_timestamp)), 2_147_483_646_000)
+    if end_ms < start_ms:
+        start_ms, end_ms = end_ms, start_ms
+
+    req = ProtoOAOrderListReq(
+        ctidTraderAccountId=ACCOUNT_ID,
+        fromTimestamp=start_ms,
+        toTimestamp=end_ms,
+    )
+    raw = wait_for_deferred(client.send(req, responseTimeoutInSeconds=20), timeout=25)
+    if isinstance(raw, dict) and raw.get("status") == "failed":
+        raise RuntimeError(f"cTrader account order history failed: {raw.get('error') or 'unknown error'}")
+    event = Protobuf.extract(raw)
+    if getattr(event, "__class__", type("x", (object,), {})).__name__ == "ProtoOAErrorRes" or hasattr(event, "errorCode"):
+        code = getattr(event, "errorCode", "ERR")
+        description = getattr(event, "description", "")
+        raise RuntimeError(f"cTrader account order history failed: {code} {description}".strip())
+    return list(getattr(event, "order", []) or [])
 
 
 # ── place order ───────────────────────────────────────────────────────────-

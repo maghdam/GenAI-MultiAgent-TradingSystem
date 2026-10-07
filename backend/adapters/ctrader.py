@@ -796,6 +796,130 @@ class CTraderBrokerAdapter:
             )
         return rows
 
+    def get_account_trade_history(
+        self,
+        *,
+        from_time: datetime,
+        to_time: datetime,
+    ) -> list[Dict[str, Any]]:
+        """Return exact-ID closed-history candidates opened by TradeAgent.
+
+        A candidate is admitted only when the broker opening order carries a
+        TradeAgent client-order marker. This intentionally does not map the
+        numeric suffix back to a local intent because legacy runtime databases
+        can reuse auto-increment intent ids.
+        """
+        start = from_time if from_time.tzinfo is not None else from_time.replace(tzinfo=UTC)
+        end = to_time if to_time.tzinfo is not None else to_time.replace(tzinfo=UTC)
+        start_ms = int(start.astimezone(UTC).timestamp() * 1000)
+        end_ms = int(end.astimezone(UTC).timestamp() * 1000)
+
+        orders = ctd.get_account_orders(from_timestamp=start_ms, to_timestamp=end_ms)
+        deals = ctd.get_account_deals(from_timestamp=start_ms, to_timestamp=end_ms, max_rows=1000)
+
+        opening_by_position: Dict[int, Any] = {}
+        for order in orders:
+            if bool(getattr(order, "closingOrder", False)):
+                continue
+            client_order_id = str(getattr(order, "clientOrderId", "") or "")
+            if not client_order_id.startswith("tradeagent-intent-"):
+                continue
+            try:
+                position_id = int(getattr(order, "positionId", 0) or 0)
+            except (TypeError, ValueError):
+                position_id = 0
+            if position_id <= 0:
+                continue
+            current = opening_by_position.get(position_id)
+            if current is None:
+                opening_by_position[position_id] = order
+                continue
+            current_trade = getattr(current, "tradeData", None)
+            next_trade = getattr(order, "tradeData", None)
+            current_ts = int(getattr(current_trade, "openTimestamp", 0) or 0) if current_trade is not None else 0
+            next_ts = int(getattr(next_trade, "openTimestamp", 0) or 0) if next_trade is not None else 0
+            if current_ts <= 0 or (next_ts > 0 and next_ts < current_ts):
+                opening_by_position[position_id] = order
+
+        raw_closes: Dict[int, list[Any]] = {}
+        for deal in deals:
+            detail = getattr(deal, "closePositionDetail", None)
+            try:
+                has_detail = bool(deal.HasField("closePositionDetail"))
+            except Exception:
+                has_detail = detail is not None
+            if not has_detail or detail is None:
+                continue
+            try:
+                position_id = int(getattr(deal, "positionId", 0) or 0)
+            except (TypeError, ValueError):
+                position_id = 0
+            if position_id in opening_by_position:
+                raw_closes.setdefault(position_id, []).append(deal)
+
+        rows: list[Dict[str, Any]] = []
+        buy_value = ctd.ProtoOATradeSide.Value("BUY")
+        for position_id, opening_order in opening_by_position.items():
+            position_deals = raw_closes.get(position_id, [])
+            if not position_deals:
+                continue
+            trade_data = getattr(opening_order, "tradeData", None)
+            if trade_data is None:
+                continue
+            symbol_id = int(getattr(trade_data, "symbolId", 0) or 0)
+            symbol = str((ctd.symbol_map or {}).get(symbol_id) or "").upper()
+            if not symbol:
+                continue
+            trade_side = int(getattr(trade_data, "tradeSide", 0) or 0)
+            direction = "long" if trade_side == buy_value else "short"
+            opened_ms = int(getattr(trade_data, "openTimestamp", 0) or 0)
+            opened_at = (
+                datetime.fromtimestamp(opened_ms / 1000.0, tz=UTC).replace(tzinfo=None)
+                if opened_ms > 0
+                else start.astimezone(UTC).replace(tzinfo=None)
+            )
+            volume_api = float(getattr(trade_data, "volume", 0) or 0)
+            quantity_lots = (
+                float(ctd.protocol_volume_to_lots(symbol_id, volume_api))
+                if symbol_id > 0 and volume_api > 0
+                else 0.0
+            )
+            normalized = self._normalize_closing_deals(position_deals, symbol_hint=symbol)
+            if not normalized:
+                continue
+
+            first_detail = getattr(position_deals[0], "closePositionDetail", None)
+            entry_price = float(getattr(first_detail, "entryPrice", 0) or 0)
+            total_api = sum(float(item.get("closed_volume_api") or 0.0) for item in normalized)
+            if total_api > 0:
+                exit_price = sum(
+                    float(item.get("execution_price") or 0.0)
+                    * float(item.get("closed_volume_api") or 0.0)
+                    for item in normalized
+                ) / total_api
+            else:
+                exit_price = float(normalized[-1].get("execution_price") or 0.0)
+            closed_at = max(item["execution_at"] for item in normalized)
+
+            rows.append(
+                {
+                    "broker_position_id": position_id,
+                    "opening_order_id": int(getattr(opening_order, "orderId", 0) or 0),
+                    "client_order_id": str(getattr(opening_order, "clientOrderId", "") or ""),
+                    "symbol": symbol,
+                    "direction": direction,
+                    "quantity_lots": quantity_lots,
+                    "opened_at": opened_at,
+                    "closed_at": closed_at,
+                    "entry_price": entry_price,
+                    "exit_price": float(exit_price),
+                    "deals": normalized,
+                }
+            )
+
+        rows.sort(key=lambda row: (row["closed_at"], row["broker_position_id"]))
+        return rows
+
     def get_position_close_deals(
         self,
         position_id: int,
