@@ -344,7 +344,7 @@ This item changes frontend signal visualization/selection and routes an explicit
 
 ### 2.8 Canonical completed-trade ledger and filtered realized totals
 **Priority:** P1
-**Status:** 🧪 Ready for local validation
+**Status:** ✅
 
 Separate actual completed trades from the audit/event stream so the operator can answer which trades actually happened, how many, and what was realized without signal/rejection/protection noise.
 
@@ -358,15 +358,45 @@ Separate actual completed trades from the audit/event stream so the operator can
 - [x] Show filtered completed-trade count and realized P&L totals without combining account currencies.
 
 **Verification**
-- [ ] Focused backend journal-export tests pass locally.
-- [ ] Focused frontend journal tests pass locally.
-- [ ] Full backend regression suite passes locally.
-- [ ] Frontend production build passes locally.
-- [ ] Browser check compares the 2026-10-07 cTrader History with the same-date Completed trades view.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused backend journal-export tests pass locally: 10/10.
+- [x] Focused frontend journal tests pass locally: 6/6.
+- [x] Full backend regression suite passes locally through `scripts/validate.py`.
+- [x] Frontend production build passes locally: 705 modules transformed.
+- [x] Browser/API field check compared 2026-10-07 cTrader History with the same-date Completed trades view.
+- [x] GitHub CI #433 passes on exact implementation head `4009e4c`.
+
+**Verification evidence**
+- The new Completed trades view correctly separated actual persisted closed positions from audit/signal noise and displayed filtered trade count plus realized P&L.
+- The field check exposed three canonical broker-backed completed trades for 2026-10-07: US30 `-1.59 CHF`, XAUUSD `-0.29 CHF`, and XAUUSD `+4.36 CHF`, totaling `+2.48 CHF`.
+- The XAUUSD `+4.36 CHF` row was correctly attributed to **Manual confirm**; the US30 and XAUUSD `-0.29 CHF` rows were attributed to **Automated** execution.
+- cTrader History showed four closes for the same date, with an additional XAUUSD `0.10` lot close at `-20.39 CHF`. That broker close is absent from the canonical closed-position ledger, so the cTrader total is `-17.91 CHF` while the canonical TradeAgent total is `+2.48 CHF`.
+- This discrepancy is intentionally not hidden or synthesized by the Journal read-model. It is the next separate canonical persistence/reconciliation defect (Phase 2.9).
 
 **Scope boundary**
 This item changes the journal/read-model only. It does not synthesize missing broker trades or alter execution/risk/protection behavior. A broker trade still absent from Completed trades is a separate canonical persistence/reconciliation defect.
+
+---
+
+### 2.9 Canonical broker-history completeness and missing-close reconciliation
+**Priority:** P1
+**Status:** ⏳ Next
+
+Investigate and repair the exact identity/persistence path that allowed a real cTrader close to be absent from the canonical TradeAgent completed-position ledger.
+
+**Target behavior**
+- [ ] Diagnose the missing 2026-10-07 XAUUSD `0.10` lot / `-20.39 CHF` close using local intent, audit, position, broker-deal, and broker-history identity evidence.
+- [ ] Determine whether the trade originated from TradeAgent manual-confirm execution, automatic execution, or external broker activity; do not guess from symbol/time alone.
+- [ ] If the trade is TradeAgent-originated, recover/link it only through exact broker position/deal identity and make the repair idempotent across restart/reconcile.
+- [ ] Never adopt unrelated external/manual cTrader trades into the TradeAgent canonical ledger merely because symbol, direction, quantity, or timestamps look similar.
+- [ ] After repair, the same-date Completed trades view and filtered realized total must agree with cTrader History for TradeAgent-managed trades.
+- [ ] Add focused regression coverage for the confirmed root cause and identity-safe recovery path.
+
+**Acceptance**
+- [ ] Read-only evidence probe identifies the missing trade's exact broker/local lineage before code changes.
+- [ ] Focused tests reproduce the defect and pass after the smallest coherent repair.
+- [ ] Full backend regression suite and frontend production build pass.
+- [ ] Real 2026-10-07 field re-check confirms the recovered trade appears exactly once with authoritative broker P&L.
+- [ ] GitHub CI passes on the exact implementation head.
 
 ---
 
@@ -1389,6 +1419,7 @@ Add one row after every completed task.
 | 2026-10-06 | Phase 2.7 chart signal visualization and guarded trade-from-signal | Show recent actionable analysis markers, focus exact saved-signal Entry/SL/TP snapshots, and require Review -> Confirm before routing a selected signal through the existing manual-order API | ✅ 6/6 focused signal tests, 4/4 chart-position regression, 704-module production build, clean diff/worktree, browser smoke with existing XAUUSD M5 SELL 85% signal, and CI #420 on `ab0bd70`; no broker order submitted during UI validation | PR #105 / `ab0bd70` | Final docs-head validation/CI, merge, sync main, then resume broker-dependent Phase 7/Phase 2.6 field evidence only when a natural protected Demo position exists |
 | 2026-10-07 | Phase 7 untracked broker exposure fail-closed entry gate | Block fresh cTrader entries whenever broker exposure is not fully represented by canonical local broker-position IDs, while preserving existing managed-position maintenance/recovery paths | ✅ Real stale-runtime baseline captured 2 broker positions vs 1 canonical tracker; repaired gate passed 5/5 focused tests, 16/16 ACK/persistence regression, 42/42 Phase 7/execution/reconciliation regression, full backend suite, 704-module frontend build, clean diff/worktree, and exact-head CI #426 on `b6033b9` | PR #106 / `b6033b9` | Final docs-head validation/CI, merge, sync main; keep engine off until broker/local exposure is clean; resume real protected-position disconnect/recovery only on the next natural qualifying position |
 | 2026-10-07 | README chart-native signal gallery | Add `Trade_Main_2.png` to Product Gallery → Trade and document chart-native actionable signal markers, exact saved Entry/SL/TP review, and guarded operator Confirm/Cancel submission distinct from separately enabled automated execution | ✅ Local docs validation confirmed exact image reference, tracked 267090-byte PNG, README wording, clean whitespace/worktree; CI #429 passed on `520aea6` | PR #107 / `520aea6` | Final docs-head validation/CI, merge, sync main; roadmap execution sequence remains unchanged |
+| 2026-10-07 | Phase 2.8 canonical completed-trade Journal | Replace audit-event-default Journal with a canonical closed-position ledger, all-history/date/source filters, execution origin, and per-currency filtered realized totals | ✅ 10/10 backend Journal tests + 6/6 frontend Journal tests + full backend regression + 705-module frontend build + clean tree/diff + CI #433; browser/API check exposed 3 canonical rows / +2.48 CHF versus 4 cTrader closes / -17.91 CHF | PR #108 / `4009e4c` | Phase 2.9: diagnose the missing XAUUSD 0.10 lot / -20.39 CHF broker close by exact identity before any repair |
 
 ---
 
@@ -1628,4 +1659,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Validate Phase 2.8 on PR #108 / branch `fix/phase-2-8-journal-trade-ledger`: run the focused backend/frontend journal tests, full backend regression, frontend production build, then compare the 2026-10-07 Completed trades view with cTrader History. If cTrader still shows a trade absent from Completed trades, treat that as a separate canonical persistence/reconciliation defect rather than a UI filtering issue. Do not mark Phase 2.8 verified or merge until local validation and GitHub CI both pass. The deferred protected-position disconnect/recovery and Phase 2.6 broker-overlay observations still wait for a natural qualifying position. Phase 5.3 remains 0 of 3 sufficient; keep the global 60% signal-strength threshold unchanged.**
+**After PR #108 is merged and local `main` is synchronized, start Phase 2.9 with a read-only lineage probe for the missing 2026-10-07 XAUUSD `0.10` lot / `-20.39 CHF` cTrader close. Inspect the persisted local position, order-intent, trade-audit, broker-deal, and broker-history identities before changing code. Determine whether it was TradeAgent manual-confirm, automatic, or external broker activity; never adopt a broker trade by symbol/time/quantity similarity alone. The target is exact-identity, idempotent recovery so TradeAgent-managed completed trades agree with cTrader History. Deferred protected-position disconnect/recovery and Phase 2.6 broker-overlay observations still wait for a natural qualifying position. Phase 5.3 remains 0 of 3 sufficient; keep the global 60% signal-strength threshold unchanged.**
