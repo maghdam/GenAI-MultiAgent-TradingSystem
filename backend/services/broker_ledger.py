@@ -456,8 +456,13 @@ def recover_tradeagent_closed_history(
     recovered = 0
     already_tracked = 0
     still_open = 0
+    external_ignored = 0
     recovered_position_ids: list[int] = []
     for candidate in candidates:
+        client_order_id = str(candidate.get("client_order_id") or "")
+        if not client_order_id.startswith("tradeagent-intent-"):
+            external_ignored += 1
+            continue
         broker_position_id = int(candidate.get("broker_position_id") or 0)
         if broker_position_id <= 0:
             continue
@@ -555,6 +560,7 @@ def recover_tradeagent_closed_history(
         "recovered": recovered,
         "already_tracked": already_tracked,
         "still_open": still_open,
+        "external_ignored": external_ignored,
         "ready": True,
         "recovered_position_ids": recovered_position_ids,
         "identity_policy": "exact_tradeagent_client_order_marker_and_broker_position_deals",
