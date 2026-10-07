@@ -111,6 +111,14 @@ def test_system_engine_lifecycle_endpoints_match_operator_controls(monkeypatch) 
             "closed": 0,
             "skipped": 0,
             "reason": "manual",
+            "broker_history_recovery": {
+                "checked": 0,
+                "recovered": 0,
+                "already_tracked": 0,
+                "still_open": 0,
+                "external_ignored": 0,
+                "ready": False,
+            },
             "closed_history": {
                 "checked": 0,
                 "reconciled": 0,
