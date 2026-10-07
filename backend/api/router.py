@@ -60,7 +60,7 @@ from backend.services.event_calibration import build_event_calibration, calibrat
 from backend.services.market_data import MarketDataError, get_bars, get_market_data_status
 from backend.services.market_intelligence import build_market_intelligence
 from backend.services.reconciler import reconcile_open_positions, recover_runtime_state
-from backend.services.broker_ledger import reconcile_closed_history
+from backend.services.broker_ledger import reconcile_closed_history, recover_tradeagent_closed_history
 from backend.services.position_truth import attach_broker_truth
 from backend.services.risk import build_readiness
 from backend.services.live_trading_guard import (
@@ -1298,13 +1298,29 @@ async def v2_engine_scan() -> dict:
 @router.post("/engine/reconcile")
 async def v2_engine_reconcile() -> dict:
     summary = reconcile_open_positions(reason="manual")
-    history = reconcile_closed_history(limit=20) if _current_config().ctrader_autotrade else {
-        "checked": 0,
-        "reconciled": 0,
-        "missing_broker_id": 0,
-        "unavailable": 0,
+    if _current_config().ctrader_autotrade:
+        recovered_history = recover_tradeagent_closed_history(window_days=30)
+        history = reconcile_closed_history(limit=20)
+    else:
+        recovered_history = {
+            "checked": 0,
+            "recovered": 0,
+            "already_tracked": 0,
+            "still_open": 0,
+            "ready": False,
+        }
+        history = {
+            "checked": 0,
+            "reconciled": 0,
+            "missing_broker_id": 0,
+            "unavailable": 0,
+        }
+    return {
+        "ok": True,
+        **summary,
+        "broker_history_recovery": recovered_history,
+        "closed_history": history,
     }
-    return {"ok": True, **summary, "closed_history": history}
 
 
 @router.post("/engine/recover")
