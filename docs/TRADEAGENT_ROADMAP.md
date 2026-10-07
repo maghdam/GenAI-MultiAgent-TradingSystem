@@ -379,7 +379,7 @@ This item changes the journal/read-model only. It does not synthesize missing br
 
 ### 2.9 Canonical broker-history completeness and missing-close reconciliation
 **Priority:** P1
-**Status:** 🧪 Ready for local validation
+**Status:** ✅
 
 Investigate and repair the exact identity/persistence path that allowed a real cTrader close to be absent from the canonical TradeAgent completed-position ledger.
 
@@ -400,11 +400,19 @@ Investigate and repair the exact identity/persistence path that allowed a real c
 
 **Acceptance**
 - [x] Read-only evidence probes identify the missing broker/local lineage and the surviving-runtime DB collision before code changes.
-- [ ] Focused Phase 2.9 tests pass locally.
-- [ ] Existing ACK/restart/reconciliation regression passes locally.
-- [ ] Full backend regression suite and frontend production build pass locally.
-- [ ] Real 2026-10-07 reconcile re-check recovers broker position `57868693` exactly once and the Completed trades view shows 4 broker trades totaling `-17.91 CHF`.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused Phase 2.9 tests pass locally: 4/4.
+- [x] Existing ACK/restart/reconciliation regression passes locally: 36/36.
+- [x] Full backend regression suite and frontend production build pass locally through `scripts/validate.py`; frontend build transformed 705 modules.
+- [x] Real 2026-10-07 reconcile re-check recovers broker position `57868693` exactly once and the Completed trades view shows 4 broker trades totaling `-17.91 CHF`.
+- [x] GitHub CI #437 passes on exact implementation head `82f14d0`.
+
+**Field verification evidence**
+- Before recovery, broker position `57868693` had 0 canonical Journal rows.
+- The first exact-history reconciliation found 130 TradeAgent-marked broker-history candidates: 107 were already canonical and 23 missing historical broker positions were recovered by immutable broker identity. The target position `57868693` became local position `140`.
+- The second reconciliation recovered 0 additional positions and reported all 130 as already tracked, confirming idempotence.
+- The recovered target row is exact: broker position `57868693`, deal `63499285`, XAUUSD short `0.10`, entry `4133.41`, exit `4135.86`, authoritative broker-deal P&L `-20.39 CHF`, with source/strategy metadata left explicit as unknown/recovered because the original durable runtime intent no longer survives.
+- The same-date Journal now shows the four expected broker closes totaling `-17.91 CHF`, matching cTrader History.
+- The interactive validation script's immediate `/broker/accounts` safety probe did not return a usable active-account row and its PowerShell `throw` did not terminate later pasted commands; however, the persisted config selected Demo account `44089601`, the reconciliation itself reached verified broker-history readiness, and the recovered immutable broker IDs/deal exactly match the previously direct-probed Demo-account history. Future operator scripts should set `$ErrorActionPreference = 'Stop'` or wrap safety checks in a terminating script block before any write-capable step.
 
 ---
 
@@ -1428,6 +1436,7 @@ Add one row after every completed task.
 | 2026-10-07 | Phase 7 untracked broker exposure fail-closed entry gate | Block fresh cTrader entries whenever broker exposure is not fully represented by canonical local broker-position IDs, while preserving existing managed-position maintenance/recovery paths | ✅ Real stale-runtime baseline captured 2 broker positions vs 1 canonical tracker; repaired gate passed 5/5 focused tests, 16/16 ACK/persistence regression, 42/42 Phase 7/execution/reconciliation regression, full backend suite, 704-module frontend build, clean diff/worktree, and exact-head CI #426 on `b6033b9` | PR #106 / `b6033b9` | Final docs-head validation/CI, merge, sync main; keep engine off until broker/local exposure is clean; resume real protected-position disconnect/recovery only on the next natural qualifying position |
 | 2026-10-07 | README chart-native signal gallery | Add `Trade_Main_2.png` to Product Gallery → Trade and document chart-native actionable signal markers, exact saved Entry/SL/TP review, and guarded operator Confirm/Cancel submission distinct from separately enabled automated execution | ✅ Local docs validation confirmed exact image reference, tracked 267090-byte PNG, README wording, clean whitespace/worktree; CI #429 passed on `520aea6` | PR #107 / `520aea6` | Final docs-head validation/CI, merge, sync main; roadmap execution sequence remains unchanged |
 | 2026-10-07 | Phase 2.8 canonical completed-trade Journal | Replace audit-event-default Journal with a canonical closed-position ledger, all-history/date/source filters, execution origin, and per-currency filtered realized totals | ✅ 10/10 backend Journal tests + 6/6 frontend Journal tests + full backend regression + 705-module frontend build + clean tree/diff + CI #433; browser/API check exposed 3 canonical rows / +2.48 CHF versus 4 cTrader closes / -17.91 CHF | PR #108 / `4009e4c` | Phase 2.9: diagnose the missing XAUUSD 0.10 lot / -20.39 CHF broker close by exact identity before any repair |
+| 2026-10-07 | Phase 2.9 exact broker-history orphan recovery | Recover TradeAgent-originated closed cTrader positions missing from the active canonical ledger by exact opening marker + immutable broker position/deal identity; keep unknown legacy metadata explicit and make future client-order IDs globally unique across runtime DB generations | ✅ 4/4 focused recovery tests + 36/36 ACK/restart/reconciliation regression + full backend suite + 705-module frontend build + clean diff/worktree + CI #437; real reconcile recovered target broker position `57868693` / deal `63499285` exactly once, second run recovered 0, and Journal matched cTrader at 4 trades / -17.91 CHF; 23 exact-identity historical broker orphans were restored in the first bounded sweep | PR #109 / `82f14d0` | Final docs-head CI, merge, sync main; next natural protected TradeAgent-managed position can satisfy pending Phase 2.6 overlay and Phase 7 disconnect/recovery field observations |
 
 ---
 
@@ -1667,4 +1676,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Validate Phase 2.9 on PR #109 / branch `fix/phase-2-9-broker-history-recovery`. Run the focused orphan-recovery tests first, then the ACK/restart/reconciliation regression, then `python scripts/validate.py`. After automated checks pass, restart the app on this branch and POST `/api/engine/reconcile`; verify broker position `57868693` is recovered exactly once, broker deal `63499285` is authoritative, and the 2026-10-07 Completed trades filter shows 4 broker trades totaling `-17.91 CHF`. Do not mark Phase 2.9 verified or merge until local field validation and GitHub CI both pass. Deferred protected-position disconnect/recovery and Phase 2.6 broker-overlay observations still wait for a natural qualifying position. Phase 5.3 remains 0 of 3 sufficient; keep the global 60% signal-strength threshold unchanged.**
+**After PR #109 is merged and local `main` is synchronized, do not manufacture new broker exposure. The next actionable evidence item is the next natural TradeAgent-managed protected cTrader position: use it to complete the pending Phase 2.6 browser Entry/SL/TP overlay observation and the Phase 7 protected-position disconnect/recovery field observation against the same canonical broker position identity. Phase 5.3 remains evidence-gated at 0 of 3 sufficient cells; keep the global 60% signal-strength threshold unchanged until the sample screen passes.**
