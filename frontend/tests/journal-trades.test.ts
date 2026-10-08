@@ -106,3 +106,27 @@ test('completed trade summary counts rows and never mixes account currencies', (
   assert.ok(Math.abs((summary.totals[0]?.realizedPnl ?? 0) - (-16.03)) < 1e-9);
   assert.deepEqual(summary.totals[1], { currency: 'USD', realizedPnl: 2.5 });
 });
+
+
+test('broker account total excludes paper simulation P&L', () => {
+  const rows = [
+    row({ realized_pnl: -2.44, account_currency: 'CHF' }),
+    row({
+      row_id: 'local_position:2',
+      local_position_id: 2,
+      broker_position_id: null,
+      broker_deal_ids: [],
+      realized_pnl_basis: 'paper_estimate',
+      account_currency: 'USD',
+      realized_pnl: 434.10,
+    }),
+  ];
+
+  const allSummary = summarizeJournalTrades(rows);
+  const brokerSummary = summarizeJournalTrades(
+    rows.filter((item) => journalTradeSource(item) === 'broker'),
+  );
+
+  assert.equal(allSummary.count, 2);
+  assert.deepEqual(brokerSummary.totals, [{ currency: 'CHF', realizedPnl: -2.44 }]);
+});
