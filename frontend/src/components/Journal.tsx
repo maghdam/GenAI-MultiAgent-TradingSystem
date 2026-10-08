@@ -482,10 +482,13 @@ export default function Journal() {
               key={totalItem.currency}
               className={totalItem.realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
             >
-              Realized <strong>{formatPnl(totalItem.realizedPnl)} {totalItem.currency}</strong>
+              Realized {totalItem.currency} <strong>{formatPnl(totalItem.realizedPnl)}</strong>
             </span>
           )) : (
             <span className="ta-journal__subtle">Realized –</span>
+          )}
+          {tradeSummary.totals.length > 1 && (
+            <span className="ta-journal__subtle">Separate currency totals — not combined</span>
           )}
           <span className="ta-journal__subtle">Blank date = all recorded history</span>
         </div>
