@@ -82,17 +82,30 @@ def _normalize_model_name(model: str | None, provider: str) -> str:
 
 async def _generate_with_ollama(prompt: str, model: str, timeout: float, num_predict: int) -> str:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: _ollama_generate(
+
+    def _call(think: bool | str | None) -> str:
+        return _ollama_generate(
             prompt=prompt,
             model=model,
             timeout=timeout,
             json_only=False,
-            think=_OLLAMA_STUDIO_THINK,
+            think=think,
             options_overrides={"num_predict": num_predict},
-        ),
-    )
+            attempt_timeout_cap=timeout,
+        )
+
+    try:
+        return await loop.run_in_executor(None, lambda: _call(_OLLAMA_STUDIO_THINK))
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        unsupported_thinking = (
+            "does not support thinking" in message
+            or "thinking is not supported" in message
+            or "thinking not supported" in message
+        )
+        if not unsupported_thinking or _OLLAMA_STUDIO_THINK is False:
+            raise
+        return await loop.run_in_executor(None, lambda: _call(False))
 
 
 def _extract_gemini_text(payload: Dict[str, Any]) -> str:
