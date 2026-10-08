@@ -905,6 +905,9 @@ a:hover { color: #a5b4fc; }
   font-family: var(--ta-font-mono);
 }
 
+.ta-journal-totals .ta-cell--good { color: var(--ta-bull); }
+.ta-journal-totals .ta-cell--bad  { color: var(--ta-bear); }
+
 .ta-journal__subtle {
   color: var(--ta-text-muted);
   font-size: 11px;

@@ -57,34 +57,73 @@ test('completed trade filtering uses actual closed trades rather than audit even
     filterJournalTrades([first, second], {
       symbol: 'XAUUSD',
       strategy: 'all',
-      date: '',
+      dateFrom: '',
+      dateTo: '',
       source: 'broker',
     }).map((item) => item.local_position_id),
     [1],
   );
 });
 
-test('completed trade date filter follows the operator local date', () => {
-  const trade = row();
-  const localDate = journalTradeLocalDateKey(trade.closed_at_utc);
+test('completed trade date range follows the operator local close date inclusively', () => {
+  const first = row();
+  const firstDate = journalTradeLocalDateKey(first.closed_at_utc);
+  const second = row({
+    row_id: 'local_position:2',
+    local_position_id: 2,
+    closed_at_utc: '2026-10-09T07:25:00Z',
+  });
+  const secondDate = journalTradeLocalDateKey(second.closed_at_utc);
 
   assert.equal(
-    filterJournalTrades([trade], {
+    filterJournalTrades([first, second], {
       symbol: 'all',
       strategy: 'all',
-      date: localDate,
+      dateFrom: firstDate,
+      dateTo: firstDate,
       source: 'all',
     }).length,
     1,
   );
   assert.equal(
-    filterJournalTrades([trade], {
+    filterJournalTrades([first, second], {
       symbol: 'all',
       strategy: 'all',
-      date: '1999-01-01',
+      dateFrom: firstDate,
+      dateTo: secondDate,
       source: 'all',
     }).length,
-    0,
+    2,
+  );
+  assert.equal(
+    filterJournalTrades([first, second], {
+      symbol: 'all',
+      strategy: 'all',
+      dateFrom: secondDate,
+      dateTo: '',
+      source: 'all',
+    }).length,
+    1,
+  );
+  assert.equal(
+    filterJournalTrades([first, second], {
+      symbol: 'all',
+      strategy: 'all',
+      dateFrom: '',
+      dateTo: firstDate,
+      source: 'all',
+    }).length,
+    1,
+  );
+  assert.equal(
+    filterJournalTrades([first, second], {
+      symbol: 'all',
+      strategy: 'all',
+      dateFrom: '',
+      dateTo: '',
+      source: 'all',
+    }).length,
+    2,
   );
 });
 
@@ -105,4 +144,28 @@ test('completed trade summary counts rows and never mixes account currencies', (
   assert.equal(summary.totals[0]?.currency, 'CHF');
   assert.ok(Math.abs((summary.totals[0]?.realizedPnl ?? 0) - (-16.03)) < 1e-9);
   assert.deepEqual(summary.totals[1], { currency: 'USD', realizedPnl: 2.5 });
+});
+
+
+test('broker account total excludes paper simulation P&L', () => {
+  const rows = [
+    row({ realized_pnl: -2.44, account_currency: 'CHF' }),
+    row({
+      row_id: 'local_position:2',
+      local_position_id: 2,
+      broker_position_id: null,
+      broker_deal_ids: [],
+      realized_pnl_basis: 'paper_estimate',
+      account_currency: 'USD',
+      realized_pnl: 434.10,
+    }),
+  ];
+
+  const allSummary = summarizeJournalTrades(rows);
+  const brokerSummary = summarizeJournalTrades(
+    rows.filter((item) => journalTradeSource(item) === 'broker'),
+  );
+
+  assert.equal(allSummary.count, 2);
+  assert.deepEqual(brokerSummary.totals, [{ currency: 'CHF', realizedPnl: -2.44 }]);
 });
