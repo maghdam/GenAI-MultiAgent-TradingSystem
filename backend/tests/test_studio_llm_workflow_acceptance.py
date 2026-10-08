@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.domain.models import StudioTaskRequest
-from backend.services import studio_tasks
+from backend.services import studio_llm, studio_tasks
 
 
 VALID_CODE = (
@@ -100,6 +100,34 @@ def test_selected_provider_and_model_are_forwarded_to_generation(monkeypatch) ->
     assert observed["model"] == "gemini-2.5-flash"
     assert (result.result or {})["provider"] == "gemini"
     assert (result.result or {})["model"] == "gemini-2.5-flash"
+
+
+def test_ollama_generation_retries_without_thinking_and_keeps_studio_timeout(monkeypatch) -> None:
+    calls = []
+
+    def fake_ollama_generate(**kwargs):
+        calls.append(dict(kwargs))
+        if kwargs.get("think") != False:
+            raise RuntimeError(
+                'Ollama API error: 400 — {"error":"\\\"phi3:mini\\\" does not support thinking"}'
+            )
+        return VALID_CODE
+
+    monkeypatch.setattr(studio_llm, "_OLLAMA_STUDIO_THINK", "low")
+    monkeypatch.setattr(studio_llm, "_ollama_generate", fake_ollama_generate)
+
+    result = asyncio.run(
+        studio_llm._generate_with_ollama(
+            prompt="create strategy",
+            model="phi3:mini",
+            timeout=90.0,
+            num_predict=900,
+        )
+    )
+
+    assert result == VALID_CODE
+    assert [call["think"] for call in calls] == ["low", False]
+    assert all(call["attempt_timeout_cap"] == 90.0 for call in calls)
 
 
 def test_strategy_drafting_uses_safe_template_fallback_when_llm_fails(monkeypatch) -> None:
