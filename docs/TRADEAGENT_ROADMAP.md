@@ -731,6 +731,36 @@ Validate:
 - [x] Local frontend production build.
 - [x] GitHub CI #76 on implementation head `a82f2312`.
 
+### 4.7 Compact Strategy Studio workflow
+**Priority:** P2
+**Status:** 🧪 Ready to test
+
+Turn the mature Build & Test functionality into a compact day-to-day strategy research workspace without changing research, backtest, lifecycle, sandbox, or deployment semantics.
+
+**Target behavior**
+- [x] Replace the oversized Build & Test hero with a compact research-workspace header.
+- [x] Remove the manual Vertical / Side-by-side layout selector; use one responsive layout automatically.
+- [x] Keep provider/model controls available under compact **AI settings** rather than permanently occupying the chat header.
+- [x] Present lifecycle progression prominently as `draft → backtested → validated → paper → eligible`.
+- [x] Keep hypothesis, evidence, blockers, paper evidence, and promotion controls attached to the governed lifecycle.
+- [x] Put Strategy Assistant and editable Strategy Workspace side by side on desktop, stacking responsively on smaller screens.
+- [x] Separate saved-strategy management from backtest setup.
+- [x] Group symbol, timeframe, bars, validation method, and execution-cost/sizing assumptions into one explicit Backtest section.
+- [x] Keep assumptions collapsed until requested and move Raw JSON behind secondary result options.
+- [x] Keep advanced event-outcome calibration / shadow replay hidden until the operator explicitly opens **Advanced evidence**.
+- [x] Preserve all existing Strategy Studio API calls, saved-source reload behavior, backtest methodology, lifecycle governance, generated-strategy isolation, and deployment restrictions.
+
+**Acceptance**
+- [ ] Focused Strategy Studio presentation tests pass locally.
+- [ ] Frontend production build passes locally.
+- [ ] Browser smoke confirms compact desktop layout, responsive structure, AI settings, saved strategy load/save, lifecycle visibility, assumptions expansion, backtest controls, result options, and Advanced evidence toggle.
+- [ ] Existing Strategy Studio workflows remain functional against the running backend.
+- [ ] Full canonical validation passes locally.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+Frontend information architecture and presentation only. This item does not change strategy generation prompts/contracts, backtest accounting or validation methodology, lifecycle promotion rules, generated-strategy sandboxing, paper evidence rules, execution eligibility, broker routing, risk controls, or the global 60% signal-strength threshold.
+
 ---
 
 ## 7. Phase 5 — Strategy quality & confidence calibration
