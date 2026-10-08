@@ -155,7 +155,7 @@ def test_v2_studio_code_generation_uses_longer_local_default_timeout(monkeypatch
     from backend.services.studio_tasks import execute_studio_task
 
     monkeypatch.delenv("STUDIO_CODE_TIMEOUT", raising=False)
-    monkeypatch.delenv("STUDIO_LLM_TIMEOUT", raising=False)
+    monkeypatch.setenv("STUDIO_LLM_TIMEOUT", "45")
     captured = {}
 
     async def _fake_generate_text(**kwargs):
