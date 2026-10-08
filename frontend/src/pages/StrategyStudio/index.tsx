@@ -195,9 +195,6 @@ export default function StrategyStudioPage() {
         if (!mounted) return;
         const list = Array.isArray(files) ? files : [];
         setAvailableSaved(list);
-        if (!savedStrategy && list.length > 0) {
-          setSavedStrategy(list.includes('smc') ? 'smc' : list[0]);
-        }
       })
       .catch(() => undefined);
     return () => { mounted = false; };
