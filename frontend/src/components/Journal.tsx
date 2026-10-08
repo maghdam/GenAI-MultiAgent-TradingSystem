@@ -170,7 +170,7 @@ export default function Journal() {
   const [symbol, setSymbol] = useState('all');
   const [strategy, setStrategy] = useState('all');
   const [date, setDate] = useState('');
-  const [source, setSource] = useState<JournalSource>('all');
+  const [source, setSource] = useState<JournalSource>('broker');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -227,6 +227,10 @@ export default function Journal() {
     [trades, symbol, strategy, date, source],
   );
   const tradeSummary = useMemo(() => summarizeJournalTrades(filteredTrades), [filteredTrades]);
+  const brokerSummary = useMemo(
+    () => summarizeJournalTrades(filteredTrades.filter((trade) => journalTradeSource(trade) === 'broker')),
+    [filteredTrades],
+  );
 
   const filteredEntries = useMemo(() => {
     if (category === 'trades') return [];
@@ -246,7 +250,7 @@ export default function Journal() {
     setSymbol('all');
     setStrategy('all');
     setDate('');
-    setSource('all');
+    setSource('broker');
   };
 
   const renderTradeBody = () => {
@@ -465,9 +469,9 @@ export default function Journal() {
         <label>
           <span>Source</span>
           <select value={source} onChange={(event) => setSource(event.target.value as JournalSource)}>
-            <option value="all">Broker + paper</option>
-            <option value="broker">Broker</option>
-            <option value="paper">Paper</option>
+            <option value="all">Broker + paper records</option>
+            <option value="broker">Broker account</option>
+            <option value="paper">Paper simulation</option>
           </select>
         </label>
 
@@ -477,27 +481,31 @@ export default function Journal() {
       {isTradeView && (
         <div className="ta-journal-totals" aria-label="Filtered completed trade summary">
           <span><strong>{tradeSummary.count}</strong> completed {tradeSummary.count === 1 ? 'trade' : 'trades'}</span>
-          {tradeSummary.totals.length === 1 ? (
+          {source === 'paper' ? (
+            tradeSummary.totals.length === 1 ? (
+              <span
+                className={tradeSummary.totals[0].realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
+              >
+                Paper realized <strong>{formatPnl(tradeSummary.totals[0].realizedPnl)} {tradeSummary.totals[0].currency}</strong>
+              </span>
+            ) : (
+              <span className="ta-journal__subtle">Paper realized unavailable across mixed paper currencies</span>
+            )
+          ) : brokerSummary.totals.length === 1 ? (
             <span
-              className={tradeSummary.totals[0].realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
+              className={brokerSummary.totals[0].realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
             >
-              Realized <strong>{formatPnl(tradeSummary.totals[0].realizedPnl)} {tradeSummary.totals[0].currency}</strong>
+              Account realized <strong>{formatPnl(brokerSummary.totals[0].realizedPnl)} {brokerSummary.totals[0].currency}</strong>
             </span>
-          ) : tradeSummary.totals.length > 1 ? (
-            <>
-              <span className="ta-journal__subtle">Mixed-currency history:</span>
-              {tradeSummary.totals.map((totalItem) => (
-                <span
-                  key={totalItem.currency}
-                  className={totalItem.realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
-                >
-                  {totalItem.currency}-denominated trades net <strong>{formatPnl(totalItem.realizedPnl)} {totalItem.currency}</strong>
-                </span>
-              ))}
-              <span className="ta-journal__subtle">No FX-converted combined total</span>
-            </>
+          ) : brokerSummary.totals.length > 1 ? (
+            <span className="ta-journal__subtle">Account realized unavailable across multiple broker account currencies</span>
           ) : (
-            <span className="ta-journal__subtle">Realized –</span>
+            <span className="ta-journal__subtle">Account realized –</span>
+          )}
+          {source === 'all' && (
+            <span className="ta-journal__subtle">
+              {brokerSummary.count} broker {brokerSummary.count === 1 ? 'trade' : 'trades'} · paper simulation excluded from account realized
+            </span>
           )}
           <span className="ta-journal__subtle">Blank date = all recorded history</span>
         </div>
