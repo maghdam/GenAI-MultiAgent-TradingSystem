@@ -15,6 +15,11 @@ import {
   type V2StudioTaskResponse,
   type V2StudioProviderInfo,
 } from '../../services/api';
+import {
+  STUDIO_LIFECYCLE_STAGES,
+  STUDIO_VALIDATION_OPTIONS,
+  lifecycleStageState,
+} from '../../services/strategyStudioPresentation';
 import StrategyChat, { type ChatMessage } from '../../components/StrategyChat';
 import { CodeDisplay } from '../../components/CodeDisplay';
 import { BacktestResult } from '../../components/BacktestResult';
@@ -28,8 +33,6 @@ const META_KEY = 'strategyStudio.backtest.lastMeta';
 const CHAT_PROVIDER_KEY = 'strategyStudio.chat.llmProvider';
 const CHAT_MODEL_KEY = 'strategyStudio.chat.llmModel';
 const DRAFT_CODE_KEY = 'strategyStudio.draft.code';
-const LAYOUT_KEY = 'strategyStudio.layout.mode';
-const LAYOUT_USER_KEY = 'strategyStudio.layout.userSet';
 
 export default function StrategyStudioPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -48,7 +51,6 @@ export default function StrategyStudioPage() {
   const [numBars, setNumBars] = useState(1500);
   const [savedStrategy, setSavedStrategy] = useState<string>('');
   const [availableSaved, setAvailableSaved] = useState<string[]>([]);
-  const [showCosts, setShowCosts] = useState(false);
   const [feeBps, setFeeBps] = useState<number>(0);
   const [slippageBps, setSlippageBps] = useState<number>(0);
   const [spreadBps, setSpreadBps] = useState<number>(0);
@@ -74,21 +76,11 @@ export default function StrategyStudioPage() {
     }
   });
   const [llmModelError, setLlmModelError] = useState<string>('');
-  const [layoutMode, setLayoutMode] = useState<'split' | 'stack'>(() => {
-    try {
-      const userSet = localStorage.getItem(LAYOUT_USER_KEY) === '1';
-      const saved = localStorage.getItem(LAYOUT_KEY);
-      if (userSet && (saved === 'split' || saved === 'stack')) return saved;
-      return 'stack';
-    } catch {
-      return 'stack';
-    }
-  });
 
-  const isBacktestLikeResult = (r: any) => {
-    if (!r) return false;
-    if (r.metrics && (r.equity || r.optimization_results || r.plots)) return true;
-    if (typeof r === 'object' && r && r['Total Return [%]'] !== undefined) return true;
+  const isBacktestLikeResult = (result: any) => {
+    if (!result) return false;
+    if (result.metrics && (result.equity || result.optimization_results || result.plots)) return true;
+    if (typeof result === 'object' && result['Total Return [%]'] !== undefined) return true;
     return false;
   };
 
@@ -98,10 +90,10 @@ export default function StrategyStudioPage() {
   ) => {
     try {
       localStorage.setItem(RESULT_KEY, JSON.stringify(result));
-      const m = meta ?? { strategy: savedStrategy || 'draft', symbol, timeframe, numBars };
+      const nextMeta = meta ?? { strategy: savedStrategy || 'draft', symbol, timeframe, numBars };
       localStorage.setItem(META_KEY, JSON.stringify({
         ts: Date.now(),
-        ...m,
+        ...nextMeta,
       }));
     } catch {
       // ignore
@@ -111,8 +103,8 @@ export default function StrategyStudioPage() {
   const openResults = () => {
     if (lastResult && isBacktestLikeResult(lastResult)) {
       persistBacktestResult(lastResult);
+      window.open('/build-test/results', '_blank', 'noopener,noreferrer');
     }
-    window.open('/build-test/results', '_blank', 'noopener,noreferrer');
   };
 
   const resetStudio = () => {
@@ -166,12 +158,15 @@ export default function StrategyStudioPage() {
           setLlmModel('');
         }
       })
-      .catch((e: any) => {
+      .catch((error: any) => {
         if (!mounted) return;
-        setProviders([{ key: 'ollama', label: 'Ollama', configured: true }, { key: 'gemini', label: 'Gemini', configured: false }]);
+        setProviders([
+          { key: 'ollama', label: 'Ollama', configured: true },
+          { key: 'gemini', label: 'Gemini', configured: false },
+        ]);
         setLlmModels([]);
         setLlmModel('');
-        setLlmModelError(e?.message || 'Failed to load models');
+        setLlmModelError(error?.message || 'Failed to load models');
       });
     return () => { mounted = false; };
   }, [llmProvider]);
@@ -194,14 +189,6 @@ export default function StrategyStudioPage() {
   }, [llmModel]);
 
   React.useEffect(() => {
-    try {
-      localStorage.setItem(LAYOUT_KEY, layoutMode);
-    } catch {
-      // ignore
-    }
-  }, [layoutMode]);
-
-  React.useEffect(() => {
     let mounted = true;
     listV2StudioStrategyFiles()
       .then((files) => {
@@ -221,6 +208,7 @@ export default function StrategyStudioPage() {
     if (!savedStrategy) {
       setLifecycle(null);
       setHypothesis('');
+      setLifecycleError('');
       return () => { mounted = false; };
     }
     getV2StrategyLifecycle(savedStrategy)
@@ -246,7 +234,7 @@ export default function StrategyStudioPage() {
 
     const history = messages
       .slice(-10)
-      .map((m) => ({ role: m.role, content: String(m.content || '').slice(0, 400) }));
+      .map((item) => ({ role: item.role, content: String(item.content || '').slice(0, 400) }));
 
     const req: V2StudioTaskRequest = {
       task_type: 'chat',
@@ -268,7 +256,7 @@ export default function StrategyStudioPage() {
     };
 
     setIsLoading(true);
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+    setMessages((previous) => [...previous, { role: 'user', content: text }]);
     setView('auto');
     try {
       const res: V2StudioTaskResponse = await executeV2StudioTask(req);
@@ -278,16 +266,24 @@ export default function StrategyStudioPage() {
           setDraftCode(nextCode);
           setLastResult({ stdout: nextCode, provider: res.result?.provider, model: res.result?.model });
         }
-        setMessages((prev) => [...prev, {
+        setMessages((previous) => [...previous, {
           role: 'assistant',
           type: nextCode ? 'code' : 'text',
           content: res.message || (nextCode ? 'Strategy draft updated.' : 'Task completed.'),
         }]);
       } else {
-        setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: res.message || 'Task failed.' }]);
+        setMessages((previous) => [...previous, {
+          role: 'assistant',
+          type: 'error',
+          content: res.message || 'Task failed.',
+        }]);
       }
-    } catch (e: any) {
-      setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Request failed.' }]);
+    } catch (error: any) {
+      setMessages((previous) => [...previous, {
+        role: 'assistant',
+        type: 'error',
+        content: error?.message || 'Request failed.',
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -296,7 +292,7 @@ export default function StrategyStudioPage() {
   const runBacktest = async () => {
     if (isLoading) return;
     setIsLoading(true);
-    setMessages((prev) => [...prev, {
+    setMessages((previous) => [...previous, {
       role: 'user',
       content: draftCode
         ? `Run ${validationKind} on current draft for ${symbol} ${timeframe} (${numBars} bars)`
@@ -345,18 +341,25 @@ export default function StrategyStudioPage() {
 
       setLastResult(result);
       persistBacktestResult(result, meta);
+      setView('auto');
       if (result?.Lifecycle) {
         setLifecycle(result.Lifecycle);
         setHypothesis(result.Lifecycle.hypothesis || '');
         setLifecycleError('');
       }
       const evidence = result?.Lifecycle?.evidence?.[0];
-      setMessages((prev) => [...prev, {
+      setMessages((previous) => [...previous, {
         role: 'assistant',
-        content: evidence ? `${evidence.summary} Gate ${evidence.passed ? 'passed' : 'failed'}.` : 'Backtest complete.',
+        content: evidence
+          ? `${evidence.summary} Gate ${evidence.passed ? 'passed' : 'failed'}.`
+          : 'Backtest complete.',
       }]);
-    } catch (e: any) {
-      setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Backtest failed.' }]);
+    } catch (error: any) {
+      setMessages((previous) => [...previous, {
+        role: 'assistant',
+        type: 'error',
+        content: error?.message || 'Backtest failed.',
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -370,15 +373,15 @@ export default function StrategyStudioPage() {
       setDraftCode(loaded.source);
       setLastResult({ stdout: loaded.source, source: 'saved', strategy: loaded.strategy });
       setView('auto');
-      setMessages((prev) => [...prev, {
+      setMessages((previous) => [...previous, {
         role: 'assistant',
         content: `Loaded saved strategy ${loaded.strategy} into the editable draft.`,
       }]);
-    } catch (e: any) {
-      setMessages((prev) => [...prev, {
+    } catch (error: any) {
+      setMessages((previous) => [...previous, {
         role: 'assistant',
         type: 'error',
-        content: e?.message || 'Failed to load saved strategy.',
+        content: error?.message || 'Failed to load saved strategy.',
       }]);
     } finally {
       setIsLoading(false);
@@ -399,7 +402,10 @@ export default function StrategyStudioPage() {
       };
       const res: V2StudioTaskResponse = await executeV2StudioTask(req);
       if (res.status === 'success') {
-        setMessages((prev) => [...prev, { role: 'assistant', content: res.message || `Saved as ${name}` }]);
+        setMessages((previous) => [...previous, {
+          role: 'assistant',
+          content: res.message || `Saved as ${name}`,
+        }]);
         const files = await listV2StudioStrategyFiles();
         const list = Array.isArray(files) ? files : [];
         setAvailableSaved(list);
@@ -411,10 +417,18 @@ export default function StrategyStudioPage() {
           setLifecycleError('');
         }
       } else {
-        setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: res.message || 'Save failed.' }]);
+        setMessages((previous) => [...previous, {
+          role: 'assistant',
+          type: 'error',
+          content: res.message || 'Save failed.',
+        }]);
       }
-    } catch (e: any) {
-      setMessages((prev) => [...prev, { role: 'assistant', type: 'error', content: e?.message || 'Request failed.' }]);
+    } catch (error: any) {
+      setMessages((previous) => [...previous, {
+        role: 'assistant',
+        type: 'error',
+        content: error?.message || 'Request failed.',
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -469,224 +483,279 @@ export default function StrategyStudioPage() {
     }
   };
 
+  const hasBacktestResult = isBacktestLikeResult(lastResult);
+
   return (
-    <div className={`strategy-studio-layout ${layoutMode === 'stack' ? 'stack' : ''}`}>
-      <div
-        className="box"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          ...(layoutMode === 'stack' ? { height: 'min(560px, 48vh)', minHeight: 380 } : {}),
-        }}
-      >
-        <StrategyChat
-          messages={messages}
-          isLoading={isLoading}
-          onSendMessage={send}
-          placeholder='Create or improve a strategy. Example: "Create an XAUUSD M5 strategy using FVG and market structure."'
-          headerRight={(
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="muted" style={{ fontSize: 12 }}>Layout</span>
-              <select
-                value={layoutMode}
-                onChange={(e) => {
-                  const next = e.target.value === 'split' ? 'split' : 'stack';
-                  setLayoutMode(next);
-                  try {
-                    localStorage.setItem(LAYOUT_USER_KEY, '1');
-                  } catch {
-                    // ignore
-                  }
-                }}
-                disabled={isLoading}
-                title="Page layout"
-                style={{ maxWidth: 160 }}
+    <div className="studio-console">
+      <section className="ta-panel studio-lifecycle">
+        <div className="studio-lifecycle__top">
+          <div>
+            <span className="studio-eyebrow">Strategy lifecycle</span>
+            <strong>{lifecycle ? lifecycle.strategy : savedStrategy || 'New draft'}</strong>
+            <small>
+              {lifecycle
+                ? `Version ${lifecycle.version} · ${lifecycle.version_hash.slice(0, 10)}`
+                : lifecycleError || 'Save or backtest a strategy to register its governed lifecycle.'}
+            </small>
+          </div>
+          <div className="studio-lifecycle__track" aria-label="Strategy lifecycle progression">
+            {STUDIO_LIFECYCLE_STAGES.map((stage) => (
+              <span
+                className={`studio-stage studio-stage--${lifecycleStageState(lifecycle?.stage, stage)}`}
+                key={stage}
               >
-                <option value="stack">Vertical</option>
-                <option value="split">Side-by-side</option>
-              </select>
-              <span className="muted" style={{ fontSize: 12 }}>Provider</span>
-              <select
-                value={llmProvider}
-                onChange={(e) => setLlmProvider(e.target.value)}
-                disabled={isLoading}
-                title="LLM provider"
-                style={{ maxWidth: 160 }}
-              >
-                {(providers.length ? providers : [{ key: 'ollama', label: 'Ollama', configured: true }]).map((provider) => (
-                  <option key={provider.key} value={provider.key}>
-                    {provider.label}{provider.configured ? '' : ' (setup)'}
-                  </option>
-                ))}
-              </select>
-              <span className="muted" style={{ fontSize: 12 }}>Model</span>
-              <select
-                value={llmModel}
-                onChange={(e) => setLlmModel(e.target.value)}
-                disabled={isLoading || llmModels.length === 0}
-                title={llmModelError ? `Studio model error: ${llmModelError}` : 'Studio model'}
-                style={{ maxWidth: 220 }}
-              >
-                {llmModels.length === 0 ? (
-                  <option value="">{llmModelError || '(no models)'}</option>
-                ) : (
-                  llmModels.map((m) => (<option key={m} value={m}>{m}</option>))
-                )}
-              </select>
-            </div>
-          )}
-        />
-      </div>
-      <div className="box" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                {stage}
+              </span>
+            ))}
+          </div>
+        </div>
+
         {lifecycle && (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'rgba(90, 70, 220, 0.06)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div>
-                <strong>Strategy lifecycle</strong>{' '}
-                <span className="muted">{lifecycle.strategy} v{lifecycle.version} - {lifecycle.version_hash.slice(0, 10)}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {(['draft', 'backtested', 'validated', 'paper', 'eligible'] as const).map((stage) => (
-                  <span key={stage} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, border: '1px solid var(--border)', opacity: lifecycle.stage === stage ? 1 : 0.45, color: lifecycle.stage === stage ? '#67e8f9' : undefined }}>
-                    {stage}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) auto', gap: 8, marginTop: 10 }}>
+          <div className="studio-lifecycle__detail">
+            <label>
+              <span>Measurable hypothesis</span>
               <textarea
+                className="ta-input"
                 value={hypothesis}
                 onChange={(event) => setHypothesis(event.target.value)}
-                placeholder="Measurable hypothesis: market, setup, entry/exit rule, expected behavior, and invalidation condition."
+                placeholder="Market, setup, entry/exit rule, expected behavior, and invalidation condition."
                 rows={2}
-                style={{ width: '100%', resize: 'vertical' }}
               />
-              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <button className="btn" type="button" onClick={saveLifecycleHypothesis} disabled={isLoading}>Save hypothesis</button>
-                {lifecycle.stage === 'paper' && <button className="btn" type="button" onClick={collectPaperEvidence} disabled={isLoading}>Collect paper evidence</button>}
-                {lifecycle.next_stage && <button className="btn primary" type="button" onClick={promoteLifecycle} disabled={isLoading || !lifecycle.promotion_ready}>Promote to {lifecycle.next_stage}</button>}
-              </div>
+            </label>
+            <div className="studio-lifecycle__actions">
+              <button className="ta-btn" type="button" onClick={saveLifecycleHypothesis} disabled={isLoading}>
+                Save hypothesis
+              </button>
+              {lifecycle.stage === 'paper' && (
+                <button className="ta-btn" type="button" onClick={collectPaperEvidence} disabled={isLoading}>
+                  Collect paper evidence
+                </button>
+              )}
+              {lifecycle.next_stage && (
+                <button
+                  className="ta-btn ta-btn--primary"
+                  type="button"
+                  onClick={promoteLifecycle}
+                  disabled={isLoading || !lifecycle.promotion_ready}
+                >
+                  Promote to {lifecycle.next_stage}
+                </button>
+              )}
             </div>
-            {lifecycle.blockers.length > 0 && <div className="muted" style={{ marginTop: 8 }}>Blocked: {lifecycle.blockers.join(' ')}</div>}
-            {lifecycle.evidence.length > 0 && (
-              <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
-                {lifecycle.evidence.slice(0, 3).map((item) => (
-                  <div key={item.id} style={{ fontSize: 12, color: item.passed ? '#34d399' : '#fca5a5' }}>
-                    {item.passed ? 'PASS' : 'FAIL'} ? {item.summary}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
-        {!lifecycle && lifecycleError && <div className="muted" style={{ marginBottom: 8 }}>{lifecycleError}</div>}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ fontWeight: 600 }}>{draftCode ? 'Draft / Result' : 'Result'}</div>
-            <button className="btn primary" type="button" onClick={openResults} title="Open the latest backtest results in a new tab">
-              Open Results
-            </button>
-            <button className="btn" type="button" onClick={resetStudio} disabled={isLoading} title="Clear the current draft and the last backtest result">
-              Reset
+
+        {lifecycle?.blockers.length ? (
+          <div className="studio-lifecycle__notice">
+            <strong>Blocked</strong>
+            <span>{lifecycle.blockers.join(' ')}</span>
+          </div>
+        ) : null}
+
+        {lifecycle?.evidence.length ? (
+          <div className="studio-evidence-strip">
+            {lifecycle.evidence.slice(0, 3).map((item) => (
+              <span className={item.passed ? 'pass' : 'fail'} key={item.id}>
+                {item.passed ? 'PASS' : 'FAIL'} · {item.summary}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="studio-work-grid">
+        <article className="ta-panel studio-work-card">
+          <StrategyChat
+            messages={messages}
+            isLoading={isLoading}
+            onSendMessage={send}
+            placeholder='Example: "Create an XAUUSD M5 strategy using FVG and market structure."'
+            headerRight={(
+              <details className="studio-popover">
+                <summary className="ta-btn ta-btn--ghost ta-btn--sm">AI settings</summary>
+                <div className="studio-popover__menu studio-ai-settings">
+                  <label>
+                    Provider
+                    <select
+                      className="ta-input ta-input--sm"
+                      value={llmProvider}
+                      onChange={(event) => setLlmProvider(event.target.value)}
+                      disabled={isLoading}
+                    >
+                      {(providers.length ? providers : [{ key: 'ollama', label: 'Ollama', configured: true }]).map((provider) => (
+                        <option key={provider.key} value={provider.key}>
+                          {provider.label}{provider.configured ? '' : ' (setup)'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Model
+                    <select
+                      className="ta-input ta-input--sm"
+                      value={llmModel}
+                      onChange={(event) => setLlmModel(event.target.value)}
+                      disabled={isLoading || llmModels.length === 0}
+                      title={llmModelError ? `Studio model error: ${llmModelError}` : 'Studio model'}
+                    >
+                      {llmModels.length === 0 ? (
+                        <option value="">{llmModelError || '(no models)'}</option>
+                      ) : (
+                        llmModels.map((model) => <option key={model} value={model}>{model}</option>)
+                      )}
+                    </select>
+                  </label>
+                </div>
+              </details>
+            )}
+          />
+        </article>
+
+        <article className="ta-panel studio-work-card">
+          <div className="studio-card-head">
+            <div>
+              <span className="studio-eyebrow">Strategy workspace</span>
+              <strong>{draftCode ? 'Editable draft' : 'No draft loaded'}</strong>
+            </div>
+            <div className="studio-strategy-actions">
+              <select
+                className="ta-input ta-input--sm"
+                value={savedStrategy}
+                onChange={(event) => setSavedStrategy(event.target.value)}
+                title="Saved strategy"
+              >
+                <option value="">Saved strategies…</option>
+                {availableSaved.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <button className="ta-btn ta-btn--sm" type="button" onClick={loadSavedStrategy} disabled={isLoading || !savedStrategy}>
+                Load
+              </button>
+              <button className="ta-btn ta-btn--primary ta-btn--sm" type="button" onClick={saveStrategy} disabled={isLoading || !draftCode}>
+                Save
+              </button>
+            </div>
+          </div>
+
+          <div className="studio-draft">
+            {draftCode
+              ? <CodeDisplay code={draftCode} />
+              : <div className="studio-empty">Ask the assistant to draft rules or load a saved strategy.</div>}
+          </div>
+
+          <div className="studio-card-footer">
+            <span>{draftCode ? 'Draft is editable research code until lifecycle gates are satisfied.' : 'No strategy code is active in this workspace.'}</span>
+            <button className="ta-btn ta-btn--ghost ta-btn--sm" type="button" onClick={resetStudio} disabled={isLoading}>
+              Clear workspace
             </button>
           </div>
-          <div className="stack">
-            <input value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} style={{ width: 90 }} title="Symbol" />
-            <select value={timeframe} onChange={e => setTimeframe(e.target.value)} title="Timeframe">
-              {['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].map(tf => (<option key={tf} value={tf}>{tf}</option>))}
+        </article>
+      </section>
+
+      <section className="ta-panel studio-backtest">
+        <div className="studio-card-head">
+          <div>
+            <span className="studio-eyebrow">Backtest</span>
+            <strong>Test the current draft or selected saved strategy</strong>
+          </div>
+          <button
+            className="ta-btn ta-btn--primary"
+            type="button"
+            onClick={runBacktest}
+            disabled={isLoading || (!draftCode && !savedStrategy)}
+          >
+            {isLoading ? 'Working…' : 'Run backtest'}
+          </button>
+        </div>
+
+        <div className="studio-backtest__controls">
+          <label>
+            <span>Symbol</span>
+            <input className="ta-input ta-input--sm" value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} />
+          </label>
+          <label>
+            <span>Timeframe</span>
+            <select className="ta-input ta-input--sm" value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>
+              {['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
+          </label>
+          <label>
+            <span>Bars</span>
             <input
+              className="ta-input ta-input--sm"
               type="number"
               min={200}
               step={100}
               value={numBars}
-              onChange={e => setNumBars(Math.max(200, parseInt(e.target.value || '1500', 10)))}
-              style={{ width: 110 }}
-              title="Bars"
+              onChange={(event) => setNumBars(Math.max(200, parseInt(event.target.value || '1500', 10)))}
             />
-            <select value={validationKind} onChange={event => setValidationKind(event.target.value as V2StrategyValidationMode)} title="Validation methodology">
-              <option value="development_backtest">Development 70%</option>
-              <option value="out_of_sample">Holdout 30%</option>
-              <option value="regime">Regime / alternate market</option>
-              <option value="walk_forward">Walk-forward (3 folds)</option>
+          </label>
+          <label className="studio-validation-control">
+            <span>Validation</span>
+            <select
+              className="ta-input ta-input--sm"
+              value={validationKind}
+              onChange={(event) => setValidationKind(event.target.value as V2StrategyValidationMode)}
+            >
+              {STUDIO_VALIDATION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
-            <button className="btn" type="button" onClick={() => setShowCosts(s => !s)} title="Toggle execution-cost and sizing assumptions">{showCosts ? 'Hide Assumptions' : 'Assumptions'}</button>
-            {showCosts && (
-              <>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={feeBps}
-                  onChange={e => setFeeBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
-                  style={{ width: 110 }}
-                  title="Fees (bps)"
-                  placeholder="Fee bps"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={slippageBps}
-                  onChange={e => setSlippageBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
-                  style={{ width: 130 }}
-                  title="Slippage per transaction (bps)"
-                  placeholder="Slippage bps"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={spreadBps}
-                  onChange={e => setSpreadBps(Math.max(0, Number.parseFloat(e.target.value || '0')))}
-                  style={{ width: 120 }}
-                  title="Quoted bid-ask spread (bps); half-spread is charged per transaction"
-                  placeholder="Spread bps"
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  value={positionSizePct}
-                  onChange={e => setPositionSizePct(Math.min(100, Math.max(1, Number.parseFloat(e.target.value || '100'))))}
-                  style={{ width: 125 }}
-                  title="Portfolio allocation per position (%)"
-                  placeholder="Position %"
-                />
-              </>
-            )}
-            <button className="btn" type="button" onClick={runBacktest} disabled={isLoading || (!draftCode && !savedStrategy)}>
-              Run Backtest
+          </label>
+
+          <details className="studio-assumptions">
+            <summary className="ta-btn ta-btn--ghost ta-btn--sm">Assumptions</summary>
+            <div className="studio-assumptions__menu">
+              <label>Fees (bps)<input className="ta-input ta-input--sm" type="number" min={0} step={0.1} value={feeBps} onChange={(event) => setFeeBps(Math.max(0, Number.parseFloat(event.target.value || '0')))} /></label>
+              <label>Slippage (bps)<input className="ta-input ta-input--sm" type="number" min={0} step={0.1} value={slippageBps} onChange={(event) => setSlippageBps(Math.max(0, Number.parseFloat(event.target.value || '0')))} /></label>
+              <label>Spread (bps)<input className="ta-input ta-input--sm" type="number" min={0} step={0.1} value={spreadBps} onChange={(event) => setSpreadBps(Math.max(0, Number.parseFloat(event.target.value || '0')))} /></label>
+              <label>Position size (%)<input className="ta-input ta-input--sm" type="number" min={1} max={100} step={1} value={positionSizePct} onChange={(event) => setPositionSizePct(Math.min(100, Math.max(1, Number.parseFloat(event.target.value || '100'))))} /></label>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section className="ta-panel studio-results">
+        <div className="studio-card-head">
+          <div>
+            <span className="studio-eyebrow">Latest result</span>
+            <strong>{hasBacktestResult ? `${symbol} · ${timeframe} · ${numBars} bars` : 'No backtest result yet'}</strong>
+          </div>
+          <div className="studio-result-actions">
+            <button
+              className="ta-btn ta-btn--sm"
+              type="button"
+              onClick={openResults}
+              disabled={!hasBacktestResult}
+            >
+              Open results
             </button>
-            <select value={savedStrategy} onChange={e => setSavedStrategy(e.target.value)} title="Saved Strategy">
-              <option value="">Select saved strategy…</option>
-              {availableSaved.map(name => (<option key={name} value={name}>{name}</option>))}
-            </select>
-            <button className="btn" type="button" onClick={loadSavedStrategy} disabled={isLoading || !savedStrategy}>Load Saved</button>
-            <button className="btn" type="button" onClick={saveStrategy} disabled={isLoading || !draftCode}>Save Strategy</button>
-            <button className="btn" type="button" onClick={() => setView('auto')} disabled={view === 'auto'}>Formatted</button>
-            <button className="btn" type="button" onClick={() => setView('raw')} disabled={view === 'raw'}>Raw JSON</button>
+            {hasBacktestResult && (
+              <details className="studio-popover">
+                <summary className="ta-btn ta-btn--ghost ta-btn--sm">More</summary>
+                <div className="studio-popover__menu">
+                  <button className="ta-btn ta-btn--ghost ta-btn--sm" type="button" onClick={() => setView('auto')}>Formatted view</button>
+                  <button className="ta-btn ta-btn--ghost ta-btn--sm" type="button" onClick={() => setView('raw')}>Raw JSON</button>
+                </div>
+              </details>
+            )}
           </div>
         </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {renderResult(lastResult, view, draftCode)}
+        <div className="studio-results__body">
+          {hasBacktestResult
+            ? renderBacktestResult(lastResult, view)
+            : <div className="studio-empty">Run a development, holdout, regime, or walk-forward test to populate this area.</div>}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
 
-function renderResult(lastResult: any, view: 'auto' | 'raw', draftCode: string) {
-  if (!lastResult && draftCode) return <CodeDisplay code={draftCode} />;
-  if (!lastResult) return <div className="muted">No result yet.</div>;
+function renderBacktestResult(lastResult: any, view: 'auto' | 'raw') {
   if (view === 'raw') return <CodeDisplay code={JSON.stringify(lastResult, null, 2)} />;
-  if (lastResult.stdout) return <CodeDisplay code={lastResult.stdout} />;
 
   if (lastResult.metrics && (lastResult.equity || lastResult.optimization_results)) {
     return (
-      <Suspense fallback={<div className="muted">Loading backtest dashboard...</div>}>
+      <Suspense fallback={<div className="studio-empty">Loading backtest dashboard…</div>}>
         <BacktestDashboard data={lastResult} />
       </Suspense>
     );
