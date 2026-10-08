@@ -6,7 +6,8 @@ export type JournalTradeSource = 'all' | 'broker' | 'paper';
 export interface JournalTradeFilters {
   symbol: string;
   strategy: string;
-  date: string;
+  dateFrom: string;
+  dateTo: string;
   source: JournalTradeSource;
 }
 
@@ -42,7 +43,9 @@ export function filterJournalTrades(
   return rows.filter((row) => {
     if (filters.symbol !== 'all' && row.symbol !== filters.symbol) return false;
     if (filters.strategy !== 'all' && row.strategy !== filters.strategy) return false;
-    if (filters.date && journalTradeLocalDateKey(row.closed_at_utc) !== filters.date) return false;
+    const localDate = journalTradeLocalDateKey(row.closed_at_utc);
+    if (filters.dateFrom && localDate < filters.dateFrom) return false;
+    if (filters.dateTo && localDate > filters.dateTo) return false;
     if (filters.source !== 'all' && journalTradeSource(row) !== filters.source) return false;
     return true;
   });
