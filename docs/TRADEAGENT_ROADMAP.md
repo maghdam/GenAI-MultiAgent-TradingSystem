@@ -416,6 +416,29 @@ Investigate and repair the exact identity/persistence path that allowed a real c
 
 ---
 
+### 2.10 Journal realized-total polarity color
+**Priority:** P3
+**Status:** 🧪 Ready for local validation
+
+Make the filtered completed-trade realized total use the same gain/loss color semantics as the per-trade Journal P&L cells.
+
+**Target behavior**
+- [x] Negative filtered realized totals render with the existing loss/bear color.
+- [x] Positive or zero filtered realized totals render with the existing gain/bull color, matching current per-row P&L semantics.
+- [x] Completed-trade count and other summary/help text remain neutral.
+- [x] Reuse existing Journal polarity classes/tokens; do not change P&L arithmetic, filtering, currency grouping, broker history, execution, storage, or risk behavior.
+
+**Verification**
+- [ ] Focused Journal frontend tests pass locally.
+- [ ] Frontend production build passes locally.
+- [ ] Browser visual check confirms a negative summary total is red and a positive summary total is green.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+CSS-only presentation change in the Trade Journal summary.
+
+---
+
 ## 5. Phase 3 — System page acceptance audit
 
 Test every operator control against backend behavior.
@@ -1716,4 +1739,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**After PR #110 is merged and local `main` is synchronized, use TradeAgent as the operating system rather than starting another speculative development phase. Begin each session with the compact System health/safety check, keep account selection and engine Start/Stop on Trade, and use Build & Test for strategy research. Do not manufacture broker exposure: the next natural TradeAgent-managed protected cTrader position should satisfy the pending Phase 2.6 browser Entry/SL/TP overlay observation and Phase 7 protected-position disconnect/recovery field observation against the same canonical broker identity. Phase 5.3 remains evidence-gated at 0 of 3 sufficient cells; keep the global 60% signal-strength threshold unchanged until the sample screen passes.**
+**Validate Phase 2.10 on PR #111 / branch `ui/journal-realized-total-color`. Run the focused Journal frontend tests, then the frontend production build, verify a negative filtered realized total renders red (and positive renders green), and wait for GitHub CI on the exact head. After merge and local `main` synchronization, return to normal TradeAgent operation; do not manufacture broker exposure. The next natural TradeAgent-managed protected cTrader position should still satisfy the pending Phase 2.6 browser Entry/SL/TP overlay observation and Phase 7 protected-position disconnect/recovery field observation. Phase 5.3 remains evidence-gated at 0 of 3 sufficient cells; keep the global 60% signal-strength threshold unchanged until the sample screen passes.**
