@@ -477,18 +477,27 @@ export default function Journal() {
       {isTradeView && (
         <div className="ta-journal-totals" aria-label="Filtered completed trade summary">
           <span><strong>{tradeSummary.count}</strong> completed {tradeSummary.count === 1 ? 'trade' : 'trades'}</span>
-          {tradeSummary.totals.length > 0 ? tradeSummary.totals.map((totalItem) => (
+          {tradeSummary.totals.length === 1 ? (
             <span
-              key={totalItem.currency}
-              className={totalItem.realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
+              className={tradeSummary.totals[0].realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
             >
-              Realized {totalItem.currency} <strong>{formatPnl(totalItem.realizedPnl)}</strong>
+              Realized <strong>{formatPnl(tradeSummary.totals[0].realizedPnl)} {tradeSummary.totals[0].currency}</strong>
             </span>
-          )) : (
+          ) : tradeSummary.totals.length > 1 ? (
+            <>
+              <span className="ta-journal__subtle">Mixed-currency history:</span>
+              {tradeSummary.totals.map((totalItem) => (
+                <span
+                  key={totalItem.currency}
+                  className={totalItem.realizedPnl >= 0 ? 'ta-cell--good' : 'ta-cell--bad'}
+                >
+                  {totalItem.currency}-denominated trades net <strong>{formatPnl(totalItem.realizedPnl)} {totalItem.currency}</strong>
+                </span>
+              ))}
+              <span className="ta-journal__subtle">No FX-converted combined total</span>
+            </>
+          ) : (
             <span className="ta-journal__subtle">Realized –</span>
-          )}
-          {tradeSummary.totals.length > 1 && (
-            <span className="ta-journal__subtle">Separate currency totals — not combined</span>
           )}
           <span className="ta-journal__subtle">Blank date = all recorded history</span>
         </div>
