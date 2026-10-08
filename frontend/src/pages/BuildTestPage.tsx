@@ -1,21 +1,39 @@
+import { useState } from 'react';
+
 import AppNav from '../components/AppNav';
 import ResearchValidationPanel from '../components/ResearchValidationPanel';
 import StrategyStudioPage from './StrategyStudio';
 
 export default function BuildTestPage() {
+  const [showAdvancedEvidence, setShowAdvancedEvidence] = useState(false);
+
   return (
     <div className="ta-app">
       <AppNav right={<span className="ta-status"><span className="ta-status__dot ta-status__dot--wait" />Research workspace</span>} />
-      <main className="v2-shell">
-        <section className="v2-hero" style={{ marginBottom: 16 }}>
+
+      <main className="build-shell">
+        <header className="build-heading">
           <div>
-            <p className="v2-kicker">Build & Test</p>
-            <h1>Turn an idea into explicit, testable strategy rules.</h1>
-            <p className="v2-lead">Idea → rules → backtest → validation → paper evidence → deployment eligibility. GenAI assists research; it cannot approve or execute trades.</p>
+            <p className="build-kicker">Build & Test</p>
+            <h1>Strategy research workspace</h1>
+            <p>Define the idea, draft explicit rules, backtest them, and earn lifecycle evidence before anything can progress toward deployment.</p>
           </div>
-        </section>
+          <button
+            className="ta-btn ta-btn--ghost"
+            type="button"
+            onClick={() => setShowAdvancedEvidence((value) => !value)}
+          >
+            {showAdvancedEvidence ? 'Hide advanced evidence' : 'Advanced evidence'}
+          </button>
+        </header>
+
         <StrategyStudioPage />
-        <ResearchValidationPanel />
+
+        {showAdvancedEvidence && (
+          <div className="build-advanced-evidence">
+            <ResearchValidationPanel />
+          </div>
+        )}
       </main>
     </div>
   );
