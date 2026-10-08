@@ -151,6 +151,79 @@ class ProgrammerAgent:
                 """
                 return textwrap.dedent(src).strip()
 
+            if "rsi" in goal_lower and (
+                "ema" in goal_lower
+                or "trend filter" in goal_lower
+                or "pullback" in goal_lower
+            ):
+                src = f"""
+                    # EMA trend filter + RSI pullback confirmation.
+                    # Original request: {goal or "no description provided"}
+                    import pandas as pd
+
+                    def ema(series: pd.Series, span: int = 50) -> pd.Series:
+                        return series.ewm(span=span, adjust=False, min_periods=span).mean()
+
+                    def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+                        delta = series.diff()
+                        gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+                        loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
+                        rs = gain / loss.replace(0, 1e-9)
+                        return 100 - (100 / (1 + rs))
+
+                    def signals(
+                        df: pd.DataFrame,
+                        ema_span: int = 50,
+                        rsi_period: int = 14,
+                        long_trigger: float = 45.0,
+                        short_trigger: float = 55.0,
+                        long_exit: float = 70.0,
+                        short_exit: float = 30.0,
+                    ) -> pd.Series:
+                        close = df["close"].astype(float)
+                        trend = ema(close, ema_span)
+                        momentum = rsi(close, rsi_period)
+                        target = pd.Series(0.0, index=df.index, dtype=float)
+                        state = 0.0
+
+                        for i in range(len(df)):
+                            current_close = close.iloc[i]
+                            current_trend = trend.iloc[i]
+                            current_rsi = momentum.iloc[i]
+
+                            if pd.isna(current_trend) or pd.isna(current_rsi):
+                                target.iloc[i] = state
+                                continue
+
+                            if state > 0 and (current_close < current_trend or current_rsi >= long_exit):
+                                state = 0.0
+                            elif state < 0 and (current_close > current_trend or current_rsi <= short_exit):
+                                state = 0.0
+
+                            if state == 0.0 and i > 0:
+                                previous_rsi = momentum.iloc[i - 1]
+                                if pd.notna(previous_rsi):
+                                    long_entry = (
+                                        current_close > current_trend
+                                        and previous_rsi <= long_trigger
+                                        and current_rsi > long_trigger
+                                    )
+                                    short_entry = (
+                                        current_close < current_trend
+                                        and previous_rsi >= short_trigger
+                                        and current_rsi < short_trigger
+                                    )
+                                    if long_entry:
+                                        state = 1.0
+                                    elif short_entry:
+                                        state = -1.0
+
+                            target.iloc[i] = state
+
+                        return target.fillna(0.0)
+                """
+                return textwrap.dedent(src).strip()
+
             if "rsi" in goal_lower:
                 src = f"""
                     # Mean-reversion using RSI: long when RSI < 30, short when RSI > 70.
