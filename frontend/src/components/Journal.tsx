@@ -169,7 +169,8 @@ export default function Journal() {
   const [category, setCategory] = useState<JournalCategory>('trades');
   const [symbol, setSymbol] = useState('all');
   const [strategy, setStrategy] = useState('all');
-  const [date, setDate] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [source, setSource] = useState<JournalSource>('broker');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -223,8 +224,8 @@ export default function Journal() {
   );
 
   const filteredTrades = useMemo(
-    () => filterJournalTrades(trades ?? [], { symbol, strategy, date, source }),
-    [trades, symbol, strategy, date, source],
+    () => filterJournalTrades(trades ?? [], { symbol, strategy, dateFrom, dateTo, source }),
+    [trades, symbol, strategy, dateFrom, dateTo, source],
   );
   const tradeSummary = useMemo(() => summarizeJournalTrades(filteredTrades), [filteredTrades]);
   const brokerSummary = useMemo(
@@ -239,17 +240,20 @@ export default function Journal() {
       if (!matchesCategory(trade, intent, category)) return false;
       if (symbol !== 'all' && trade.symbol !== symbol) return false;
       if (strategy !== 'all' && trade.strategy !== strategy) return false;
-      if (date && localDateKey(trade.created_at) !== date) return false;
+      const auditDate = localDateKey(trade.created_at);
+      if (dateFrom && auditDate < dateFrom) return false;
+      if (dateTo && auditDate > dateTo) return false;
       if (source !== 'all' && auditSource(trade, intent) !== source) return false;
       return true;
     });
-  }, [entries, intentById, category, symbol, strategy, date, source]);
+  }, [entries, intentById, category, symbol, strategy, dateFrom, dateTo, source]);
 
   const resetFilters = () => {
     setCategory('trades');
     setSymbol('all');
     setStrategy('all');
-    setDate('');
+    setDateFrom('');
+    setDateTo('');
     setSource('broker');
   };
 
@@ -462,8 +466,23 @@ export default function Journal() {
         </label>
 
         <label>
-          <span>Close date</span>
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <span>From</span>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(event) => setDateFrom(event.target.value)}
+          />
+        </label>
+
+        <label>
+          <span>To</span>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(event) => setDateTo(event.target.value)}
+          />
         </label>
 
         <label>
@@ -507,7 +526,7 @@ export default function Journal() {
               {brokerSummary.count} broker {brokerSummary.count === 1 ? 'trade' : 'trades'} · paper simulation excluded from account realized
             </span>
           )}
-          <span className="ta-journal__subtle">Blank date = all recorded history</span>
+          <span className="ta-journal__subtle">Blank From/To = all recorded history</span>
         </div>
       )}
 
