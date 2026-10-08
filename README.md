@@ -49,33 +49,7 @@ The project is intended to show AI product engineering rather than prompt-only e
   <sub>Compact operations workspace for runtime health, read-only active-account truth/readiness, safety configuration, diagnostics, recovery/reconciliation, and audit. Account selection and engine Start/Stop remain on Trade.</sub>
 </p>
 
-<details>
-  <summary>Earlier prototype snapshots</summary>
-  <p align="center">
-    <img src="docs/images/dashboard-main.png" alt="Earlier TradeAgent portfolio dashboard snapshot" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/strategy-studio-results.png" alt="Earlier TradeAgent Strategy Studio results snapshot" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/strategy-studio-results-2.png" alt="Earlier TradeAgent Strategy Studio results continuation snapshot" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/Dashboard0.png" alt="Earlier TradeAgent dashboard overview with chart, signals, positions, and agent task panels" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/Dashboard1.png" alt="Earlier TradeAgent dashboard continuation showing assistant analysis, decision summary, and rationale panels" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/Dashboard2.png" alt="Earlier Strategy Studio view showing prompt-driven strategy generation and code output" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/Dashboard3.png" alt="Earlier Strategy Studio view showing saved strategy output and backtest metrics" width="100%" />
-  </p>
-  <p align="center">
-    <img src="docs/images/FastAPI.png" alt="TradeAgent FastAPI documentation snapshot from the earlier prototype stage" width="92%" />
-  </p>
-</details>
+
 
 ## Main Capabilities
 
