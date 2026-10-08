@@ -416,11 +416,11 @@ Investigate and repair the exact identity/persistence path that allowed a real c
 
 ---
 
-### 2.10 Journal account-realized total and polarity color
+### 2.10 Journal account-realized summary and history range UX
 **Priority:** P3
 **Status:** 🧪 Ready for local validation
 
-Make the Journal headline reflect the actual broker account result: one realized total in the broker account currency, colored by gain/loss, without mixing paper-simulation P&L into the account total.
+Make the Journal behave like a trading history view: broker account results are emphasized, gain/loss polarity is visible, blank dates mean the full recorded history, and optional inclusive From/To dates narrow the view.
 
 **Target behavior**
 - [x] Default the completed-trade source filter to **Broker account** rather than Broker + paper.
@@ -428,17 +428,21 @@ Make the Journal headline reflect the actual broker account result: one realized
 - [x] Paper-simulation rows never contribute to **Account realized**; selecting Paper shows a separately labeled **Paper realized** result.
 - [x] If Broker + paper records are explicitly selected, keep the combined row count but compute the account headline from broker rows only and state that paper simulation is excluded.
 - [x] Fail visibly instead of adding broker histories with different account currencies; a true multi-account historical total requires broker-account identity scoping.
+- [x] Replace the single exact close-date filter with inclusive **From** / **To** filters; either side may be blank, and both blank means all recorded history.
+- [x] Apply the same local-date range semantics to diagnostic audit views for consistency.
 - [x] Reuse existing Journal polarity classes/tokens; do not change broker P&L arithmetic, execution, storage, or risk behavior.
 
 **Verification**
 - [ ] Focused Journal frontend tests pass locally.
 - [ ] Frontend production build passes locally.
 - [ ] Browser visual check confirms a negative summary total is red and a positive summary total is green.
-- [ ] All-history Broker account view shows only one Account realized amount in the broker account currency; Broker + paper view does not let paper USD/CHF rows alter that account headline.
+- [ ] Blank From/To shows the full recorded history; setting From and To restricts the view inclusively and setting the same date in both reproduces the previous single-day filter.
+- [ ] Broker + paper view does not let paper USD/CHF rows alter the broker-account headline.
+- [ ] Historical broker rows spanning multiple persisted currencies remain fail-closed until broker-account identity scoping is implemented; do not invent a combined account total.
 - [ ] GitHub CI passes on the exact implementation head.
 
 **Scope boundary**
-CSS-only presentation change in the Trade Journal summary.
+Trade Journal presentation/filter semantics only. This item does not migrate historical broker rows to account IDs. A true cTrader-style all-history total for the selected account across legacy mixed-currency broker rows requires explicit broker-account identity scoping as the next backend/data-lineage item.
 
 ---
 
@@ -1742,4 +1746,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Validate Phase 2.10 on PR #111 / branch `ui/journal-realized-total-color`. Run the focused Journal frontend tests, then the frontend production build, verify a negative filtered realized total renders red (and positive renders green), and wait for GitHub CI on the exact head. After merge and local `main` synchronization, return to normal TradeAgent operation; do not manufacture broker exposure. The next natural TradeAgent-managed protected cTrader position should still satisfy the pending Phase 2.6 browser Entry/SL/TP overlay observation and Phase 7 protected-position disconnect/recovery field observation. Phase 5.3 remains evidence-gated at 0 of 3 sufficient cells; keep the global 60% signal-strength threshold unchanged until the sample screen passes.**
+**Validate the final Phase 2.10 shape on PR #111 / branch `ui/journal-realized-total-color`: rerun the focused Journal frontend tests and frontend production build, then browser-check that Completed trades defaults to Broker account, blank From/To shows all recorded history, From/To is inclusive, and a same-day From=To reproduces the single-day view. The broker-account realized amount must remain red/green and paper simulation must not alter it. If legacy broker rows span multiple persisted currencies, keep the fail-closed warning rather than inventing a total. After Phase 2.10 is merged and local `main` is synchronized, the next roadmap item is broker-account identity scoping/backfill so all-history can produce one selected-account total like cTrader. Do not manufacture broker exposure.**
