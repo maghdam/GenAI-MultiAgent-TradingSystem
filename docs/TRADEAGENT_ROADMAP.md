@@ -426,14 +426,14 @@ Make the filtered completed-trade realized total use the same gain/loss color se
 - [x] Negative filtered realized totals render with the existing loss/bear color.
 - [x] Positive or zero filtered realized totals render with the existing gain/bull color, matching current per-row P&L semantics.
 - [x] Completed-trade count and other summary/help text remain neutral.
-- [x] Label each realized total with its currency and explicitly state when multiple currencies are shown separately rather than implying a mathematically combined net result.
+- [x] For mixed-currency history, label each amount as the net of a different currency-denominated trade subset and explicitly state that no FX-converted combined total is being shown.
 - [x] Reuse existing Journal polarity classes/tokens; do not change P&L arithmetic, filtering, currency grouping, broker history, execution, storage, or risk behavior.
 
 **Verification**
 - [ ] Focused Journal frontend tests pass locally.
 - [ ] Frontend production build passes locally.
 - [ ] Browser visual check confirms a negative summary total is red and a positive summary total is green.
-- [ ] Mixed-currency all-history view clearly labels separate CHF/USD totals and states that they are not combined.
+- [ ] Mixed-currency all-history view clearly says CHF/USD values are nets of different currency-denominated trade subsets and that no FX-converted combined total is shown.
 - [ ] GitHub CI passes on the exact implementation head.
 
 **Scope boundary**
