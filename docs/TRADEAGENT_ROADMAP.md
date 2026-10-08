@@ -429,6 +429,7 @@ Make the Journal behave like a trading history view: broker account results are 
 - [x] If Broker + paper records are explicitly selected, keep the combined row count but compute the account headline from broker rows only and state that paper simulation is excluded.
 - [x] Fail visibly instead of adding broker histories with different account currencies; a true multi-account historical total requires broker-account identity scoping.
 - [x] Replace the single exact close-date filter with inclusive **From** / **To** filters; either side may be blank, and both blank means all recorded history.
+- [x] Make **All history** the explicit default state and provide an **All history** control that clears From/To without resetting Symbol/Strategy/Source filters.
 - [x] Apply the same local-date range semantics to diagnostic audit views for consistency.
 - [x] Reuse existing Journal polarity classes/tokens; do not change broker P&L arithmetic, execution, storage, or risk behavior.
 
@@ -436,7 +437,7 @@ Make the Journal behave like a trading history view: broker account results are 
 - [ ] Focused Journal frontend tests pass locally.
 - [ ] Frontend production build passes locally.
 - [ ] Browser visual check confirms a negative summary total is red and a positive summary total is green.
-- [ ] Blank From/To shows the full recorded history; setting From and To restricts the view inclusively and setting the same date in both reproduces the previous single-day filter.
+- [ ] Blank From/To shows the full recorded history; the explicit All history control clears only the date range; setting From and To restricts the view inclusively and setting the same date in both reproduces the previous single-day filter.
 - [ ] Broker + paper view does not let paper USD/CHF rows alter the broker-account headline.
 - [ ] Historical broker rows spanning multiple persisted currencies remain fail-closed until broker-account identity scoping is implemented; do not invent a combined account total.
 - [ ] GitHub CI passes on the exact implementation head.
