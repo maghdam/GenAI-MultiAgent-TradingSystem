@@ -139,7 +139,7 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         prompt += "\nCreate a new strategy from the user's request.\n"
     prompt += f"\nUser request: {message}\nPython code:"
 
-    timeout_s = float(os.getenv("STUDIO_CODE_TIMEOUT", os.getenv("STUDIO_LLM_TIMEOUT", "30")) or 30)
+    timeout_s = float(os.getenv("STUDIO_CODE_TIMEOUT", os.getenv("STUDIO_LLM_TIMEOUT", "90")) or 90)
     max_tokens = int(os.getenv("STUDIO_CODE_MAX_TOKENS", "900") or 900)
 
     try:
