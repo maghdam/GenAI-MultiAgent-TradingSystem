@@ -298,11 +298,17 @@ def _normalize_task_type(task_type: str, goal_text: str) -> str:
     try:
         import re
 
-        looks_like_opt_cmd = bool(
+        negated_opt_cmd = bool(
+            re.search(r"\b(?:do\s+not|don't|dont|avoid|without)\s+optimi[sz](?:e|ation|ing)?\b", goal_lower)
+        )
+        negated_bt_cmd = bool(
+            re.search(r"\b(?:do\s+not|don't|dont|avoid|without)\s+back\s*test(?:ing)?\b", goal_lower)
+        )
+        looks_like_opt_cmd = not negated_opt_cmd and bool(
             re.match(r"\s*optimi[sz](e|ation|ing)?\b", goal_lower)
             or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\boptimi[sz](e|ation|ing)?\b", goal_lower)
         )
-        looks_like_bt_cmd = bool(
+        looks_like_bt_cmd = not negated_bt_cmd and bool(
             re.match(r"\s*back\s*test(ing)?\b", goal_lower)
             or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\bback\s*test(ing)?\b", goal_lower)
         )
