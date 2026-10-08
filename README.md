@@ -37,7 +37,7 @@ The project is intended to show AI product engineering rather than prompt-only e
   <img src="docs/images/Build_Test.png" alt="Current TradeAgent Build and Test research workspace" width="100%" />
 </p>
 <p align="center">
-  <sub>Current research workspace for GenAI-assisted strategy drafting, saved/draft backtesting, validation methodology, lifecycle evidence, and controlled promotion.</sub>
+  <sub>Compact research workspace for GenAI-assisted strategy drafting, explicit lifecycle progression, saved/draft backtesting, validation methodology, lifecycle evidence, and controlled promotion.</sub>
 </p>
 
 ### System
@@ -46,7 +46,7 @@ The project is intended to show AI product engineering rather than prompt-only e
   <img src="docs/images/System.png" alt="Current TradeAgent System workspace with runtime health, readiness, safety controls, recovery, and audit" width="100%" />
 </p>
 <p align="center">
-  <sub>Operations workspace for runtime health, account selection/readiness, safety configuration, recovery/reconciliation, and audit. Demo and Live accounts use the same guarded cTrader execution architecture.</sub>
+  <sub>Compact operations workspace for runtime health, read-only active-account truth/readiness, safety configuration, diagnostics, recovery/reconciliation, and audit. Account selection and engine Start/Stop remain on Trade.</sub>
 </p>
 
 <details>
@@ -97,8 +97,8 @@ The project is intended to show AI product engineering rather than prompt-only e
 
 ### System
 
-- engine start/stop, one-shot scan, reconciliation, and recovery
-- readiness and connection diagnostics
+- read-only engine state plus one-shot scan, reconciliation, and recovery diagnostics
+- readiness, broker connection, active-account truth, and incident visibility
 - risk, session, stop, cooldown, and loss controls
 - decision, trade, engine-event, and incident audit trails
 
@@ -150,7 +150,7 @@ This starts:
 
 Configure one cTrader Open API application/access token, not one credential block per trading account. On Windows, TradeAgent reads `CTRADER_CLIENT_ID`, `CTRADER_CLIENT_SECRET`, and `CTRADER_ACCESS_TOKEN` from **Windows Credential Manager** before considering environment-variable fallback. Use `python scripts/manage_ctrader_credentials.py set` for a fresh setup, or migrate an existing ignored `backend/.env` with `python scripts/manage_ctrader_credentials.py migrate --env-file backend/.env --scrub-env`. The migration verifies the Credential Manager writes before removing those three secret assignments and never prints their values.
 
-The access token supplies the authorized account directory, and TradeAgent discovers the available accounts with their broker-reported Demo/Live type. Select the account directly from the Trade toolbar or from System; Trade shows saved selection separately from the currently authenticated Active account and surfaces the Live-money armed/disarmed state. The selection is persisted in local SQLite and restored on restart; the credential values themselves are not stored in SQLite.
+The access token supplies the authorized account directory, and TradeAgent discovers the available accounts with their broker-reported Demo/Live type. Select the account directly from the Trade toolbar; System reports the active/verified account as read-only operational truth. Trade shows saved selection separately from the currently authenticated Active account and surfaces the Live-money armed/disarmed state. The selection is persisted in local SQLite and restored on restart; the credential values themselves are not stored in SQLite.
 
 `CTRADER_HOST_TYPE` and `CTRADER_ACCOUNT_ID` remain non-secret bootstrap/fallback values for initial discovery or migration and may stay in the local ignored `backend/.env`. Environment-variable credentials remain supported for non-Windows/CI use, but a normal Windows workstation should keep the three cTrader secrets out of plaintext project files.
 
