@@ -416,24 +416,25 @@ Investigate and repair the exact identity/persistence path that allowed a real c
 
 ---
 
-### 2.10 Journal realized-total polarity color
+### 2.10 Journal account-realized total and polarity color
 **Priority:** P3
 **Status:** 🧪 Ready for local validation
 
-Make the filtered completed-trade realized total use the same gain/loss color semantics as the per-trade Journal P&L cells.
+Make the Journal headline reflect the actual broker account result: one realized total in the broker account currency, colored by gain/loss, without mixing paper-simulation P&L into the account total.
 
 **Target behavior**
-- [x] Negative filtered realized totals render with the existing loss/bear color.
-- [x] Positive or zero filtered realized totals render with the existing gain/bull color, matching current per-row P&L semantics.
-- [x] Completed-trade count and other summary/help text remain neutral.
-- [x] For mixed-currency history, label each amount as the net of a different currency-denominated trade subset and explicitly state that no FX-converted combined total is being shown.
-- [x] Reuse existing Journal polarity classes/tokens; do not change P&L arithmetic, filtering, currency grouping, broker history, execution, storage, or risk behavior.
+- [x] Default the completed-trade source filter to **Broker account** rather than Broker + paper.
+- [x] Broker views show one **Account realized** total in the persisted broker account currency, colored red for loss and green for gain.
+- [x] Paper-simulation rows never contribute to **Account realized**; selecting Paper shows a separately labeled **Paper realized** result.
+- [x] If Broker + paper records are explicitly selected, keep the combined row count but compute the account headline from broker rows only and state that paper simulation is excluded.
+- [x] Fail visibly instead of adding broker histories with different account currencies; a true multi-account historical total requires broker-account identity scoping.
+- [x] Reuse existing Journal polarity classes/tokens; do not change broker P&L arithmetic, execution, storage, or risk behavior.
 
 **Verification**
 - [ ] Focused Journal frontend tests pass locally.
 - [ ] Frontend production build passes locally.
 - [ ] Browser visual check confirms a negative summary total is red and a positive summary total is green.
-- [ ] Mixed-currency all-history view clearly says CHF/USD values are nets of different currency-denominated trade subsets and that no FX-converted combined total is shown.
+- [ ] All-history Broker account view shows only one Account realized amount in the broker account currency; Broker + paper view does not let paper USD/CHF rows alter that account headline.
 - [ ] GitHub CI passes on the exact implementation head.
 
 **Scope boundary**
