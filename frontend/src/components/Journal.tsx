@@ -248,12 +248,16 @@ export default function Journal() {
     });
   }, [entries, intentById, category, symbol, strategy, dateFrom, dateTo, source]);
 
+  const clearDateRange = () => {
+    setDateFrom('');
+    setDateTo('');
+  };
+
   const resetFilters = () => {
     setCategory('trades');
     setSymbol('all');
     setStrategy('all');
-    setDateFrom('');
-    setDateTo('');
+    clearDateRange();
     setSource('broker');
   };
 
@@ -494,6 +498,16 @@ export default function Journal() {
           </select>
         </label>
 
+        <button
+          type="button"
+          onClick={clearDateRange}
+          disabled={!dateFrom && !dateTo}
+          aria-pressed={!dateFrom && !dateTo}
+          title="Clear From/To and show the full recorded history"
+        >
+          All history
+        </button>
+
         <button type="button" onClick={resetFilters}>Reset</button>
       </div>
 
@@ -526,7 +540,7 @@ export default function Journal() {
               {brokerSummary.count} broker {brokerSummary.count === 1 ? 'trade' : 'trades'} · paper simulation excluded from account realized
             </span>
           )}
-          <span className="ta-journal__subtle">Blank From/To = all recorded history</span>
+          <span className="ta-journal__subtle">All history is the default · From/To narrows the range</span>
         </div>
       )}
 
