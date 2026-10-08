@@ -418,32 +418,62 @@ Investigate and repair the exact identity/persistence path that allowed a real c
 
 ### 2.10 Journal account-realized summary and history range UX
 **Priority:** P3
-**Status:** 🧪 Ready for local validation
+**Status:** ✅
 
 Make the Journal behave like a trading history view: broker account results are emphasized, gain/loss polarity is visible, blank dates mean the full recorded history, and optional inclusive From/To dates narrow the view.
 
 **Target behavior**
 - [x] Default the completed-trade source filter to **Broker account** rather than Broker + paper.
-- [x] Broker views show one **Account realized** total in the persisted broker account currency, colored red for loss and green for gain.
+- [x] Broker views show one **Account realized** total in the persisted broker account currency when the filtered broker rows resolve to one account currency, colored red for loss and green for gain.
 - [x] Paper-simulation rows never contribute to **Account realized**; selecting Paper shows a separately labeled **Paper realized** result.
 - [x] If Broker + paper records are explicitly selected, keep the combined row count but compute the account headline from broker rows only and state that paper simulation is excluded.
-- [x] Fail visibly instead of adding broker histories with different account currencies; a true multi-account historical total requires broker-account identity scoping.
+- [x] Fail visibly instead of adding historical broker rows with different persisted account currencies; true selected-account history requires broker-account identity scoping.
 - [x] Replace the single exact close-date filter with inclusive **From** / **To** filters; either side may be blank, and both blank means all recorded history.
 - [x] Make **All history** the explicit default state and provide an **All history** control that clears From/To without resetting Symbol/Strategy/Source filters.
 - [x] Apply the same local-date range semantics to diagnostic audit views for consistency.
 - [x] Reuse existing Journal polarity classes/tokens; do not change broker P&L arithmetic, execution, storage, or risk behavior.
 
 **Verification**
-- [ ] Focused Journal frontend tests pass locally.
-- [ ] Frontend production build passes locally.
-- [ ] Browser visual check confirms a negative summary total is red and a positive summary total is green.
-- [ ] Blank From/To shows the full recorded history; the explicit All history control clears only the date range; setting From and To restricts the view inclusively and setting the same date in both reproduces the previous single-day filter.
-- [ ] Broker + paper view does not let paper USD/CHF rows alter the broker-account headline.
-- [ ] Historical broker rows spanning multiple persisted currencies remain fail-closed until broker-account identity scoping is implemented; do not invent a combined account total.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused Journal frontend tests pass locally: 7/7.
+- [x] Frontend production build passes locally: 706 modules transformed.
+- [x] Browser visual checks confirm realized-summary polarity styling: loss totals render red and gain totals render green.
+- [x] Blank From/To shows the full recorded history; the explicit All history control is visible and returns the date range to the all-history state; same-day and bounded-range semantics are covered by the focused inclusive-range tests.
+- [x] Broker + paper accounting semantics exclude paper simulation from the broker-account headline.
+- [x] Browser all-history check intentionally fails closed with `Account realized unavailable across multiple broker account currencies` rather than inventing a cross-account/cross-currency total.
+- [x] GitHub CI #456 passes on exact implementation head `45a68e7`.
+
+**Field evidence**
+- The 2026-10-08 single-day Broker account view showed one red `Account realized -2.16 CHF` headline over 13 completed broker trades.
+- The blank From/To Broker account view showed the full recorded broker history (153 visible completed trades in the observed browser session), proving the date default itself works.
+- The missing all-history amount is therefore not a date-filter defect: historical broker rows span multiple persisted account currencies but do not yet carry broker account identity, so the UI cannot prove which legacy rows belong to the selected cTrader account. This is Phase 2.11.
 
 **Scope boundary**
-Trade Journal presentation/filter semantics only. This item does not migrate historical broker rows to account IDs. A true cTrader-style all-history total for the selected account across legacy mixed-currency broker rows requires explicit broker-account identity scoping as the next backend/data-lineage item.
+Trade Journal presentation/filter semantics only. This item does not migrate historical broker rows to account IDs.
+
+---
+
+### 2.11 Broker-account identity scoping for cTrader-style all-history totals
+**Priority:** P1
+**Status:** ⏳ Next
+
+Make the Journal's Broker account history truly account-scoped so blank From/To can show one authoritative all-history realized total for the selected cTrader account, even when the database contains history from other demo/live accounts.
+
+**Target behavior**
+- [ ] Persist immutable broker account identity (account ID and demo/live type where available) on new broker-backed positions/deals and expose it through the Journal export.
+- [ ] Backfill legacy broker-backed rows only from exact cTrader account evidence (broker position/deal identity within an authorized account history); never infer account ownership from currency, symbol, price, quantity, or timestamp similarity.
+- [ ] Scope the default **Broker account** Journal view to the currently selected cTrader account.
+- [ ] Blank From/To means the selected account's complete recorded history and shows one realized total in that account's deposit currency.
+- [ ] From/To ranges remain inclusive while preserving selected-account scoping.
+- [ ] Rows whose broker account cannot be proven remain explicit/unscoped and are not silently included in a selected-account total.
+- [ ] Switching between authorized demo/live accounts changes the Journal account-history scope without rewriting historical ownership.
+
+**Acceptance**
+- [ ] Read-only evidence probe maps the current CHF Demo account's legacy broker position/deal IDs to the exact cTrader account before migration.
+- [ ] Migration/backfill is idempotent and exact-identity safe.
+- [ ] Focused backend Journal/account-identity tests pass locally.
+- [ ] Focused frontend Journal tests and production build pass locally.
+- [ ] Real browser all-history check for the selected CHF account shows one authoritative Account realized total instead of the mixed-currency warning.
+- [ ] GitHub CI passes on the exact implementation head.
 
 ---
 
@@ -1507,6 +1537,7 @@ Add one row after every completed task.
 | 2026-10-07 | README chart-native signal gallery | Add `Trade_Main_2.png` to Product Gallery → Trade and document chart-native actionable signal markers, exact saved Entry/SL/TP review, and guarded operator Confirm/Cancel submission distinct from separately enabled automated execution | ✅ Local docs validation confirmed exact image reference, tracked 267090-byte PNG, README wording, clean whitespace/worktree; CI #429 passed on `520aea6` | PR #107 / `520aea6` | Final docs-head validation/CI, merge, sync main; roadmap execution sequence remains unchanged |
 | 2026-10-07 | Phase 2.8 canonical completed-trade Journal | Replace audit-event-default Journal with a canonical closed-position ledger, all-history/date/source filters, execution origin, and per-currency filtered realized totals | ✅ 10/10 backend Journal tests + 6/6 frontend Journal tests + full backend regression + 705-module frontend build + clean tree/diff + CI #433; browser/API check exposed 3 canonical rows / +2.48 CHF versus 4 cTrader closes / -17.91 CHF | PR #108 / `4009e4c` | Phase 2.9: diagnose the missing XAUUSD 0.10 lot / -20.39 CHF broker close by exact identity before any repair |
 | 2026-10-07 | Phase 2.9 exact broker-history orphan recovery | Recover TradeAgent-originated closed cTrader positions missing from the active canonical ledger by exact opening marker + immutable broker position/deal identity; keep unknown legacy metadata explicit and make future client-order IDs globally unique across runtime DB generations | ✅ 4/4 focused recovery tests + 36/36 ACK/restart/reconciliation regression + full backend suite + 705-module frontend build + clean diff/worktree + CI #437; real reconcile recovered target broker position `57868693` / deal `63499285` exactly once, second run recovered 0, and Journal matched cTrader at 4 trades / -17.91 CHF; 23 exact-identity historical broker orphans were restored in the first bounded sweep | PR #109 / `82f14d0` | Final docs-head CI, merge, sync main; next natural protected TradeAgent-managed position can satisfy pending Phase 2.6 overlay and Phase 7 disconnect/recovery field observations |
+| 2026-10-08 | Phase 2.10 Journal account-realized summary + history-range UX | Default Completed trades to Broker account; color realized headline by P&L polarity; exclude paper simulation from account headline; replace exact close-date filter with inclusive From/To and explicit All history default/control | ✅ 7/7 Journal tests + 706-module frontend build + clean diff/worktree + CI #456; browser verified single-day red Account realized and blank From/To full-history behavior; all-history total correctly failed closed because legacy broker rows lack account identity and span USD/CHF | PR #111 / `45a68e7` | Phase 2.11: exact broker-account identity persistence/backfill so selected-account all-history can show one cTrader-style realized total |
 | 2026-10-07 | Phase 3.5 compact System operations console | Replace the long System document layout with a compact health/safety/diagnostics console, remove duplicate account and engine controls, summarize safety by default, and consolidate operational history into tabs | ✅ 3/3 focused System tests + 706-module frontend build + full canonical validation + clean diff/worktree + browser smoke of compact layout/readiness/actions/activity/Safety modal; exact-head CI #442 passed on `81cd46a` | PR #110 / `81cd46a` | Final docs-head CI, merge, sync main; resume production-style Demo operation and gather remaining broker-position/sample evidence naturally |
 
 ---
@@ -1747,4 +1778,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**Validate the final Phase 2.10 shape on PR #111 / branch `ui/journal-realized-total-color`: rerun the focused Journal frontend tests and frontend production build, then browser-check that Completed trades defaults to Broker account, blank From/To shows all recorded history, From/To is inclusive, and a same-day From=To reproduces the single-day view. The broker-account realized amount must remain red/green and paper simulation must not alter it. If legacy broker rows span multiple persisted currencies, keep the fail-closed warning rather than inventing a total. After Phase 2.10 is merged and local `main` is synchronized, the next roadmap item is broker-account identity scoping/backfill so all-history can produce one selected-account total like cTrader. Do not manufacture broker exposure.**
+**After PR #111 is merged and local `main` is synchronized, start Phase 2.11 with a read-only broker-account lineage probe. Use exact cTrader account/position/deal identity to determine which historical broker rows belong to the currently selected CHF Demo account versus other demo/live histories. Then persist/backfill broker account ID/type idempotently and scope the default Broker account Journal view to the selected account so blank From/To can show one authoritative all-history realized total in that account's deposit currency. Never infer account ownership from currency, symbol, price, quantity, or timestamps. Do not manufacture broker exposure.**
