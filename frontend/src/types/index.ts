@@ -2,7 +2,7 @@ export interface AgentSignal {
   ts: number;
   symbol: string;
   timeframe: string;
-  signal: 'long' | 'short' | 'no_trade' | 'error';
+  signal: 'long' | 'short' | 'flat' | 'no_trade' | 'error';
   confidence: number;
   rationale: string;
   reasons: string[];
