@@ -223,6 +223,45 @@ def test_v2_studio_fallback_matches_ema_rsi_pullback_request(monkeypatch) -> Non
     assert "Mean-reversion using RSI" not in stdout
 
 
+def test_v2_studio_current_draft_refinement_can_use_structural_fallback(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _fake_generate_text(**kwargs):
+        raise TimeoutError("LLM request timed out after 90.0 seconds.")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _fake_generate_text)
+
+    current_code = (
+        "import pandas as pd\n\n"
+        "def signals(df: pd.DataFrame) -> pd.Series:\n"
+        "    return pd.Series(0.0, index=df.index)\n"
+    )
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal=(
+                    "Improve the current EMA50 RSI14 draft. Long entries only when EMA50 is rising, "
+                    "short entries only when EMA50 is falling, and prevent exit plus re-entry on the same bar."
+                ),
+                params={
+                    "current_code": current_code,
+                    "llm_provider": "ollama",
+                    "llm_model": "phi3:mini",
+                },
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert "built-in fallback" in result.message
+    stdout = (result.result or {}).get("stdout", "")
+    assert "exited_this_bar" in stdout
+    assert "current_trend > previous_trend" in stdout
+    assert "current_trend < previous_trend" in stdout
+
+
 def test_v2_studio_chat_falls_back_to_template_when_create_times_out(monkeypatch) -> None:
     from backend.domain.models import StudioTaskRequest
     from backend.services.studio_tasks import execute_studio_task
