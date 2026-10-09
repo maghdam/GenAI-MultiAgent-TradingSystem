@@ -13,7 +13,8 @@
         "preview": "vite preview",
         "test:chart": "node --experimental-strip-types --test tests/chart-position-lines.test.ts",
         "test:signals": "node --experimental-strip-types --test tests/chart-signals.test.ts",
-        "test:system": "node --experimental-strip-types --test tests/system-console.test.ts"
+        "test:system": "node --experimental-strip-types --test tests/system-console.test.ts",
+        "test:studio-ui": "node --experimental-strip-types --test tests/strategy-studio-ui.test.ts"
     },
     "dependencies": {
         "lightweight-charts": "^5.0.9",

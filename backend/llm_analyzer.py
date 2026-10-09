@@ -165,9 +165,12 @@ def _ollama_generate(
     json_only: bool,
     options_overrides: Optional[Dict[str, Any]] = None,
     think: bool | str | None = None,
+    attempt_timeout_cap: float | None = None,
 ) -> str:
-    # Clamp attempt timeout to avoid infra 60s read timeouts
-    per_attempt_timeout = max(5.0, min(timeout, ATTEMPT_TIMEOUT_DEFAULT))
+    # Runtime calls keep the shared cap; specialized callers may opt into a
+    # larger bounded read timeout without changing the trading analyzer default.
+    timeout_cap = ATTEMPT_TIMEOUT_DEFAULT if attempt_timeout_cap is None else float(attempt_timeout_cap)
+    per_attempt_timeout = max(5.0, min(timeout, timeout_cap))
 
     payload: Dict[str, Any] = {
         "model": model,

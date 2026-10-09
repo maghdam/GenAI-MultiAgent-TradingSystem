@@ -11,9 +11,30 @@ class ProgrammerAgent:
     return concise, readable snippets that the UI can show in the results view.
     """
 
+    def supports_strategy_fallback(self, goal: str) -> bool:
+        text = (goal or "").strip().lower()
+        smc_keywords = (
+            "smc", "fair value gap", "fvg", "market structure", "structure break",
+            "bos", "choch", "order block", "premium", "discount",
+        )
+        return bool(
+            any(keyword in text for keyword in smc_keywords)
+            or ("daily" in text and "close" in text)
+            or "rsi" in text
+            or "macd" in text
+            or "bollinger" in text
+            or "breakout" in text
+            or "range" in text
+            or "sma" in text
+            or "crossover" in text
+            or "ema" in text
+            or "trend filter" in text
+        )
+
     async def generate_code(self, goal: str, task_type: TaskKind) -> str:
         goal = (goal or "").strip()
         goal_lower = goal.lower()
+        goal_comment = " ".join(goal.splitlines()).strip()
         if task_type == "indicator":
             src = f"""
                 # Example: Simple RSI (14) using pandas
@@ -47,7 +68,7 @@ class ProgrammerAgent:
             if any(keyword in goal_lower for keyword in smc_keywords):
                 src = f"""
                     # SMC-style strategy generated from the request below.
-                    # Original request: {goal or "no description provided"}
+                    # Original request: {goal_comment or "no description provided"}
                     #
                     # Rules:
                     # - build directional votes from market structure, FVG, premium/discount, and order-block proximity
@@ -151,6 +172,161 @@ class ProgrammerAgent:
                 """
                 return textwrap.dedent(src).strip()
 
+            if "rsi" in goal_lower and (
+                "ema" in goal_lower
+                or "trend filter" in goal_lower
+                or "pullback" in goal_lower
+            ) and any(
+                token in goal_lower
+                for token in ("rising", "falling", "slope", "same bar", "re-entry", "reentry")
+            ):
+                src = f"""
+                    # EMA trend filter + RSI pullback confirmation with slope filter.
+                    # Original request: {goal_comment or "no description provided"}
+                    import pandas as pd
+
+                    def ema(series: pd.Series, span: int = 50) -> pd.Series:
+                        return series.ewm(span=span, adjust=False, min_periods=span).mean()
+
+                    def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+                        delta = series.diff()
+                        gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+                        loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
+                        rs = gain / loss.replace(0, 1e-9)
+                        return 100 - (100 / (1 + rs))
+
+                    def signals(
+                        df: pd.DataFrame,
+                        ema_span: int = 50,
+                        rsi_period: int = 14,
+                        long_trigger: float = 45.0,
+                        short_trigger: float = 55.0,
+                        long_exit: float = 70.0,
+                        short_exit: float = 30.0,
+                    ) -> pd.Series:
+                        close = df["close"].astype(float)
+                        trend = ema(close, ema_span)
+                        momentum = rsi(close, rsi_period)
+                        target = pd.Series(0.0, index=df.index, dtype=float)
+                        state = 0.0
+
+                        for i in range(len(df)):
+                            current_close = close.iloc[i]
+                            current_trend = trend.iloc[i]
+                            current_rsi = momentum.iloc[i]
+
+                            if pd.isna(current_trend) or pd.isna(current_rsi):
+                                target.iloc[i] = state
+                                continue
+
+                            exited_this_bar = False
+                            if state > 0 and (current_close < current_trend or current_rsi >= long_exit):
+                                state = 0.0
+                                exited_this_bar = True
+                            elif state < 0 and (current_close > current_trend or current_rsi <= short_exit):
+                                state = 0.0
+                                exited_this_bar = True
+
+                            if state == 0.0 and not exited_this_bar and i > 0:
+                                previous_rsi = momentum.iloc[i - 1]
+                                previous_trend = trend.iloc[i - 1]
+                                if pd.notna(previous_rsi) and pd.notna(previous_trend):
+                                    long_entry = (
+                                        current_close > current_trend
+                                        and current_trend > previous_trend
+                                        and previous_rsi <= long_trigger
+                                        and current_rsi > long_trigger
+                                    )
+                                    short_entry = (
+                                        current_close < current_trend
+                                        and current_trend < previous_trend
+                                        and previous_rsi >= short_trigger
+                                        and current_rsi < short_trigger
+                                    )
+                                    if long_entry:
+                                        state = 1.0
+                                    elif short_entry:
+                                        state = -1.0
+
+                            target.iloc[i] = state
+
+                        return target.fillna(0.0)
+                """
+                return textwrap.dedent(src).strip()
+
+            if "rsi" in goal_lower and (
+                "ema" in goal_lower
+                or "trend filter" in goal_lower
+                or "pullback" in goal_lower
+            ):
+                src = f"""
+                    # EMA trend filter + RSI pullback confirmation.
+                    # Original request: {goal_comment or "no description provided"}
+                    import pandas as pd
+
+                    def ema(series: pd.Series, span: int = 50) -> pd.Series:
+                        return series.ewm(span=span, adjust=False, min_periods=span).mean()
+
+                    def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+                        delta = series.diff()
+                        gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+                        loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
+                        rs = gain / loss.replace(0, 1e-9)
+                        return 100 - (100 / (1 + rs))
+
+                    def signals(
+                        df: pd.DataFrame,
+                        ema_span: int = 50,
+                        rsi_period: int = 14,
+                        long_trigger: float = 45.0,
+                        short_trigger: float = 55.0,
+                        long_exit: float = 70.0,
+                        short_exit: float = 30.0,
+                    ) -> pd.Series:
+                        close = df["close"].astype(float)
+                        trend = ema(close, ema_span)
+                        momentum = rsi(close, rsi_period)
+                        target = pd.Series(0.0, index=df.index, dtype=float)
+                        state = 0.0
+
+                        for i in range(len(df)):
+                            current_close = close.iloc[i]
+                            current_trend = trend.iloc[i]
+                            current_rsi = momentum.iloc[i]
+
+                            if pd.isna(current_trend) or pd.isna(current_rsi):
+                                target.iloc[i] = state
+                                continue
+
+                            if state > 0 and (current_close < current_trend or current_rsi >= long_exit):
+                                state = 0.0
+                            elif state < 0 and (current_close > current_trend or current_rsi <= short_exit):
+                                state = 0.0
+
+                            if state == 0.0 and i > 0:
+                                previous_rsi = momentum.iloc[i - 1]
+                                if pd.notna(previous_rsi):
+                                    long_entry = (
+                                        current_close > current_trend
+                                        and previous_rsi <= long_trigger
+                                        and current_rsi > long_trigger
+                                    )
+                                    short_entry = (
+                                        current_close < current_trend
+                                        and previous_rsi >= short_trigger
+                                        and current_rsi < short_trigger
+                                    )
+                                    if long_entry:
+                                        state = 1.0
+                                    elif short_entry:
+                                        state = -1.0
+
+                            target.iloc[i] = state
+
+                        return target.fillna(0.0)
+                """
+                return textwrap.dedent(src).strip()
+
             if "rsi" in goal_lower:
                 src = f"""
                     # Mean-reversion using RSI: long when RSI < 30, short when RSI > 70.
@@ -232,7 +408,7 @@ class ProgrammerAgent:
             # Fallback: SMA crossover (kept as a default) but at least echo the request.
             src = f"""
                 # Default crossover strategy (fallback when the request is unclear).
-                # Original request: {goal or "no description provided"}
+                # Original request: {goal_comment or "no description provided"}
                 import pandas as pd
 
                 def sma(series: pd.Series, n: int) -> pd.Series:

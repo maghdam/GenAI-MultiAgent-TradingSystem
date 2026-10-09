@@ -139,7 +139,7 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         prompt += "\nCreate a new strategy from the user's request.\n"
     prompt += f"\nUser request: {message}\nPython code:"
 
-    timeout_s = float(os.getenv("STUDIO_CODE_TIMEOUT", os.getenv("STUDIO_LLM_TIMEOUT", "30")) or 30)
+    timeout_s = float(os.getenv("STUDIO_CODE_TIMEOUT", "90") or 90)
     max_tokens = int(os.getenv("STUDIO_CODE_MAX_TOKENS", "900") or 900)
 
     try:
@@ -154,11 +154,33 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         response["text"] = code
         return response
     except Exception:
-        if current_code:
-            raise
-
         programmer = ProgrammerAgent()
-        code = await programmer.generate_code(message, "strategy")
+        fallback_context = message
+        fallback_goal = message
+        if current_code:
+            fallback_context = f"{message}\n{current_code}"
+            if not programmer.supports_strategy_fallback(fallback_context):
+                raise
+
+            current_lower = current_code.lower()
+            features = [
+                label
+                for token, label in (
+                    ("ema", "EMA"),
+                    ("rsi", "RSI"),
+                    ("sma", "SMA"),
+                    ("macd", "MACD"),
+                    ("bollinger", "Bollinger"),
+                    ("breakout", "breakout"),
+                    ("fvg", "FVG"),
+                    ("market structure", "market structure"),
+                )
+                if token in current_lower
+            ]
+            if features:
+                fallback_goal = f"{message} Current draft features: {', '.join(features)}."
+
+        code = await programmer.generate_code(fallback_goal, "strategy")
         validated = _validate_strategy_code(code)
         return {
             "provider": "template",
@@ -298,11 +320,17 @@ def _normalize_task_type(task_type: str, goal_text: str) -> str:
     try:
         import re
 
-        looks_like_opt_cmd = bool(
+        negated_opt_cmd = bool(
+            re.search(r"\b(?:do\s+not|don't|dont|avoid|without)\s+optimi[sz](?:e|ation|ing)?\b", goal_lower)
+        )
+        negated_bt_cmd = bool(
+            re.search(r"\b(?:do\s+not|don't|dont|avoid|without)\s+back\s*test(?:ing)?\b", goal_lower)
+        )
+        looks_like_opt_cmd = not negated_opt_cmd and bool(
             re.match(r"\s*optimi[sz](e|ation|ing)?\b", goal_lower)
             or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\boptimi[sz](e|ation|ing)?\b", goal_lower)
         )
-        looks_like_bt_cmd = bool(
+        looks_like_bt_cmd = not negated_bt_cmd and bool(
             re.match(r"\s*back\s*test(ing)?\b", goal_lower)
             or re.search(r"\b(can you|could you|please|plz|run|do|perform|execute|help me)\b.*\bback\s*test(ing)?\b", goal_lower)
         )

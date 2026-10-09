@@ -107,6 +107,161 @@ def test_v2_studio_chat_creates_draft_with_llm_provider(monkeypatch) -> None:
     assert "llama3.1:8b" in result.message
 
 
+def test_v2_studio_chat_negated_optimize_stays_on_draft_generation(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _fake_generate_text(**kwargs):
+        return {
+            "provider": "ollama",
+            "model": "muse-glimmer:latest",
+            "text": (
+                "import pandas as pd\n\n"
+                "def signals(df: pd.DataFrame) -> pd.Series:\n"
+                "    return pd.Series(0.0, index=df.index)\n"
+            ),
+        }
+
+    def _fail_saved_backtest(*args, **kwargs):
+        raise AssertionError("Negated optimization text must not reroute a create request into backtesting")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _fake_generate_text)
+    monkeypatch.setattr("backend.services.studio_tasks.run_backtest", _fail_saved_backtest)
+
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal=(
+                    "Create a simple XAUUSD M5 strategy for research and backtesting. "
+                    "Do not optimize parameters yet; use sensible fixed defaults."
+                ),
+                params={
+                    "strategy_name": "draft",
+                    "llm_provider": "ollama",
+                    "llm_model": "muse-glimmer:latest",
+                },
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert "stdout" in (result.result or {})
+    assert "muse-glimmer:latest" in result.message
+
+
+def test_v2_studio_code_generation_uses_longer_local_default_timeout(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    monkeypatch.delenv("STUDIO_CODE_TIMEOUT", raising=False)
+    monkeypatch.setenv("STUDIO_LLM_TIMEOUT", "45")
+    captured = {}
+
+    async def _fake_generate_text(**kwargs):
+        captured.update(kwargs)
+        return {
+            "provider": "ollama",
+            "model": "phi3:mini",
+            "text": (
+                "import pandas as pd\n\n"
+                "def signals(df: pd.DataFrame) -> pd.Series:\n"
+                "    return pd.Series(0.0, index=df.index)\n"
+            ),
+        }
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _fake_generate_text)
+
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal="create a simple XAUUSD M5 trend strategy",
+                params={"llm_provider": "ollama", "llm_model": "phi3:mini"},
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert captured["timeout"] == 90.0
+
+
+def test_v2_studio_fallback_matches_ema_rsi_pullback_request(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _fake_generate_text(**kwargs):
+        raise TimeoutError("LLM request timed out after 90.0 seconds.")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _fake_generate_text)
+
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal=(
+                    "Create an XAUUSD M5 signals(df) strategy using pandas only. "
+                    "Use EMA50 as trend filter and RSI14 for pullback confirmation. "
+                    "Long when close is above EMA50 and RSI crosses above 45; hold +1 until "
+                    "close falls below EMA50 or RSI reaches 70. Short when close is below "
+                    "EMA50 and RSI crosses below 55; hold -1 until close rises above EMA50 "
+                    "or RSI reaches 30. Return +1, -1, or 0 as the target position on every bar."
+                ),
+                params={"llm_provider": "ollama", "llm_model": "phi3:mini"},
+            )
+        )
+    )
+
+    assert result.status == "success"
+    stdout = (result.result or {}).get("stdout", "")
+    assert "EMA trend filter + RSI pullback confirmation" in stdout
+    assert "def ema(" in stdout
+    assert "def rsi(" in stdout
+    assert "long_entry" in stdout
+    assert "short_entry" in stdout
+    assert "state = 0.0" in stdout
+    assert "Mean-reversion using RSI" not in stdout
+
+
+def test_v2_studio_current_draft_refinement_can_use_structural_fallback(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _fake_generate_text(**kwargs):
+        raise TimeoutError("LLM request timed out after 90.0 seconds.")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _fake_generate_text)
+
+    current_code = (
+        "import pandas as pd\n\n"
+        "def signals(df: pd.DataFrame) -> pd.Series:\n"
+        "    return pd.Series(0.0, index=df.index)\n"
+    )
+    result = asyncio.run(
+        execute_studio_task(
+            StudioTaskRequest(
+                task_type="chat",
+                goal=(
+                    "Improve the current EMA50 RSI14 draft. Long entries only when EMA50 is rising, "
+                    "short entries only when EMA50 is falling, and prevent exit plus re-entry on the same bar."
+                ),
+                params={
+                    "current_code": current_code,
+                    "llm_provider": "ollama",
+                    "llm_model": "phi3:mini",
+                },
+            )
+        )
+    )
+
+    assert result.status == "success"
+    assert "built-in fallback" in result.message
+    stdout = (result.result or {}).get("stdout", "")
+    assert "exited_this_bar" in stdout
+    assert "current_trend > previous_trend" in stdout
+    assert "current_trend < previous_trend" in stdout
+
+
 def test_v2_studio_chat_falls_back_to_template_when_create_times_out(monkeypatch) -> None:
     from backend.domain.models import StudioTaskRequest
     from backend.services.studio_tasks import execute_studio_task

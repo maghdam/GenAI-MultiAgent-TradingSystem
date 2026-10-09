@@ -731,6 +731,45 @@ Validate:
 - [x] Local frontend production build.
 - [x] GitHub CI #76 on implementation head `a82f2312`.
 
+### 4.7 Compact Strategy Studio workflow
+**Priority:** P2
+**Status:** ✅ Verified
+
+Turn the mature Build & Test functionality into a compact day-to-day strategy research workspace while preserving backtest accounting, lifecycle governance, sandboxing, deployment restrictions, broker routing, risk controls, and the global 60% signal-strength threshold.
+
+**Target behavior**
+- [x] Replace the oversized Build & Test hero with a compact research-workspace header.
+- [x] Remove the manual Vertical / Side-by-side layout selector; use one responsive layout automatically.
+- [x] Keep provider/model controls available under compact **AI settings** rather than permanently occupying the chat header.
+- [x] Present lifecycle progression prominently as `draft → backtested → validated → paper → eligible`.
+- [x] Keep hypothesis, evidence, blockers, paper evidence, and promotion controls attached to the governed lifecycle.
+- [x] Put Strategy Assistant and editable Strategy Workspace side by side on desktop, stacking responsively on smaller screens.
+- [x] Separate saved-strategy management from backtest setup.
+- [x] Group symbol, timeframe, bars, validation method, and execution-cost/sizing assumptions into one explicit Backtest section.
+- [x] Keep assumptions collapsed until requested, expand them inline without overlapping results, and move Raw JSON behind secondary result options.
+- [x] Keep advanced event-outcome calibration / shadow replay hidden until the operator explicitly opens **Advanced evidence**.
+- [x] Preserve existing Strategy Studio API, saved-source, backtest, lifecycle, sandbox, and deployment semantics.
+
+**Acceptance**
+- [x] Focused Strategy Studio presentation tests pass locally: 3/3.
+- [x] Frontend production build passes locally: 707 modules.
+- [x] Browser smoke confirms the compact workspace, AI settings, lifecycle visibility, inline assumptions, draft/refinement flow, backtest controls, and result presentation during real XAUUSD M5 development runs; saved-source behavior remains covered by the focused Studio backend acceptance suite.
+- [x] Existing Strategy Studio workflows remain functional against the running backend, including draft creation, deterministic fallback, draft refinement, realistic-cost development backtesting, and next-bar-open execution.
+- [x] Full canonical validation passes locally on Windows.
+- [x] GitHub CI #485 passes on implementation head `3375256f43269f102ca1973e7cecd3a709732d66`.
+
+**Verification evidence**
+- Local focused backend validation on `3375256f`: 27/27 Studio/Ollama resilience tests passed.
+- Local focused frontend Strategy Studio presentation tests: 3/3 passed.
+- Local production build completed with 707 modules; `python scripts\\validate.py` passed the full backend suite plus frontend production build.
+- The working tree and `git diff --check origin/main...HEAD` were clean after validation.
+- Real browser use exercised a new XAUUSD M5 draft, AI model selection, Ollama failure handling, deterministic fallback, structural draft refinement, inline cost/sizing assumptions, Development 70% backtesting, and results display.
+- Field testing exposed and corrected four narrow Studio-generation robustness defects on this PR: negated optimize/backtest text no longer misroutes chat requests; code generation has an independent 90-second timeout; Ollama models that reject the `think` option retry without it; and recognized current-draft refinements can use a syntax-safe deterministic fallback.
+- The development research result was deliberately not promoted: with fee 1 bps, slippage 1 bps, spread 2 bps, and 100% normalized research sizing, the refined EMA50/RSI14 draft remained negative on the rolling development sample. Holdout data was not used for tuning or selection.
+
+**Scope boundary**
+The intended scope remains compact Strategy Studio information architecture and presentation. Real browser validation exposed narrow generation-routing/timeout/fallback defects, so this PR also hardens only those Studio research-generation paths. It does not change backtest accounting or validation methodology, lifecycle promotion rules, generated-strategy sandboxing, paper-evidence rules, execution eligibility, broker routing, risk controls, or the global 60% signal-strength threshold.
+
 ---
 
 ## 7. Phase 5 — Strategy quality & confidence calibration
@@ -1539,6 +1578,7 @@ Add one row after every completed task.
 | 2026-10-07 | Phase 2.9 exact broker-history orphan recovery | Recover TradeAgent-originated closed cTrader positions missing from the active canonical ledger by exact opening marker + immutable broker position/deal identity; keep unknown legacy metadata explicit and make future client-order IDs globally unique across runtime DB generations | ✅ 4/4 focused recovery tests + 36/36 ACK/restart/reconciliation regression + full backend suite + 705-module frontend build + clean diff/worktree + CI #437; real reconcile recovered target broker position `57868693` / deal `63499285` exactly once, second run recovered 0, and Journal matched cTrader at 4 trades / -17.91 CHF; 23 exact-identity historical broker orphans were restored in the first bounded sweep | PR #109 / `82f14d0` | Final docs-head CI, merge, sync main; next natural protected TradeAgent-managed position can satisfy pending Phase 2.6 overlay and Phase 7 disconnect/recovery field observations |
 | 2026-10-08 | Phase 2.10 Journal account-realized summary + history-range UX | Default Completed trades to Broker account; color realized headline by P&L polarity; exclude paper simulation from account headline; replace exact close-date filter with inclusive From/To and explicit All history default/control | ✅ 7/7 Journal tests + 706-module frontend build + clean diff/worktree + CI #457 on `88baae6`; final browser smoke passed Broker account default, polarity styling, From/To open-ended + same-day + bounded semantics, All history reset, and filter preservation; mixed-currency legacy history still fails closed by design | PR #111 / `88baae6` | After merge/sync, operator requested compact Build & Test / Strategy Studio UX cleanup before returning to Phase 2.11 account-identity backfill |
 | 2026-10-07 | Phase 3.5 compact System operations console | Replace the long System document layout with a compact health/safety/diagnostics console, remove duplicate account and engine controls, summarize safety by default, and consolidate operational history into tabs | ✅ 3/3 focused System tests + 706-module frontend build + full canonical validation + clean diff/worktree + browser smoke of compact layout/readiness/actions/activity/Safety modal; exact-head CI #442 passed on `81cd46a` | PR #110 / `81cd46a` | Final docs-head CI, merge, sync main; resume production-style Demo operation and gather remaining broker-position/sample evidence naturally |
+| 2026-10-09 | Phase 4.7 compact Strategy Studio workflow | Compress Build & Test into a day-to-day research workspace; move AI/assumption/advanced controls behind compact disclosure; harden field-discovered Studio routing, Ollama thinking/timeout, and deterministic draft/refinement fallback behavior | ✅ 27/27 focused backend + 3/3 focused frontend tests, 707-module build, full canonical validation, clean diff/worktree, real XAUUSD M5 draft/refinement/backtest browser flow, and implementation-head CI #485 on `3375256f` | PR #112 / `3375256f` | Final docs-head CI, merge, sync main, then resume Phase 2.11 account-identity scoping |
 
 ---
 
@@ -1778,4 +1818,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**After PR #111 is merged and local `main` is synchronized, start Phase 2.11 with a read-only broker-account lineage probe. Use exact cTrader account/position/deal identity to determine which historical broker rows belong to the currently selected CHF Demo account versus other demo/live histories. Then persist/backfill broker account ID/type idempotently and scope the default Broker account Journal view to the selected account so blank From/To can show one authoritative all-history realized total in that account's deposit currency. Never infer account ownership from currency, symbol, price, quantity, or timestamps. Do not manufacture broker exposure.**
+**After PR #112 is merged and local `main` is synchronized, resume Phase 2.11 with a read-only broker-account lineage probe. Use exact cTrader account/position/deal identity to determine which historical broker rows belong to the currently selected CHF Demo account versus other demo/live histories. Then persist/backfill broker account ID/type idempotently and scope the default Broker account Journal view to the selected account so blank From/To can show one authoritative all-history realized total in that account's deposit currency. Never infer account ownership from currency, symbol, price, quantity, or timestamps. Do not manufacture broker exposure.**

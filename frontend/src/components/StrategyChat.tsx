@@ -25,34 +25,48 @@ export default function StrategyChat({ messages, isLoading, placeholder, onSendM
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <div style={{ fontWeight: 600 }}>Strategy Chat</div>
+    <div className="studio-chat">
+      <div className="studio-chat__header">
+        <div>
+          <strong>Strategy assistant</strong>
+          <span>Research and refine the strategy without changing deployment state.</span>
+        </div>
         {headerRight}
       </div>
-      <div style={{ flex: 1, minHeight: 280, overflow: 'auto', background: '#0b0b0f', padding: 8, borderRadius: 6 }}>
+
+      <div className="studio-chat__messages">
         {messages.length === 0 ? (
-          <div className="muted">Chat naturally to create or refine a strategy draft, then run a backtest or save it when ready.</div>
+          <div className="studio-empty">
+            Describe the market idea, setup, entry/exit logic, or improvement you want to test.
+          </div>
         ) : (
-          messages.map((m, i) => (
-            <div key={i} style={{ marginBottom: 10, display:'flex', justifyContent: m.role==='user'?'flex-end':'flex-start' }}>
-              <div style={{ maxWidth: '80%', background: m.role==='user'? '#1b2437' : '#121a2b', border: '1px solid #1a2030', borderRadius: 10, padding: 8 }}>
-                <div className="muted" style={{ marginBottom: 2 }}>{m.role === 'user' ? 'You' : 'Assistant'}</div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
+          messages.map((message, index) => (
+            <div
+              className={`studio-chat__message studio-chat__message--${message.role}`}
+              key={`${message.role}-${index}`}
+            >
+              <div className={`studio-chat__bubble ${message.type === 'error' ? 'studio-chat__bubble--error' : ''}`}>
+                <small>{message.role === 'user' ? 'You' : 'Assistant'}</small>
+                <div>{message.content}</div>
               </div>
             </div>
           ))
         )}
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+
+      <div className="studio-chat__composer">
         <input
+          className="ta-input"
           value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') send(); }}
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') send();
+          }}
           placeholder={placeholder || 'Type your request...'}
-          style={{ flex: 1 }}
         />
-        <button className="btn primary" type="button" onClick={send} disabled={!!isLoading}>Send</button>
+        <button className="ta-btn ta-btn--primary" type="button" onClick={send} disabled={!!isLoading}>
+          {isLoading ? 'Working…' : 'Send'}
+        </button>
       </div>
     </div>
   );
