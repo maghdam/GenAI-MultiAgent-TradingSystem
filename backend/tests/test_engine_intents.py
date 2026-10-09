@@ -11,6 +11,7 @@ from backend.services.engine import V2Engine
 from backend.services.market_data import MarketDataError
 from backend.services.execution_engine import execute_paper_signal
 from backend.storage.repositories import (
+    close_paper_position,
     list_incidents,
     list_decision_records,
     list_order_intents,
