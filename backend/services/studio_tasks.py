@@ -154,11 +154,14 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         response["text"] = code
         return response
     except Exception:
-        if current_code:
-            raise
-
         programmer = ProgrammerAgent()
-        code = await programmer.generate_code(message, "strategy")
+        fallback_goal = message
+        if current_code:
+            fallback_goal = f"{message}\n\nCurrent draft strategy:\n{current_code}"
+            if not programmer.supports_strategy_fallback(fallback_goal):
+                raise
+
+        code = await programmer.generate_code(fallback_goal, "strategy")
         validated = _validate_strategy_code(code)
         return {
             "provider": "template",
