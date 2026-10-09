@@ -155,11 +155,30 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         return response
     except Exception:
         programmer = ProgrammerAgent()
+        fallback_context = message
         fallback_goal = message
         if current_code:
-            fallback_goal = f"{message}\n\nCurrent draft strategy:\n{current_code}"
-            if not programmer.supports_strategy_fallback(fallback_goal):
+            fallback_context = f"{message}\n{current_code}"
+            if not programmer.supports_strategy_fallback(fallback_context):
                 raise
+
+            current_lower = current_code.lower()
+            features = [
+                label
+                for token, label in (
+                    ("ema", "EMA"),
+                    ("rsi", "RSI"),
+                    ("sma", "SMA"),
+                    ("macd", "MACD"),
+                    ("bollinger", "Bollinger"),
+                    ("breakout", "breakout"),
+                    ("fvg", "FVG"),
+                    ("market structure", "market structure"),
+                )
+                if token in current_lower
+            ]
+            if features:
+                fallback_goal = f"{message} Current draft features: {', '.join(features)}."
 
         code = await programmer.generate_code(fallback_goal, "strategy")
         validated = _validate_strategy_code(code)
