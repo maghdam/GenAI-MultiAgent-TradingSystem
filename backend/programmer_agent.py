@@ -34,6 +34,7 @@ class ProgrammerAgent:
     async def generate_code(self, goal: str, task_type: TaskKind) -> str:
         goal = (goal or "").strip()
         goal_lower = goal.lower()
+        goal_comment = " ".join(goal.splitlines()).strip()
         if task_type == "indicator":
             src = f"""
                 # Example: Simple RSI (14) using pandas
@@ -67,7 +68,7 @@ class ProgrammerAgent:
             if any(keyword in goal_lower for keyword in smc_keywords):
                 src = f"""
                     # SMC-style strategy generated from the request below.
-                    # Original request: {goal or "no description provided"}
+                    # Original request: {goal_comment or "no description provided"}
                     #
                     # Rules:
                     # - build directional votes from market structure, FVG, premium/discount, and order-block proximity
@@ -181,7 +182,7 @@ class ProgrammerAgent:
             ):
                 src = f"""
                     # EMA trend filter + RSI pullback confirmation with slope filter.
-                    # Original request: {goal or "no description provided"}
+                    # Original request: {goal_comment or "no description provided"}
                     import pandas as pd
 
                     def ema(series: pd.Series, span: int = 50) -> pd.Series:
@@ -260,7 +261,7 @@ class ProgrammerAgent:
             ):
                 src = f"""
                     # EMA trend filter + RSI pullback confirmation.
-                    # Original request: {goal or "no description provided"}
+                    # Original request: {goal_comment or "no description provided"}
                     import pandas as pd
 
                     def ema(series: pd.Series, span: int = 50) -> pd.Series:
@@ -407,7 +408,7 @@ class ProgrammerAgent:
             # Fallback: SMA crossover (kept as a default) but at least echo the request.
             src = f"""
                 # Default crossover strategy (fallback when the request is unclear).
-                # Original request: {goal or "no description provided"}
+                # Original request: {goal_comment or "no description provided"}
                 import pandas as pd
 
                 def sma(series: pd.Series, n: int) -> pd.Series:
