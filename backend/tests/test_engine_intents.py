@@ -273,6 +273,163 @@ def test_execute_paper_signal_rejects_invalid_long_protective_levels() -> None:
     assert incidents[0].code == "signal_rejected"
 
 
+def test_execute_paper_signal_closes_existing_paper_position_on_flat_target() -> None:
+    opened = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=1.0,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+    )
+
+    result = execute_paper_signal(
+        config=_config(kill_switch=True, min_confidence=0.99),
+        watch_item=_watch_item(),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="flat",
+            confidence=0.0,
+            entry_price=100.5,
+            stop_loss=None,
+            take_profit=None,
+            reasons=["explicit flat target"],
+            context={},
+        ),
+        mark_price=100.5,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 100.4, "high": 100.8, "low": 100.1, "close": 100.5},
+    )
+
+    assert result.action_taken is True
+    assert result.status == "executed"
+    assert result.summary == "position closed on flat target"
+    assert list_paper_positions("open") == []
+
+    closed_positions = list_paper_positions("closed")
+    assert len(closed_positions) == 1
+    assert closed_positions[0].id == opened.id
+    assert closed_positions[0].close_reason == "strategy_flat"
+
+    intents = list_order_intents(5)
+    assert len(intents) == 1
+    assert intents[0].direction == "flat"
+    assert intents[0].intent_type == "close"
+    assert intents[0].status == "executed"
+
+    decisions = list_decision_records(5)
+    assert decisions[0].outcome == "accepted_close"
+    assert decisions[0].evidence["flat_exit"] is True
+
+    audits = list_trade_audits(10)
+    assert any(record.event_type == "paper_strategy_flat_exit" for record in audits)
+
+
+def test_execute_paper_signal_uses_verified_broker_close_for_flat_target(monkeypatch) -> None:
+    opened = open_paper_position(
+        symbol="XAUUSD",
+        timeframe="M5",
+        strategy="sma_cross",
+        direction="long",
+        quantity=0.1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        take_profit=102.0,
+        broker_position_id=111,
+    )
+    close_calls = []
+    market_order_calls = []
+
+    monkeypatch.setattr(
+        "backend.services.execution_engine._refresh_open_position",
+        lambda *args, **kwargs: opened,
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.get_broker_status",
+        lambda: type(
+            "S",
+            (),
+            {
+                "execution_ready": True,
+                "account_type": "demo",
+                "account_id": 123,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.sync_position_targets",
+        lambda **kwargs: {"status": "already_synced", "verified": True, "position_id": 111},
+    )
+
+    def _verified_close(position, **kwargs):
+        close_calls.append({"position": position, **kwargs})
+        closed = close_paper_position(position.id, kwargs["fallback_price"], kwargs["reason"])
+        return {
+            "status": "closed",
+            "closed": True,
+            "retryable": False,
+            "position": closed,
+            "closed_position_id": closed.id,
+            "broker_position_id": position.broker_position_id,
+        }
+
+    monkeypatch.setattr(
+        "backend.services.execution_engine.attempt_verified_close",
+        _verified_close,
+    )
+    monkeypatch.setattr(
+        "backend.services.execution_engine.place_market_order",
+        lambda **kwargs: market_order_calls.append(kwargs) or pytest.fail(
+            "flat target must never submit an opposite market order"
+        ),
+    )
+
+    result = execute_paper_signal(
+        config=_config(
+            paper_autotrade=False,
+            ctrader_autotrade=True,
+            kill_switch=True,
+            min_confidence=0.99,
+        ),
+        watch_item=_watch_item().model_copy(update={"trading_enabled": True, "lot_size": 0.1}),
+        analysis=StrategyAnalysis(
+            symbol="XAUUSD",
+            timeframe="M5",
+            strategy="sma_cross",
+            signal="flat",
+            confidence=0.0,
+            entry_price=100.5,
+            stop_loss=None,
+            take_profit=None,
+            reasons=["explicit flat target"],
+            context={},
+        ),
+        mark_price=100.5,
+        bar_timestamp=datetime.now(UTC),
+        bar_snapshot={"open": 100.4, "high": 100.8, "low": 100.1, "close": 100.5},
+    )
+
+    assert result.action_taken is True
+    assert result.status == "executed"
+    assert result.mode == "ctrader_demo"
+    assert result.broker_position_id == 111
+    assert market_order_calls == []
+    assert len(close_calls) == 1
+    assert close_calls[0]["phase"] == "strategy_flat_exit"
+    assert close_calls[0]["reason"] == "strategy_flat"
+    assert close_calls[0]["quantity_lots"] == 0.1
+
+    intents = list_order_intents(5)
+    assert intents[0].intent_type == "close"
+    assert intents[0].status == "executed"
+    audits = list_trade_audits(10)
+    assert any(record.event_type == "ctrader_strategy_flat_exit" for record in audits)
+
+
 def test_execute_paper_signal_flips_and_reopens_new_direction() -> None:
     open_paper_position(
         symbol="XAUUSD",
