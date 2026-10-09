@@ -3323,9 +3323,24 @@ a.btn { cursor:pointer; background:#151823; color:#e5e9f0; border:1px solid #222
   align-self: end;
 }
 
+.studio-assumptions[open] {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.studio-assumptions[open] > summary {
+  width: fit-content;
+}
+
 .studio-assumptions__menu {
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  min-width: 320px;
+  position: static;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  min-width: 0;
+  margin-top: 8px;
+  padding: 12px;
+  border-color: var(--ta-border-dim);
+  background: rgba(10, 15, 26, 0.96);
+  box-shadow: none;
 }
 
 .studio-results__body {
@@ -3347,6 +3362,10 @@ a.btn { cursor:pointer; background:#151823; color:#e5e9f0; border:1px solid #222
 
   .studio-assumptions {
     align-self: stretch;
+  }
+
+  .studio-assumptions__menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
