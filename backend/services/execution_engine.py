@@ -30,7 +30,7 @@ from backend.services.live_trading_guard import (
     get_live_trading_armed_account_id,
     live_entry_block_reason,
 )
-from backend.services.quantity_rules import derive_auto_quantity, evaluate_order_quantity
+from backend.services.quantity_rules import QuantityDecision, derive_auto_quantity, evaluate_order_quantity
 from backend.services.close_safety import (
     attempt_verified_close,
     record_ambiguous_close,
@@ -808,7 +808,17 @@ def execute_paper_signal(
     # If cTrader execution is enabled, never attempt an order until the exact
     # symbol contract is loaded. Mark this as retryable so the engine can
     # revisit the same bar without risking a duplicate order.
-    if ctrader_execution and analysis.signal != "no_trade":
+    if analysis.signal == "flat" and position is None:
+        return ExecutionResult(
+            action_taken=False,
+            intent_id=None,
+            status="skipped",
+            summary="Strategy target is already flat; there is no open position to close.",
+            mode=_ctrader_execution_mode() if ctrader_execution else "paper_only",
+            retryable=False,
+        )
+
+    if ctrader_execution and analysis.signal in {"long", "short"}:
         broker_ready, broker_reason = get_symbol_execution_readiness(analysis.symbol)
         if not broker_ready:
             log_incident(
@@ -835,7 +845,7 @@ def execute_paper_signal(
             )
 
     monetary_basis = resolve_monetary_basis(config)
-    if ctrader_execution and analysis.signal != "no_trade":
+    if ctrader_execution and analysis.signal in {"long", "short"}:
         account_snapshot = get_broker_account_snapshot()
         monetary_basis = resolve_monetary_basis(
             config,
@@ -868,10 +878,11 @@ def execute_paper_signal(
             )
 
     instrument = get_instrument_spec(analysis.symbol, monetary_basis.currency or config.account_currency)
-    configured_quantity = watch_item.lot_size if source != "manual" else None
+    is_flat_exit = analysis.signal == "flat" and position is not None
+    configured_quantity = None if is_flat_exit else (watch_item.lot_size if source != "manual" else None)
     sizing = (
         derive_auto_quantity(config, analysis, mark_price, monetary_basis=monetary_basis)
-        if source != "manual" and configured_quantity is None and quantity is None
+        if not is_flat_exit and source != "manual" and configured_quantity is None and quantity is None
         else None
     )
     if sizing is not None and not sizing.accepted:
@@ -930,19 +941,38 @@ def execute_paper_signal(
             summary=sizing.reasons[0] if sizing.reasons else "sizing rejected",
         )
     requested_quantity = (
-        float(quantity if quantity is not None else (config.paper_trade_size or 1.0))
-        if source == "manual"
-        else float(
-            quantity
-            if quantity is not None
-            else (
-                configured_quantity
-                if configured_quantity is not None
-                else ((sizing.requested_quantity if sizing else None) or (config.paper_trade_size or 1.0))
+        float(position.quantity)
+        if is_flat_exit and position is not None
+        else (
+            float(quantity if quantity is not None else (config.paper_trade_size or 1.0))
+            if source == "manual"
+            else float(
+                quantity
+                if quantity is not None
+                else (
+                    configured_quantity
+                    if configured_quantity is not None
+                    else ((sizing.requested_quantity if sizing else None) or (config.paper_trade_size or 1.0))
+                )
             )
         )
     )
-    quantity_decision = evaluate_order_quantity(analysis.symbol, requested_quantity, source)
+    quantity_decision = (
+        QuantityDecision(
+            accepted=True,
+            requested_quantity=requested_quantity,
+            final_quantity=requested_quantity,
+            reasons=["Existing tracked quantity is used for the flat exit."],
+            details={
+                "quantity_mode": "existing_position_exit",
+                "requested_quantity": requested_quantity,
+                "final_quantity": requested_quantity,
+                "quantity_normalized": False,
+            },
+        )
+        if is_flat_exit
+        else evaluate_order_quantity(analysis.symbol, requested_quantity, source)
+    )
 
     if not quantity_decision.accepted:
         evidence = {
@@ -1222,6 +1252,96 @@ def execute_paper_signal(
             intent_id=intent.id,
             status="rejected",
             summary=risk.reasons[0] if risk.reasons else "signal rejected",
+        )
+
+    if analysis.signal == "flat" and position is not None:
+        if ctrader_execution:
+            close_result = attempt_verified_close(
+                position,
+                fallback_price=mark_price,
+                reason="strategy_flat",
+                phase="strategy_flat_exit",
+                quantity_lots=float(position.quantity),
+            )
+            if close_result.get("closed"):
+                closed = close_result["position"]
+                update_order_intent_status(
+                    intent.id,
+                    "executed",
+                    {
+                        "closed_position_id": closed.id,
+                        "flat_exit": True,
+                        "close_result": close_result,
+                    },
+                    reason="strategy_flat_exit_verified",
+                )
+                add_trade_audit(
+                    event_type="ctrader_strategy_flat_exit",
+                    symbol=analysis.symbol,
+                    timeframe=analysis.timeframe,
+                    strategy=analysis.strategy,
+                    intent_id=intent.id,
+                    position_id=closed.id,
+                    summary="Closed cTrader position because the strategy target returned flat.",
+                    details={"close_result": close_result, "flat_exit": True},
+                )
+                return ExecutionResult(
+                    action_taken=True,
+                    intent_id=intent.id,
+                    status="executed",
+                    summary="position closed on flat target",
+                    position_id=closed.id,
+                    mode=_ctrader_execution_mode(),
+                    broker_position_id=position.broker_position_id,
+                    retryable=False,
+                )
+
+            update_order_intent_status(
+                intent.id,
+                "failed",
+                {
+                    "flat_exit": True,
+                    "close_result": close_result,
+                    "tracking_retained": True,
+                },
+                reason="strategy_flat_exit_not_verified",
+            )
+            return ExecutionResult(
+                action_taken=False,
+                intent_id=intent.id,
+                status=str(close_result.get("status") or "failed"),
+                summary="Strategy requested a flat target, but the broker close was not verified; tracking was retained.",
+                position_id=position.id,
+                mode=_ctrader_execution_mode(),
+                broker_position_id=position.broker_position_id,
+                retryable=bool(close_result.get("retryable")),
+            )
+
+        closed = close_paper_position(position.id, mark_price, "strategy_flat")
+        update_order_intent_status(
+            intent.id,
+            "executed",
+            {"closed_position_id": closed.id, "flat_exit": True},
+            reason="strategy_flat_exit",
+        )
+        add_trade_audit(
+            event_type="paper_strategy_flat_exit",
+            symbol=analysis.symbol,
+            timeframe=analysis.timeframe,
+            strategy=analysis.strategy,
+            intent_id=intent.id,
+            position_id=closed.id,
+            summary="Closed paper position because the strategy target returned flat.",
+            details={"flat_exit": True},
+        )
+        return ExecutionResult(
+            action_taken=True,
+            intent_id=intent.id,
+            status="executed",
+            summary="position closed on flat target",
+            position_id=closed.id,
+            mode="paper_only",
+            retryable=False,
         )
 
     if ctrader_execution and position and position.direction != analysis.signal:
