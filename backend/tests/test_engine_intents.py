@@ -427,8 +427,10 @@ def test_execute_paper_signal_uses_verified_broker_close_for_flat_target(monkeyp
     intents = list_order_intents(5)
     assert intents[0].intent_type == "close"
     assert intents[0].status == "executed"
+    assert intents[0].details["close_result"]["position"]["id"] == opened.id
     audits = list_trade_audits(10)
-    assert any(record.event_type == "ctrader_strategy_flat_exit" for record in audits)
+    flat_audit = next(record for record in audits if record.event_type == "ctrader_strategy_flat_exit")
+    assert flat_audit.details["close_result"]["position"]["id"] == opened.id
 
 
 def test_execute_paper_signal_flips_and_reopens_new_direction() -> None:
