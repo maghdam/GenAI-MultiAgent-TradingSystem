@@ -76,6 +76,16 @@ class BrokerPositionIdentityError(RuntimeError):
     pass
 
 
+def _json_safe_close_result(close_result: dict[str, object]) -> dict[str, object]:
+    safe: dict[str, object] = {}
+    for key, value in close_result.items():
+        if isinstance(value, PaperPosition):
+            safe[key] = value.model_dump(mode="json")
+        else:
+            safe[key] = value
+    return safe
+
+
 def _ctrader_account_type() -> str:
     account_type = str(getattr(get_broker_status(), "account_type", "unknown") or "unknown").lower()
     return account_type if account_type in {"demo", "live"} else "unknown"
@@ -1265,13 +1275,14 @@ def execute_paper_signal(
             )
             if close_result.get("closed"):
                 closed = close_result["position"]
+                close_details = _json_safe_close_result(close_result)
                 update_order_intent_status(
                     intent.id,
                     "executed",
                     {
                         "closed_position_id": closed.id,
                         "flat_exit": True,
-                        "close_result": close_result,
+                        "close_result": close_details,
                     },
                     reason="strategy_flat_exit_verified",
                 )
@@ -1283,7 +1294,7 @@ def execute_paper_signal(
                     intent_id=intent.id,
                     position_id=closed.id,
                     summary="Closed cTrader position because the strategy target returned flat.",
-                    details={"close_result": close_result, "flat_exit": True},
+                    details={"close_result": close_details, "flat_exit": True},
                 )
                 return ExecutionResult(
                     action_taken=True,
@@ -1296,12 +1307,13 @@ def execute_paper_signal(
                     retryable=False,
                 )
 
+            close_details = _json_safe_close_result(close_result)
             update_order_intent_status(
                 intent.id,
                 "failed",
                 {
                     "flat_exit": True,
-                    "close_result": close_result,
+                    "close_result": close_details,
                     "tracking_retained": True,
                 },
                 reason="strategy_flat_exit_not_verified",
