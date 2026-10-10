@@ -770,6 +770,42 @@ Turn the mature Build & Test functionality into a compact day-to-day strategy re
 **Scope boundary**
 The intended scope remains compact Strategy Studio information architecture and presentation. Real browser validation exposed narrow generation-routing/timeout/fallback defects, so this PR also hardens only those Studio research-generation paths. It does not change backtest accounting or validation methodology, lifecycle promotion rules, generated-strategy sandboxing, paper-evidence rules, execution eligibility, broker routing, risk controls, or the global 60% signal-strength threshold.
 
+### 4.8 Explicit flat-target runtime semantics
+**Priority:** P1
+**Status:** 🧪 Ready to test
+
+Add the missing runtime meaning required before a Strategy Studio target-position strategy can ever be integrated safely. Strategy Studio uses `+1 / -1 / 0` target positions, where `0` means **flat**, while the existing runtime `no_trade` signal deliberately means **hold/do nothing**. These meanings must remain distinct.
+
+**Target behavior**
+- [x] Add an explicit runtime `flat` signal without changing existing `no_trade` hold semantics.
+- [x] When a tracked position exists, `flat` is a risk-reducing close intent rather than an opposite-direction flip.
+- [x] A `flat` target with no open position is a no-op and never creates a new order.
+- [x] Flat exits are not blocked by entry-only gates such as minimum signal strength, required entry stops, session entry filters, or the kill switch.
+- [x] Pure-paper flat exits close the tracked position with explicit `strategy_flat` provenance.
+- [x] cTrader flat exits use the existing verified broker-close safety path and never submit an opposite market order.
+- [x] Frontend/API analysis types accept `flat` without turning it into a manual Buy/Sell action.
+
+**Acceptance**
+- [ ] Focused flat-signal risk tests pass locally.
+- [ ] Focused paper/cTrader execution tests pass locally.
+- [ ] Existing engine-intent and safety-control regression remains green.
+- [ ] Frontend production build passes locally.
+- [ ] Full canonical validation passes locally.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item is only the target-position semantic prerequisite for the requested Strategy Studio runtime bridge. It does **not** register saved generated files, expose them in the per-symbol strategy selector, change lifecycle promotion gates, or authorize any generated source for paper/Demo/Live execution.
+
+### 4.9 Sandboxed Strategy Studio runtime adapter
+**Status:** ⏳ Planned
+
+Use the exact saved/current lifecycle source hash through the isolated generated-strategy execution boundary, translate target transitions into runtime long/short/flat/hold actions, and require explicit deterministic runtime signal-strength and protection semantics. Do not expose a generated strategy to the engine selector until this adapter is acceptance-tested.
+
+### 4.10 Governed runtime selector and Demo/Live deployment
+**Status:** ⏳ Planned
+
+Expose only current-source, runtime-compatible Strategy Studio strategies through the existing per-symbol Strategy selector. Paper-stage strategies may gather governed paper evidence only; cTrader execution requires `eligible`. Live execution must additionally pass the existing selected-account verification, runtime-only Live Trading arm, kill-switch, sizing, protection, exposure, reconciliation, recovery, and audit gates.
+
 ---
 
 ## 7. Phase 5 — Strategy quality & confidence calibration
@@ -1818,4 +1854,4 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ## 15. Next item
 
-**After PR #112 is merged and local `main` is synchronized, resume Phase 2.11 with a read-only broker-account lineage probe. Use exact cTrader account/position/deal identity to determine which historical broker rows belong to the currently selected CHF Demo account versus other demo/live histories. Then persist/backfill broker account ID/type idempotently and scope the default Broker account Journal view to the selected account so blank From/To can show one authoritative all-history realized total in that account's deposit currency. Never infer account ownership from currency, symbol, price, quantity, or timestamps. Do not manufacture broker exposure.**
+**User-requested priority before returning to Phase 2.11: complete Phase 4.8 explicit flat-target runtime semantics, then Phase 4.9 sandboxed exact-source Strategy Studio runtime adaptation and Phase 4.10 governed selector/Demo-Live deployment. Do not make a merely saved generated file executable. Preserve exact lifecycle source identity, sandbox isolation, the global 60% signal-strength threshold, broker/risk/protection/reconciliation safeguards, and the runtime-only Live Trading arm. After this requested bridge is complete, resume Phase 2.11 broker-account identity scoping.**

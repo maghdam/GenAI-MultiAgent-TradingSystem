@@ -103,12 +103,13 @@ def _evaluate(
     config: EngineConfig | None = None,
     watch: WatchlistItem | None = None,
     analysis: StrategyAnalysis | None = None,
+    existing_position: PaperPosition | None = None,
 ):
     return evaluate_risk(
         config=config or _config(),
         watch_item=watch or _watch(),
         analysis=analysis or _analysis(),
-        existing_position=None,
+        existing_position=existing_position,
         mark_price=100.0,
         bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
         bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
@@ -119,6 +120,41 @@ def _evaluate(
             verified=True,
         ),
     )
+
+
+def test_flat_target_accepts_existing_position_close_without_entry_only_gates() -> None:
+    position = _position(position_id=91, symbol="XAUUSD")
+    decision = _evaluate(
+        config=_config(kill_switch=True, min_confidence=0.99, require_stops=True),
+        analysis=_analysis(
+            signal="flat",
+            confidence=0.0,
+            stop_loss=None,
+            take_profit=None,
+        ),
+        existing_position=position,
+    )
+
+    assert decision.accepted is True
+    assert decision.intent_type == "close"
+    assert decision.details["position_id"] == 91
+    assert decision.details["flat_exit"] is True
+    assert decision.reasons == ["Strategy target returned flat; close the existing position."]
+
+
+def test_flat_target_without_existing_position_is_no_action() -> None:
+    decision = _evaluate(
+        analysis=_analysis(
+            signal="flat",
+            confidence=0.0,
+            stop_loss=None,
+            take_profit=None,
+        ),
+    )
+
+    assert decision.accepted is False
+    assert decision.intent_type == "skip"
+    assert decision.reasons == ["Strategy target is already flat; there is no open position to close."]
 
 
 def test_kill_switch_blocks_execution() -> None:
