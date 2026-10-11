@@ -772,7 +772,7 @@ The intended scope remains compact Strategy Studio information architecture and 
 
 ### 4.8 Explicit flat-target runtime semantics
 **Priority:** P1
-**Status:** 🧪 Ready to test
+**Status:** ✅ Verified
 
 Add the missing runtime meaning required before a Strategy Studio target-position strategy can ever be integrated safely. Strategy Studio uses `+1 / -1 / 0` target positions, where `0` means **flat**, while the existing runtime `no_trade` signal deliberately means **hold/do nothing**. These meanings must remain distinct.
 
@@ -786,12 +786,20 @@ Add the missing runtime meaning required before a Strategy Studio target-positio
 - [x] Frontend/API analysis types accept `flat` without turning it into a manual Buy/Sell action.
 
 **Acceptance**
-- [ ] Focused flat-signal risk tests pass locally.
-- [ ] Focused paper/cTrader execution tests pass locally.
-- [ ] Existing engine-intent and safety-control regression remains green.
-- [ ] Frontend production build passes locally.
-- [ ] Full canonical validation passes locally.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused flat-signal risk tests pass locally.
+- [x] Focused paper/cTrader execution tests pass locally.
+- [x] Existing engine-intent and safety-control regression remains green: 40/40 focused tests.
+- [x] Frontend production build passes locally: 707 modules.
+- [x] Full canonical validation passes locally.
+- [x] GitHub CI #492 passes on exact implementation head `f852481963ad8dee50a5553dedc5aaf52396a87e`.
+
+**Verification evidence**
+- Local exact-head validation on `f852481` passed `backend/tests/test_safety_controls.py` + `backend/tests/test_engine_intents.py`: 40/40.
+- `python scripts\\validate.py` passed the complete backend suite plus the 707-module frontend production build.
+- `git diff --check origin/main...HEAD` and `git status --short` were clean after validation.
+- Pure-paper `flat` closes carry explicit `strategy_flat` provenance.
+- cTrader `flat` exits use the verified broker-close path, retain JSON-safe close evidence, and are regression-tested to never submit an opposite market order.
+- Field-driven test corrections preserved the established cTrader execution-mode contract: `demo_enabled` / `live_enabled`.
 
 **Scope boundary**
 This item is only the target-position semantic prerequisite for the requested Strategy Studio runtime bridge. It does **not** register saved generated files, expose them in the per-symbol strategy selector, change lifecycle promotion gates, or authorize any generated source for paper/Demo/Live execution.
@@ -1615,6 +1623,7 @@ Add one row after every completed task.
 | 2026-10-08 | Phase 2.10 Journal account-realized summary + history-range UX | Default Completed trades to Broker account; color realized headline by P&L polarity; exclude paper simulation from account headline; replace exact close-date filter with inclusive From/To and explicit All history default/control | ✅ 7/7 Journal tests + 706-module frontend build + clean diff/worktree + CI #457 on `88baae6`; final browser smoke passed Broker account default, polarity styling, From/To open-ended + same-day + bounded semantics, All history reset, and filter preservation; mixed-currency legacy history still fails closed by design | PR #111 / `88baae6` | After merge/sync, operator requested compact Build & Test / Strategy Studio UX cleanup before returning to Phase 2.11 account-identity backfill |
 | 2026-10-07 | Phase 3.5 compact System operations console | Replace the long System document layout with a compact health/safety/diagnostics console, remove duplicate account and engine controls, summarize safety by default, and consolidate operational history into tabs | ✅ 3/3 focused System tests + 706-module frontend build + full canonical validation + clean diff/worktree + browser smoke of compact layout/readiness/actions/activity/Safety modal; exact-head CI #442 passed on `81cd46a` | PR #110 / `81cd46a` | Final docs-head CI, merge, sync main; resume production-style Demo operation and gather remaining broker-position/sample evidence naturally |
 | 2026-10-09 | Phase 4.7 compact Strategy Studio workflow | Compress Build & Test into a day-to-day research workspace; move AI/assumption/advanced controls behind compact disclosure; harden field-discovered Studio routing, Ollama thinking/timeout, and deterministic draft/refinement fallback behavior | ✅ 27/27 focused backend + 3/3 focused frontend tests, 707-module build, full canonical validation, clean diff/worktree, real XAUUSD M5 draft/refinement/backtest browser flow, and implementation-head CI #485 on `3375256f` | PR #112 / `3375256f` | Final docs-head CI, merge, sync main, then resume Phase 2.11 account-identity scoping |
+| 2026-10-11 | Phase 4.8 explicit flat-target runtime semantics | Distinguish Strategy Studio target-flat from runtime no-trade hold; make flat a close-only action for tracked paper/cTrader positions while preserving verified broker-close safety and entry-only gate bypass | ✅ 40/40 focused safety+engine tests, full canonical validation, 707-module frontend build, clean diff/worktree, and exact-head CI #492 on `f852481` | PR #113 / `f852481` | Final docs-head CI, merge, sync main; then Phase 4.9 sandboxed exact-source runtime adapter |
 
 ---
 
