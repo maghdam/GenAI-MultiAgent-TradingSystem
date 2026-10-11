@@ -416,7 +416,7 @@ def test_execute_paper_signal_uses_verified_broker_close_for_flat_target(monkeyp
 
     assert result.action_taken is True
     assert result.status == "executed"
-    assert result.mode == "ctrader_demo"
+    assert result.mode == "demo_enabled"
     assert result.broker_position_id == 111
     assert market_order_calls == []
     assert len(close_calls) == 1
