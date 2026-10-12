@@ -130,6 +130,27 @@ The access token supplies the authorized account directory, and TradeAgent disco
 
 > **Trading risk:** use a Demo account for development, testing, and strategy validation. A selected/authenticated Live account is **disarmed for new real-money entries by default**. Live entry submission requires cTrader auto-trade, per-symbol auto-trade, the kill switch off, **and an explicit runtime-only Live Trading arm for the currently active Live account**. That arm resets on account changes, engine restart, and backend restart. Existing broker-backed positions remain eligible for protection, reconciliation, and verified-close handling even while new Live entries are disarmed.
 
+### Alpaca Paper setup
+
+TradeAgent also has a read-only Alpaca Paper broker boundary for US equities/ETFs, crypto, and future multi-broker work. This phase does **not** place or cancel Alpaca orders. It reads authoritative paper account, open-position, and order state from Alpaca's Trading API.
+
+On Windows, store the Alpaca Paper key pair in Windows Credential Manager:
+
+```powershell
+python scripts/manage_alpaca_credentials.py set
+python scripts/manage_alpaca_credentials.py status
+```
+
+The CLI never prints credential values. Non-Windows/CI environments can use `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` environment variables instead. The default broker host is `https://paper-api.alpaca.markets`.
+
+Read-only endpoints:
+
+- `GET /api/alpaca/paper/account`
+- `GET /api/alpaca/paper/positions`
+- `GET /api/alpaca/paper/orders?status=open&limit=50`
+
+The ChatGPT Alpaca Paper plugin and the local TradeAgent API credentials are separate connections. Connecting Alpaca inside ChatGPT does not copy credentials into this repository or local backend.
+
 ### Manual startup
 
 Backend:
