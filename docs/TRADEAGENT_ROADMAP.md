@@ -1859,8 +1859,46 @@ The operator explicitly requested stronger local protection after Live-account s
 **Scope boundary**
 This item changes only local secret storage/loading and operator tooling/documentation. It does not rotate/re-authorize the cTrader token, alter authorized accounts, change account selection, arm Live Trading, route orders, change risk/sizing/protection/reconciliation behavior, or modify the global 60% signal-strength threshold.
 
+### 10.8 Alpaca Paper read-only broker foundation
+**Priority:** P1
+**Status:** 🧪 Ready to test
+
+Add Alpaca as a second broker boundary without changing the existing cTrader execution path. This first item is intentionally read-only and paper-only: establish secure credentials plus authoritative account/position/order reads before any Alpaca order submission is allowed.
+
+**Target behavior**
+- [x] Read Alpaca Paper API key ID and secret key from Windows Credential Manager before environment fallback.
+- [x] Provide a local credential CLI that can set, report presence/source metadata, and delete the Alpaca key pair without printing secret values.
+- [x] Use Alpaca's official paper Trading API host by default: `https://paper-api.alpaca.markets`.
+- [x] Authenticate with `APCA-API-KEY-ID` and `APCA-API-SECRET-KEY` headers.
+- [x] Add read-only account, open-position, and order retrieval through a dedicated Alpaca Paper service.
+- [x] Expose read-only `/api/alpaca/paper/account`, `/positions`, and `/orders` endpoints.
+- [x] Normalize only the fields TradeAgent needs and never forward arbitrary broker payload fields.
+- [x] Fail closed with explicit 503 errors when Alpaca credentials or broker reads are unavailable.
+- [x] Keep Alpaca completely separate from cTrader engine routing, risk gates, account selection, and Live Trading arm in this item.
+- [x] Add focused coverage for credential precedence, paper host/header usage, normalized account/position/order payloads, endpoint delegation, and fail-closed behavior.
+
+**Acceptance**
+- [ ] Focused Alpaca Paper integration tests pass locally.
+- [ ] Existing Windows credential tests remain green.
+- [ ] Full canonical validation passes locally.
+- [ ] Real read-only smoke against the operator's Alpaca Paper account confirms account + positions + orders endpoints without placing/canceling any order.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+No Alpaca order placement, cancellation, replacement, position close, streaming trade updates, market-data routing, strategy selection, or Live Alpaca execution is introduced here. The connected ChatGPT Alpaca Paper plugin and the local TradeAgent Alpaca API credentials are separate trust boundaries; ChatGPT connector credentials are never copied into the repository or local runtime automatically.
+
+### 10.9 Alpaca Paper execution and reconciliation
+**Status:** ⏳ Planned
+
+Add idempotent paper order submission with TradeAgent client order IDs, order/fill reconciliation, position truth, explicit close semantics, restart recovery, and audit evidence. Keep this paper-only until field validation proves the same fail-closed standard used by cTrader.
+
+### 10.10 Broker venue selection
+**Status:** ⏳ Planned
+
+Add an explicit broker/venue dimension so each enabled symbol-strategy row can route to cTrader or Alpaca according to supported asset class and operator selection. Preserve one common risk/lifecycle/audit policy above both broker adapters; do not silently infer venue from a symbol string.
+
 ---
 
 ## 15. Next item
 
-**User-requested priority before returning to Phase 2.11: complete Phase 4.8 explicit flat-target runtime semantics, then Phase 4.9 sandboxed exact-source Strategy Studio runtime adaptation and Phase 4.10 governed selector/Demo-Live deployment. Do not make a merely saved generated file executable. Preserve exact lifecycle source identity, sandbox isolation, the global 60% signal-strength threshold, broker/risk/protection/reconciliation safeguards, and the runtime-only Live Trading arm. After this requested bridge is complete, resume Phase 2.11 broker-account identity scoping.**
+**User-requested priority: complete Phase 10.8 Alpaca Paper read-only broker foundation and validate it against the connected Paper account. Then continue with Phase 10.9 Alpaca Paper execution/reconciliation before wiring generated Strategy Studio strategies into broker selection. Phase 4.9/4.10 remain the governed strategy-runtime bridge, and Phase 2.11 broker-account identity scoping resumes after the requested Alpaca + Strategy Studio integration path.**
