@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-SignalValue = Literal["long", "short", "no_trade"]
+SignalValue = Literal["long", "short", "flat", "no_trade"]
 IncidentLevel = Literal["info", "warning", "error"]
 StrategyLifecycleStage = Literal["draft", "backtested", "validated", "paper", "eligible", "retired"]
 StrategyEvidenceType = Literal["development_backtest", "out_of_sample", "regime", "paper"]

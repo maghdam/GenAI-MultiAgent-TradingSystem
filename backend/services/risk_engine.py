@@ -126,6 +126,17 @@ def evaluate_risk(
         decision.reasons.append(lifecycle_error or "Strategy lifecycle gate rejected execution.")
         return decision
 
+    if analysis.signal == "flat":
+        if existing_position is None:
+            decision.reasons.append("Strategy target is already flat; there is no open position to close.")
+            return decision
+        decision.accepted = True
+        decision.intent_type = "close"
+        decision.reasons.append("Strategy target returned flat; close the existing position.")
+        decision.details["position_id"] = existing_position.id
+        decision.details["flat_exit"] = True
+        return decision
+
     if config.kill_switch:
         decision.reasons.append("Kill switch is active.")
         return decision

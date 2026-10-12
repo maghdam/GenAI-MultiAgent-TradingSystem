@@ -170,7 +170,7 @@ export interface V2Analysis {
   symbol: string;
   timeframe: string;
   strategy: string;
-  signal: 'long' | 'short' | 'no_trade';
+  signal: 'long' | 'short' | 'flat' | 'no_trade';
   confidence: number;
   entry_price?: number | null;
   stop_loss?: number | null;
