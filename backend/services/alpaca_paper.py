@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -12,7 +13,18 @@ _DEFAULT_PAPER_BASE_URL = "https://paper-api.alpaca.markets"
 
 
 class AlpacaPaperError(RuntimeError):
-    """Raised when the read-only Alpaca Paper integration cannot return broker truth."""
+    """Raised when Alpaca Paper cannot safely return or mutate broker truth."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        ambiguous: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.ambiguous = ambiguous
 
 
 def _base_url() -> str:
@@ -47,7 +59,8 @@ def _request_json(path: str, *, params: dict[str, object] | None = None) -> Any:
 
     if response.status_code >= 400:
         raise AlpacaPaperError(
-            f"Alpaca Paper request returned HTTP {response.status_code} for {path}."
+            f"Alpaca Paper request returned HTTP {response.status_code} for {path}.",
+            status_code=int(response.status_code),
         )
 
     try:
@@ -56,6 +69,80 @@ def _request_json(path: str, *, params: dict[str, object] | None = None) -> Any:
         raise AlpacaPaperError(
             f"Alpaca Paper returned a non-JSON response for {path}."
         ) from exc
+
+
+def _request_optional_json(
+    path: str,
+    *,
+    params: dict[str, object] | None = None,
+) -> Any | None:
+    try:
+        return _request_json(path, params=params)
+    except AlpacaPaperError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+
+
+def _request_mutation_json(
+    method: str,
+    path: str,
+    *,
+    params: dict[str, object] | None = None,
+    body: dict[str, object] | None = None,
+) -> Any:
+    key_id, secret_key = _credentials()
+    headers = {
+        "APCA-API-KEY-ID": key_id,
+        "APCA-API-SECRET-KEY": secret_key,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    try:
+        with httpx.Client(base_url=_base_url(), timeout=10.0, headers=headers) as client:
+            response = client.request(method, path, params=params, json=body)
+    except httpx.HTTPError as exc:
+        raise AlpacaPaperError(
+            f"Alpaca Paper {method.upper()} failed before a response was received for {path}.",
+            ambiguous=True,
+        ) from exc
+
+    if response.status_code >= 400:
+        raise AlpacaPaperError(
+            f"Alpaca Paper {method.upper()} returned HTTP {response.status_code} for {path}.",
+            status_code=int(response.status_code),
+            ambiguous=False,
+        )
+
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise AlpacaPaperError(
+            f"Alpaca Paper returned a non-JSON response for {path}.",
+            ambiguous=True,
+        ) from exc
+
+
+def _normalize_order(item: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": item.get("id"),
+        "client_order_id": item.get("client_order_id"),
+        "symbol": item.get("symbol"),
+        "asset_class": item.get("asset_class"),
+        "side": item.get("side"),
+        "type": item.get("type"),
+        "time_in_force": item.get("time_in_force"),
+        "qty": item.get("qty"),
+        "notional": item.get("notional"),
+        "status": item.get("status"),
+        "filled_qty": item.get("filled_qty"),
+        "filled_avg_price": item.get("filled_avg_price"),
+        "submitted_at": item.get("submitted_at"),
+        "filled_at": item.get("filled_at"),
+        "canceled_at": item.get("canceled_at"),
+        "expired_at": item.get("expired_at"),
+        "failed_at": item.get("failed_at"),
+    }
 
 
 def get_account() -> dict[str, object]:
@@ -133,24 +220,123 @@ def list_orders(*, status: str = "open", limit: int = 50) -> list[dict[str, obje
 
     rows: list[dict[str, object]] = []
     for item in payload:
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            {
-                "id": item.get("id"),
-                "client_order_id": item.get("client_order_id"),
-                "symbol": item.get("symbol"),
-                "asset_class": item.get("asset_class"),
-                "side": item.get("side"),
-                "type": item.get("type"),
-                "time_in_force": item.get("time_in_force"),
-                "qty": item.get("qty"),
-                "notional": item.get("notional"),
-                "status": item.get("status"),
-                "filled_qty": item.get("filled_qty"),
-                "filled_avg_price": item.get("filled_avg_price"),
-                "submitted_at": item.get("submitted_at"),
-                "filled_at": item.get("filled_at"),
-            }
-        )
+        if isinstance(item, dict):
+            rows.append(_normalize_order(item))
     return rows
+
+
+def get_order_by_client_order_id(client_order_id: str) -> dict[str, object] | None:
+    normalized = str(client_order_id or "").strip()
+    if not normalized:
+        raise ValueError("Alpaca client_order_id must not be empty.")
+    payload = _request_optional_json(
+        "/v2/orders:by_client_order_id",
+        params={"client_order_id": normalized},
+    )
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise AlpacaPaperError("Alpaca Paper order lookup response had an unexpected shape.")
+    return _normalize_order(payload)
+
+
+def get_open_position(symbol_or_asset_id: str) -> dict[str, object] | None:
+    normalized = str(symbol_or_asset_id or "").strip()
+    if not normalized:
+        raise ValueError("Alpaca symbol_or_asset_id must not be empty.")
+    encoded = quote(normalized, safe="")
+    payload = _request_optional_json(f"/v2/positions/{encoded}")
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise AlpacaPaperError("Alpaca Paper position lookup response had an unexpected shape.")
+    rows = [
+        row for row in list_positions()
+        if str(row.get("asset_id") or "") == str(payload.get("asset_id") or "")
+        or str(row.get("symbol") or "").upper() == str(payload.get("symbol") or "").upper()
+    ]
+    if rows:
+        return rows[0]
+    return {
+        "asset_id": payload.get("asset_id"),
+        "symbol": payload.get("symbol"),
+        "asset_class": payload.get("asset_class"),
+        "exchange": payload.get("exchange"),
+        "side": payload.get("side"),
+        "qty": payload.get("qty"),
+        "qty_available": payload.get("qty_available"),
+        "avg_entry_price": payload.get("avg_entry_price"),
+        "current_price": payload.get("current_price"),
+        "market_value": payload.get("market_value"),
+        "cost_basis": payload.get("cost_basis"),
+        "unrealized_pl": payload.get("unrealized_pl"),
+        "unrealized_plpc": payload.get("unrealized_plpc"),
+    }
+
+
+def submit_market_order(
+    *,
+    symbol: str,
+    asset_class: str,
+    side: str,
+    client_order_id: str,
+    qty: float | None = None,
+    notional: float | None = None,
+) -> dict[str, object]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    normalized_asset_class = str(asset_class or "").strip().lower()
+    normalized_side = str(side or "").strip().lower()
+    normalized_client_order_id = str(client_order_id or "").strip()
+
+    if not normalized_symbol:
+        raise ValueError("Alpaca symbol must not be empty.")
+    if normalized_asset_class not in {"us_equity", "crypto"}:
+        raise ValueError("Alpaca asset_class must be us_equity or crypto.")
+    if normalized_side not in {"buy", "sell"}:
+        raise ValueError("Alpaca side must be buy or sell.")
+    if not normalized_client_order_id:
+        raise ValueError("Alpaca client_order_id must not be empty.")
+    if (qty is None) == (notional is None):
+        raise ValueError("Provide exactly one of qty or notional.")
+    if qty is not None and float(qty) <= 0:
+        raise ValueError("Alpaca qty must be greater than zero.")
+    if notional is not None and float(notional) <= 0:
+        raise ValueError("Alpaca notional must be greater than zero.")
+
+    body: dict[str, object] = {
+        "symbol": normalized_symbol,
+        "side": normalized_side,
+        "type": "market",
+        "time_in_force": "gtc" if normalized_asset_class == "crypto" else "day",
+        "client_order_id": normalized_client_order_id,
+    }
+    if qty is not None:
+        body["qty"] = str(qty)
+    else:
+        body["notional"] = str(notional)
+
+    payload = _request_mutation_json("POST", "/v2/orders", body=body)
+    if not isinstance(payload, dict):
+        raise AlpacaPaperError(
+            "Alpaca Paper order submission response had an unexpected shape.",
+            ambiguous=True,
+        )
+    return _normalize_order(payload)
+
+
+def close_position(symbol_or_asset_id: str) -> dict[str, object]:
+    normalized = str(symbol_or_asset_id or "").strip()
+    if not normalized:
+        raise ValueError("Alpaca symbol_or_asset_id must not be empty.")
+    encoded = quote(normalized, safe="")
+    payload = _request_mutation_json(
+        "DELETE",
+        f"/v2/positions/{encoded}",
+        params={"percentage": 100},
+    )
+    if not isinstance(payload, dict):
+        raise AlpacaPaperError(
+            "Alpaca Paper close-position response had an unexpected shape.",
+            ambiguous=True,
+        )
+    return _normalize_order(payload)
