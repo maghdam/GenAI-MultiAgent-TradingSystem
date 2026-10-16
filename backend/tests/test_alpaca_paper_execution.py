@@ -387,6 +387,51 @@ def test_reconcile_survives_restart_style_nonterminal_intent(monkeypatch) -> Non
     assert intent.details["reconciliation_source"] == "manual_reconcile"
 
 
+def test_reconcile_missing_order_keeps_visible_position_fail_closed(monkeypatch) -> None:
+    monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    state = {"preflight": True}
+
+    def _position_truth(_symbol):
+        if state["preflight"]:
+            return None
+        return _position()
+
+    monkeypatch.setattr(alpaca_execution, "get_open_position", _position_truth)
+    monkeypatch.setattr(alpaca_execution, "list_positions", lambda: [_position()])
+    monkeypatch.setattr(
+        alpaca_execution,
+        "submit_market_order",
+        lambda **kwargs: _order(
+            status="new",
+            client_order_id=str(kwargs["client_order_id"]),
+        ),
+    )
+
+    created = alpaca_execution.submit_paper_market_order(
+        symbol="AAPL",
+        asset_class="us_equity",
+        side="buy",
+        qty=0.01,
+        notional=None,
+        timeframe="D1",
+        strategy="manual",
+        rationale="visible-position recovery",
+    )
+    assert created["status"] == "accepted"
+
+    state["preflight"] = False
+    monkeypatch.setattr(alpaca_execution, "get_order_by_client_order_id", lambda _cid: None)
+    monkeypatch.setattr(alpaca_execution, "sleep", lambda _seconds: None)
+
+    reconciled = alpaca_execution.reconcile_paper_execution()
+
+    assert reconciled["unresolved"] == 1
+    intent = list_order_intents(1)[0]
+    assert intent.status == "accepted"
+    assert intent.details["outcome_state"] == "position_visible_order_unresolved"
+    assert intent.details["automatic_retry"] is False
+
+
 def test_close_already_flat_is_a_noop_without_intent(monkeypatch) -> None:
     monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
     monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
