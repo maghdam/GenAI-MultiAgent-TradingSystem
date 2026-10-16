@@ -241,6 +241,18 @@ def get_order_by_client_order_id(client_order_id: str) -> dict[str, object] | No
     return _normalize_order(payload)
 
 
+def get_order_by_id(order_id: str) -> dict[str, object] | None:
+    normalized = str(order_id or "").strip()
+    if not normalized:
+        raise ValueError("Alpaca order_id must not be empty.")
+    payload = _request_optional_json(f"/v2/orders/{quote(normalized, safe='')}")
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise AlpacaPaperError("Alpaca Paper order lookup response had an unexpected shape.")
+    return _normalize_order(payload)
+
+
 def get_open_position(symbol_or_asset_id: str) -> dict[str, object] | None:
     normalized = str(symbol_or_asset_id or "").strip()
     if not normalized:
