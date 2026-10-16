@@ -145,6 +145,24 @@ def _normalize_order(item: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _normalize_position(item: dict[str, object]) -> dict[str, object]:
+    return {
+        "asset_id": item.get("asset_id"),
+        "symbol": item.get("symbol"),
+        "asset_class": item.get("asset_class"),
+        "exchange": item.get("exchange"),
+        "side": item.get("side"),
+        "qty": item.get("qty"),
+        "qty_available": item.get("qty_available"),
+        "avg_entry_price": item.get("avg_entry_price"),
+        "current_price": item.get("current_price"),
+        "market_value": item.get("market_value"),
+        "cost_basis": item.get("cost_basis"),
+        "unrealized_pl": item.get("unrealized_pl"),
+        "unrealized_plpc": item.get("unrealized_plpc"),
+    }
+
+
 def get_account() -> dict[str, object]:
     payload = _request_json("/v2/account")
     if not isinstance(payload, dict):
@@ -176,25 +194,8 @@ def list_positions() -> list[dict[str, object]]:
 
     rows: list[dict[str, object]] = []
     for item in payload:
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            {
-                "asset_id": item.get("asset_id"),
-                "symbol": item.get("symbol"),
-                "asset_class": item.get("asset_class"),
-                "exchange": item.get("exchange"),
-                "side": item.get("side"),
-                "qty": item.get("qty"),
-                "qty_available": item.get("qty_available"),
-                "avg_entry_price": item.get("avg_entry_price"),
-                "current_price": item.get("current_price"),
-                "market_value": item.get("market_value"),
-                "cost_basis": item.get("cost_basis"),
-                "unrealized_pl": item.get("unrealized_pl"),
-                "unrealized_plpc": item.get("unrealized_plpc"),
-            }
-        )
+        if isinstance(item, dict):
+            rows.append(_normalize_position(item))
     return rows
 
 
@@ -250,28 +251,7 @@ def get_open_position(symbol_or_asset_id: str) -> dict[str, object] | None:
         return None
     if not isinstance(payload, dict):
         raise AlpacaPaperError("Alpaca Paper position lookup response had an unexpected shape.")
-    rows = [
-        row for row in list_positions()
-        if str(row.get("asset_id") or "") == str(payload.get("asset_id") or "")
-        or str(row.get("symbol") or "").upper() == str(payload.get("symbol") or "").upper()
-    ]
-    if rows:
-        return rows[0]
-    return {
-        "asset_id": payload.get("asset_id"),
-        "symbol": payload.get("symbol"),
-        "asset_class": payload.get("asset_class"),
-        "exchange": payload.get("exchange"),
-        "side": payload.get("side"),
-        "qty": payload.get("qty"),
-        "qty_available": payload.get("qty_available"),
-        "avg_entry_price": payload.get("avg_entry_price"),
-        "current_price": payload.get("current_price"),
-        "market_value": payload.get("market_value"),
-        "cost_basis": payload.get("cost_basis"),
-        "unrealized_pl": payload.get("unrealized_pl"),
-        "unrealized_plpc": payload.get("unrealized_plpc"),
-    }
+    return _normalize_position(payload)
 
 
 def submit_market_order(
