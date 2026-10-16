@@ -236,9 +236,36 @@ def submit_paper_market_order(
 ) -> dict[str, object]:
     normalized_symbol = str(symbol or "").strip().upper()
     normalized_side = str(side or "").strip().lower()
+    normalized_asset_class = str(asset_class or "").strip().lower()
     direction = "long" if normalized_side == "buy" else "short"
 
-    _execution_ready_account()
+    account = _execution_ready_account()
+    if normalized_asset_class == "crypto" and normalized_side == "sell":
+        raise ValueError(
+            "Phase 10.9 does not open short crypto positions; use the explicit close endpoint to flatten an existing crypto position."
+        )
+    if (
+        normalized_asset_class == "us_equity"
+        and normalized_side == "sell"
+        and not bool(account.get("shorting_enabled"))
+    ):
+        raise AlpacaPaperError("Alpaca Paper account does not permit short equity entries.")
+    if normalized_side == "sell" and notional is not None:
+        raise ValueError("Short equity entry requires explicit qty sizing; notional sell entries are not enabled.")
+
+    existing_position = get_open_position(normalized_symbol)
+    if existing_position is not None:
+        return {
+            "action_taken": False,
+            "intent_id": None,
+            "status": "blocked",
+            "summary": (
+                "An Alpaca Paper position already exists for this symbol. "
+                "Phase 10.9 market submission is entry-only; use the explicit close endpoint to flatten it."
+            ),
+            "broker_order": None,
+            "position": existing_position,
+        }
 
     unresolved = _unresolved_intent_for_symbol(normalized_symbol)
     if unresolved is not None:
