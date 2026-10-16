@@ -9,6 +9,7 @@ from backend.services.alpaca_paper import (
     get_account,
     get_open_position,
     get_order_by_client_order_id,
+    get_order_by_id,
     list_positions,
     submit_market_order,
 )
@@ -542,21 +543,23 @@ def close_paper_position(
 
         updated = update_order_intent_status(
             intent.id,
-            "failed",
+            "accepted",
             {
-                "outcome_state": "close_resolved_position_still_open",
-                "reconciliation_resolved": True,
+                "outcome_state": "ambiguous_close_position_still_open",
+                "reconciliation_resolved": False,
                 "position_after_close": current,
-                "retryable": True,
                 "automatic_retry": False,
             },
-            reason="alpaca_paper_close_resolved_position_open",
+            reason="alpaca_paper_close_still_ambiguous",
         )
         return {
             "action_taken": False,
             "intent_id": updated.id,
-            "status": updated.status,
-            "summary": "Alpaca Paper position remains open; close was not automatically retried.",
+            "status": "reconciliation_required",
+            "summary": (
+                "Alpaca Paper position is still visible after an ambiguous close; "
+                "automatic repeat-close remains blocked."
+            ),
             "broker_order": None,
             "position_before_close": position,
             "position_after_close": current,
@@ -583,12 +586,15 @@ def reconcile_paper_execution(*, limit: int = 200) -> dict[str, object]:
             continue
 
         checked += 1
+        broker_order = details.get("broker_order") if isinstance(details.get("broker_order"), dict) else {}
         client_order_id = str(
             details.get("client_order_id")
-            or (details.get("broker_order") or {}).get("client_order_id")
+            or broker_order.get("client_order_id")
             or ""
         ).strip()
+        broker_order_id = str(broker_order.get("id") or "").strip()
 
+        order = None
         if client_order_id:
             try:
                 order = _lookup_order_with_retry(client_order_id)
@@ -602,18 +608,32 @@ def reconcile_paper_execution(*, limit: int = 200) -> dict[str, object]:
                     }
                 )
                 continue
-            if order is not None:
-                result = _apply_order_truth(intent, order, source="manual_reconcile")
-                results.append(result)
-                if result["status"] == "executed":
-                    executed += 1
-                elif result["status"] == "accepted":
-                    accepted += 1
-                elif result["status"] == "cancelled":
-                    cancelled += 1
-                else:
-                    failed += 1
+        elif broker_order_id:
+            try:
+                order = get_order_by_id(broker_order_id)
+            except AlpacaPaperError:
+                unresolved += 1
+                results.append(
+                    {
+                        "intent_id": intent.id,
+                        "status": "reconciliation_required",
+                        "summary": "Broker order-id lookup is unavailable.",
+                    }
+                )
                 continue
+
+        if order is not None:
+            result = _apply_order_truth(intent, order, source="manual_reconcile")
+            results.append(result)
+            if result["status"] == "executed":
+                executed += 1
+            elif result["status"] == "accepted":
+                accepted += 1
+            elif result["status"] == "cancelled":
+                cancelled += 1
+            else:
+                failed += 1
+            continue
 
         if intent.intent_type == "close":
             symbol_or_asset_id = str(details.get("symbol_or_asset_id") or intent.symbol)
@@ -660,22 +680,24 @@ def reconcile_paper_execution(*, limit: int = 200) -> dict[str, object]:
             else:
                 updated = update_order_intent_status(
                     intent.id,
-                    "failed",
+                    "accepted",
                     {
-                        "outcome_state": "close_resolved_position_still_open",
-                        "reconciliation_resolved": True,
+                        "outcome_state": "close_unresolved_position_still_open",
+                        "reconciliation_resolved": False,
                         "position_after_close": position,
-                        "retryable": True,
                         "automatic_retry": False,
                     },
-                    reason="alpaca_paper_reconcile_close_still_open",
+                    reason="alpaca_paper_reconcile_close_still_unresolved",
                 )
-                failed += 1
+                unresolved += 1
                 results.append(
                     {
                         "intent_id": updated.id,
-                        "status": updated.status,
-                        "summary": "Position remains open; no automatic repeat-close was attempted.",
+                        "status": "reconciliation_required",
+                        "summary": (
+                            "Position remains open and no terminal close-order truth is available; "
+                            "automatic repeat-close remains blocked."
+                        ),
                     }
                 )
             continue
