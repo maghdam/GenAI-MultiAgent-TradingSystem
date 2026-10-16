@@ -21,10 +21,18 @@ CTRADER_SECRET_ENV_NAMES = (
     "CTRADER_CLIENT_SECRET",
     "CTRADER_ACCESS_TOKEN",
 )
+ALPACA_SECRET_ENV_NAMES = (
+    "ALPACA_API_KEY_ID",
+    "ALPACA_API_SECRET_KEY",
+)
 _CREDENTIAL_TARGETS = {
     "CTRADER_CLIENT_ID": "TradeAgent/cTrader/client_id",
     "CTRADER_CLIENT_SECRET": "TradeAgent/cTrader/client_secret",
     "CTRADER_ACCESS_TOKEN": "TradeAgent/cTrader/access_token",
+}
+_ALPACA_CREDENTIAL_TARGETS = {
+    "ALPACA_API_KEY_ID": "TradeAgent/Alpaca/api_key_id",
+    "ALPACA_API_SECRET_KEY": "TradeAgent/Alpaca/api_secret_key",
 }
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"^\s*(?:export\s+)?("
@@ -72,6 +80,13 @@ def _target_for(env_name: str) -> str:
         return _CREDENTIAL_TARGETS[env_name]
     except KeyError as exc:
         raise ValueError(f"Unsupported cTrader credential: {env_name}") from exc
+
+
+def _alpaca_target_for(env_name: str) -> str:
+    try:
+        return _ALPACA_CREDENTIAL_TARGETS[env_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported Alpaca credential: {env_name}") from exc
 
 
 def _windows_api():
@@ -172,6 +187,126 @@ def write_windows_credential(env_name: str, value: str) -> None:
 
 def delete_windows_credential(env_name: str) -> bool:
     return _delete_windows_generic_credential(_target_for(env_name))
+
+
+def read_windows_alpaca_credential(env_name: str) -> str | None:
+    return _read_windows_generic_credential(_alpaca_target_for(env_name))
+
+
+def write_windows_alpaca_credential(env_name: str, value: str) -> None:
+    _write_windows_generic_credential(_alpaca_target_for(env_name), value)
+
+
+def delete_windows_alpaca_credential(env_name: str) -> bool:
+    return _delete_windows_generic_credential(_alpaca_target_for(env_name))
+
+
+def get_alpaca_secret_with_source(
+    env_name: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> SecretValue:
+    _alpaca_target_for(env_name)
+
+    if _is_windows():
+        value = read_windows_alpaca_credential(env_name)
+        if value:
+            return SecretValue(
+                value=value,
+                source="windows_credential_manager",
+            )
+
+    source_env = os.environ if environ is None else environ
+    value = source_env.get(env_name)
+    if value:
+        return SecretValue(value=value, source="environment")
+    return SecretValue(value=None, source="missing")
+
+
+def get_alpaca_secret(
+    env_name: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str | None:
+    return get_alpaca_secret_with_source(env_name, environ=environ).value
+
+
+def alpaca_credential_status() -> dict[str, dict[str, str | bool]]:
+    result: dict[str, dict[str, str | bool]] = {}
+    for name in ALPACA_SECRET_ENV_NAMES:
+        vault_present = False
+        if _is_windows():
+            vault_present = bool(read_windows_alpaca_credential(name))
+        env_present = bool(os.environ.get(name))
+        if vault_present:
+            effective_source = "windows_credential_manager"
+        elif env_present:
+            effective_source = "environment"
+        else:
+            effective_source = "missing"
+        result[name] = {
+            "windows_credential_manager": vault_present,
+            "environment": env_present,
+            "effective_source": effective_source,
+        }
+    return result
+
+
+def store_alpaca_secrets(secrets: Mapping[str, str]) -> None:
+    if not _is_windows():
+        raise CredentialStoreError(
+            "Alpaca credential storage requires Windows Credential Manager."
+        )
+
+    normalized: dict[str, str] = {}
+    missing: list[str] = []
+    for name in ALPACA_SECRET_ENV_NAMES:
+        value = secrets.get(name)
+        if value is None or not str(value):
+            missing.append(name)
+        else:
+            normalized[name] = str(value)
+
+    if missing:
+        raise CredentialStoreError(
+            "Missing required Alpaca credential values: " + ", ".join(missing)
+        )
+
+    previous = {
+        name: read_windows_alpaca_credential(name)
+        for name in ALPACA_SECRET_ENV_NAMES
+    }
+
+    try:
+        for name, value in normalized.items():
+            write_windows_alpaca_credential(name, value)
+
+        failed_verification = [
+            name
+            for name, value in normalized.items()
+            if read_windows_alpaca_credential(name) != value
+        ]
+        if failed_verification:
+            raise CredentialStoreError(
+                "Credential write verification failed for: "
+                + ", ".join(failed_verification)
+            )
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for name, old_value in previous.items():
+            try:
+                if old_value is None:
+                    delete_windows_alpaca_credential(name)
+                else:
+                    write_windows_alpaca_credential(name, old_value)
+            except Exception:
+                rollback_errors.append(name)
+        if rollback_errors:
+            raise CredentialStoreError(
+                "Credential storage failed and rollback was incomplete for: "
+                + ", ".join(rollback_errors)
+            ) from exc
+        raise
 
 
 def get_ctrader_secret_with_source(

@@ -51,6 +51,12 @@ from backend.domain.models import (
     WatchlistItem,
 )
 from backend.services.broker import get_broker_status, get_instrument_spec, get_symbol_limits, list_accounts, list_positions, list_symbols, switch_account
+from backend.services.alpaca_paper import (
+    AlpacaPaperError,
+    get_account as get_alpaca_paper_account,
+    list_orders as list_alpaca_paper_orders,
+    list_positions as list_alpaca_paper_positions,
+)
 from backend.services.engine import engine
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.confluence_shadow import record_confluence_shadow
@@ -570,6 +576,39 @@ def _apply_account_selection(
 async def v2_broker_accounts() -> List[CTraderAccount]:
     accounts = await asyncio.to_thread(list_accounts)
     return _apply_account_selection(accounts, _current_config())
+
+
+@router.get("/alpaca/paper/account")
+async def v2_alpaca_paper_account() -> dict[str, object]:
+    try:
+        return await asyncio.to_thread(get_alpaca_paper_account)
+    except AlpacaPaperError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/alpaca/paper/positions")
+async def v2_alpaca_paper_positions() -> list[dict[str, object]]:
+    try:
+        return await asyncio.to_thread(list_alpaca_paper_positions)
+    except AlpacaPaperError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/alpaca/paper/orders")
+async def v2_alpaca_paper_orders(
+    status: str = Query(default="open"),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> list[dict[str, object]]:
+    try:
+        return await asyncio.to_thread(
+            list_alpaca_paper_orders,
+            status=status,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AlpacaPaperError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/broker/accounts/select", response_model=CTraderAccountSelectionResponse)
