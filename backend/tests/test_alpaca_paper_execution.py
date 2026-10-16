@@ -179,6 +179,7 @@ def test_low_level_close_encodes_symbol_and_requests_full_flatten(monkeypatch) -
 
 def test_filled_market_order_is_durably_identified_and_audited(monkeypatch) -> None:
     monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
 
     captured: dict[str, object] = {}
 
@@ -215,8 +216,35 @@ def test_filled_market_order_is_durably_identified_and_audited(monkeypatch) -> N
     assert "alpaca_paper_order_filled" in events
 
 
+def test_existing_position_blocks_entry_only_market_mutation(monkeypatch) -> None:
+    monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: _position())
+
+    def _must_not_submit(**kwargs):
+        raise AssertionError("Broker submission must be blocked when position already exists")
+
+    monkeypatch.setattr(alpaca_execution, "submit_market_order", _must_not_submit)
+
+    result = alpaca_execution.submit_paper_market_order(
+        symbol="AAPL",
+        asset_class="us_equity",
+        side="buy",
+        qty=0.01,
+        notional=None,
+        timeframe="D1",
+        strategy="manual",
+        rationale="entry-only guard",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["intent_id"] is None
+    assert result["position"]["symbol"] == "AAPL"
+    assert list_order_intents(10) == []
+
+
 def test_nonterminal_order_blocks_duplicate_symbol_submission(monkeypatch) -> None:
     monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
     calls = {"submit": 0}
 
     def _submit(**kwargs):
@@ -257,6 +285,7 @@ def test_nonterminal_order_blocks_duplicate_symbol_submission(monkeypatch) -> No
 
 def test_ambiguous_submit_recovers_exact_client_order_id(monkeypatch) -> None:
     monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
 
     def _ambiguous(**kwargs):
         raise alpaca_paper.AlpacaPaperError("timeout", ambiguous=True)
@@ -288,6 +317,7 @@ def test_ambiguous_submit_recovers_exact_client_order_id(monkeypatch) -> None:
 
 def test_ambiguous_submit_with_no_broker_order_fails_without_auto_retry(monkeypatch) -> None:
     monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
     monkeypatch.setattr(
         alpaca_execution,
         "submit_market_order",
@@ -318,6 +348,7 @@ def test_ambiguous_submit_with_no_broker_order_fails_without_auto_retry(monkeypa
 
 def test_reconcile_survives_restart_style_nonterminal_intent(monkeypatch) -> None:
     monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
     monkeypatch.setattr(alpaca_execution, "list_positions", lambda: [])
     state = {"order": None}
 
