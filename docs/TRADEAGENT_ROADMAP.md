@@ -1624,6 +1624,7 @@ Add one row after every completed task.
 | 2026-10-07 | Phase 3.5 compact System operations console | Replace the long System document layout with a compact health/safety/diagnostics console, remove duplicate account and engine controls, summarize safety by default, and consolidate operational history into tabs | ✅ 3/3 focused System tests + 706-module frontend build + full canonical validation + clean diff/worktree + browser smoke of compact layout/readiness/actions/activity/Safety modal; exact-head CI #442 passed on `81cd46a` | PR #110 / `81cd46a` | Final docs-head CI, merge, sync main; resume production-style Demo operation and gather remaining broker-position/sample evidence naturally |
 | 2026-10-09 | Phase 4.7 compact Strategy Studio workflow | Compress Build & Test into a day-to-day research workspace; move AI/assumption/advanced controls behind compact disclosure; harden field-discovered Studio routing, Ollama thinking/timeout, and deterministic draft/refinement fallback behavior | ✅ 27/27 focused backend + 3/3 focused frontend tests, 707-module build, full canonical validation, clean diff/worktree, real XAUUSD M5 draft/refinement/backtest browser flow, and implementation-head CI #485 on `3375256f` | PR #112 / `3375256f` | Final docs-head CI, merge, sync main, then resume Phase 2.11 account-identity scoping |
 | 2026-10-11 | Phase 4.8 explicit flat-target runtime semantics | Distinguish Strategy Studio target-flat from runtime no-trade hold; make flat a close-only action for tracked paper/cTrader positions while preserving verified broker-close safety and entry-only gate bypass | ✅ 40/40 focused safety+engine tests, full canonical validation, 707-module frontend build, clean diff/worktree, and exact-head CI #492 on `f852481` | PR #113 / `f852481` | Final docs-head CI, merge, sync main; then Phase 4.9 sandboxed exact-source runtime adapter |
+| 2026-10-16 | Phase 10.8 Alpaca Paper read-only broker foundation | Add secure Alpaca Paper credentials plus read-only account/position/order broker truth without changing cTrader routing or allowing Alpaca execution | ✅ 17/17 focused Alpaca+credential tests, full canonical validation, 707-module frontend build, clean diff/worktree, CI #495 on `e562a91`, and real read-only Paper smoke returning ACTIVE account + 4 positions + 19 orders with no broker mutation | PR #114 / `e562a91` | Final docs-head CI, merge, sync main; then Phase 10.9 Alpaca Paper execution/reconciliation |
 
 ---
 
@@ -1861,7 +1862,7 @@ This item changes only local secret storage/loading and operator tooling/documen
 
 ### 10.8 Alpaca Paper read-only broker foundation
 **Priority:** P1
-**Status:** 🧪 Ready to test
+**Status:** ✅ Verified
 
 Add Alpaca as a second broker boundary without changing the existing cTrader execution path. This first item is intentionally read-only and paper-only: establish secure credentials plus authoritative account/position/order reads before any Alpaca order submission is allowed.
 
@@ -1878,11 +1879,19 @@ Add Alpaca as a second broker boundary without changing the existing cTrader exe
 - [x] Add focused coverage for credential precedence, paper host/header usage, normalized account/position/order payloads, endpoint delegation, and fail-closed behavior.
 
 **Acceptance**
-- [ ] Focused Alpaca Paper integration tests pass locally.
-- [ ] Existing Windows credential tests remain green.
-- [ ] Full canonical validation passes locally.
-- [ ] Real read-only smoke against the operator's Alpaca Paper account confirms account + positions + orders endpoints without placing/canceling any order.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused Alpaca Paper integration + existing Windows credential tests pass locally: 17/17.
+- [x] Existing Windows credential tests remain green.
+- [x] Full canonical validation passes locally, including the 707-module frontend production build.
+- [x] Real read-only smoke against the operator's Alpaca Paper account confirms account + positions + orders endpoints without placing/canceling any order.
+- [x] GitHub CI #495 passes on exact implementation head `e562a91a5087f63eda5964e7f328a6826f6c80f6`.
+
+**Verification evidence**
+- Local exact-head validation on `e562a91` passed 17/17 focused Alpaca/Windows-credential tests.
+- `python scripts\\validate.py` passed the complete backend suite plus the 707-module frontend production build.
+- `git diff --check origin/main...HEAD` and `git status --short` were clean.
+- Windows Credential Manager stored and verified the Alpaca Paper API key pair; status reported both values present from `windows_credential_manager` with no environment fallback.
+- A backend restart from the Alpaca branch with cTrader/Ollama/event startup disabled returned HTTP 200 for read-only account, positions, and orders endpoints.
+- The real Paper smoke returned an ACTIVE account, four open positions, and nineteen recent orders while placing, canceling, replacing, or closing nothing.
 
 **Scope boundary**
 No Alpaca order placement, cancellation, replacement, position close, streaming trade updates, market-data routing, strategy selection, or Live Alpaca execution is introduced here. The connected ChatGPT Alpaca Paper plugin and the local TradeAgent Alpaca API credentials are separate trust boundaries; ChatGPT connector credentials are never copied into the repository or local runtime automatically.
