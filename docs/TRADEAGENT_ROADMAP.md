@@ -1897,9 +1897,35 @@ Add Alpaca as a second broker boundary without changing the existing cTrader exe
 No Alpaca order placement, cancellation, replacement, position close, streaming trade updates, market-data routing, strategy selection, or Live Alpaca execution is introduced here. The connected ChatGPT Alpaca Paper plugin and the local TradeAgent Alpaca API credentials are separate trust boundaries; ChatGPT connector credentials are never copied into the repository or local runtime automatically.
 
 ### 10.9 Alpaca Paper execution and reconciliation
-**Status:** ⏳ Planned
+**Priority:** P1
+**Status:** 🧪 Ready to test
 
 Add idempotent paper order submission with TradeAgent client order IDs, order/fill reconciliation, position truth, explicit close semantics, restart recovery, and audit evidence. Keep this paper-only until field validation proves the same fail-closed standard used by cTrader.
+
+**Target behavior**
+- [x] Restrict the mutation path to the configured Alpaca Paper host/account; no Alpaca Live endpoint is introduced.
+- [x] Reserve and durably persist a unique `tradeagent-alpaca-...` client order ID before every explicit market-order submission.
+- [x] Support explicit US-equity and crypto Paper market orders with exactly one of quantity or notional sizing; keep venue/asset class explicit rather than inferred from the symbol.
+- [x] Persist broker acknowledgements/fills into the existing order-intent transition log and immutable trade-audit stream.
+- [x] Block duplicate submission for a symbol while an Alpaca Paper intent remains unresolved.
+- [x] Reconcile ambiguous submissions by exact client order ID and never automatically resubmit an uncertain order.
+- [x] Reconcile non-terminal orders after restart from durable intent/client-order identity.
+- [x] Implement an explicit full-position-to-flat close path using broker position truth; already-flat is a no-op.
+- [x] Keep ambiguous closes unresolved and block repeat-close mutation until broker order/position truth resolves them.
+- [x] Reconcile broker-generated close orders by client order ID or broker order ID when available, otherwise by the requested position's exact flat/open truth.
+- [x] Expose explicit Paper-only market-order, full-close, and reconciliation endpoints without wiring Alpaca into the autonomous engine or Strategy Studio selector.
+
+**Acceptance**
+- [ ] Focused Alpaca Paper execution/reconciliation tests pass locally.
+- [ ] Existing Phase 10.8 Alpaca read-only/credential tests remain green.
+- [ ] Existing cTrader execution/safety regression remains green.
+- [ ] Full canonical validation passes locally, including frontend production build.
+- [ ] Real Paper field test places one deliberately tiny order through TradeAgent, reconciles it by exact intent/client-order identity, then returns the test position to flat without duplicate submission.
+- [ ] Restart/reconcile field observation confirms a non-terminal durable intent can be recovered without automatic resubmission.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item is still Alpaca **Paper only** and exposes explicit operator/API mutation endpoints for field validation. It does not add Alpaca to the per-symbol runtime broker selector, does not route autonomous Strategy Studio signals to Alpaca, does not add Alpaca Live trading, and does not weaken the existing cTrader/live-arm/risk/protection/reconciliation gates.
 
 ### 10.10 Broker venue selection
 **Status:** ⏳ Planned
@@ -1910,4 +1936,4 @@ Add an explicit broker/venue dimension so each enabled symbol-strategy row can r
 
 ## 15. Next item
 
-**User-requested priority: complete Phase 10.8 Alpaca Paper read-only broker foundation and validate it against the connected Paper account. Then continue with Phase 10.9 Alpaca Paper execution/reconciliation before wiring generated Strategy Studio strategies into broker selection. Phase 4.9/4.10 remain the governed strategy-runtime bridge, and Phase 2.11 broker-account identity scoping resumes after the requested Alpaca + Strategy Studio integration path.**
+**User-requested priority: validate and complete Phase 10.9 Alpaca Paper execution/reconciliation on the exact PR head, including one deliberately tiny real Paper order/close cycle and restart-safe reconciliation with no automatic resubmission. After merge/sync, continue to Phase 10.10 explicit broker venue selection, then resume the governed Strategy Studio runtime bridge in Phase 4.9/4.10. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
