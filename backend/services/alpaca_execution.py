@@ -662,6 +662,41 @@ def reconcile_paper_execution(*, limit: int = 200) -> dict[str, object]:
                 failed += 1
             continue
 
+        if intent.intent_type != "close":
+            try:
+                position = get_open_position(intent.symbol)
+            except AlpacaPaperError:
+                unresolved += 1
+                results.append(
+                    {
+                        "intent_id": intent.id,
+                        "status": "reconciliation_required",
+                        "summary": "Position truth is unavailable after missing order lookup.",
+                    }
+                )
+                continue
+            if position is not None:
+                updated = update_order_intent_status(
+                    intent.id,
+                    "accepted",
+                    {
+                        "outcome_state": "position_visible_order_unresolved",
+                        "reconciliation_resolved": False,
+                        "position_truth": position,
+                        "automatic_retry": False,
+                    },
+                    reason="alpaca_paper_position_visible_order_unresolved",
+                )
+                unresolved += 1
+                results.append(
+                    {
+                        "intent_id": updated.id,
+                        "status": "reconciliation_required",
+                        "summary": "Broker position exists but exact order truth is unavailable.",
+                    }
+                )
+                continue
+
         if intent.intent_type == "close":
             symbol_or_asset_id = str(details.get("symbol_or_asset_id") or intent.symbol)
             try:
