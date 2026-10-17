@@ -599,10 +599,14 @@ def test_full_close_filled_is_recorded_as_flat_execution(monkeypatch) -> None:
     assert intent.direction == "flat"
     assert intent.details["close_semantics"] == "full_position_to_flat"
     assert intent.details["broker_order"]["id"] == "close-order"
-    assert any(
-        audit.event_type == "alpaca_paper_position_close_filled"
+    close_audit = next(
+        audit
         for audit in list_trade_audits(10)
+        if audit.event_type == "alpaca_paper_position_close_filled"
     )
+    assert close_audit.details["realized_pnl_estimate"] == 0.5
+    assert close_audit.details["realized_pnl_currency"] == "USD"
+    assert close_audit.details["realized_pnl_source"] == "alpaca_full_close_fill_estimate"
 
 
 def test_ambiguous_close_still_open_remains_unresolved_and_blocks_repeat(monkeypatch) -> None:
