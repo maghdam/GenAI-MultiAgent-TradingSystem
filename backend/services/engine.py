@@ -309,6 +309,9 @@ class V2Engine:
             params=item.params,
         )
         analysis.context["engine_source"] = "auto_loop"
+        analysis.context["broker_venue"] = item.venue
+        if item.alpaca_asset_class:
+            analysis.context["alpaca_asset_class"] = item.alpaca_asset_class
         add_analysis(analysis)
         try:
             record_confluence_shadow(analysis, config.min_confidence)
@@ -348,7 +351,11 @@ class V2Engine:
         item: WatchlistItem,
         last_price: float,
     ) -> None:
-        if not (config.ctrader_autotrade and item.trading_enabled):
+        if not (
+            item.venue == "ctrader"
+            and config.ctrader_autotrade
+            and item.trading_enabled
+        ):
             return
         position = get_open_position(item.symbol.upper(), item.timeframe.upper())
         if not position:
@@ -543,7 +550,11 @@ class V2Engine:
         if not position:
             return
 
-        ctrader_managed = bool(config.ctrader_autotrade and item.trading_enabled)
+        ctrader_managed = bool(
+            item.venue == "ctrader"
+            and config.ctrader_autotrade
+            and item.trading_enabled
+        )
         if not ctrader_managed:
             reconcile_position(position, last_price)
             return
