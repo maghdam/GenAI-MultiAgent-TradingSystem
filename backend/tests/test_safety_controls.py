@@ -319,27 +319,35 @@ def test_alpaca_venue_requires_explicit_asset_class() -> None:
         )
 
 
-def test_alpaca_venue_is_not_silently_routed_to_ctrader_autotrade() -> None:
+def test_alpaca_venue_uses_its_own_auto_trade_permission_not_ctrader_flags() -> None:
     decision = _evaluate(
-        config=_config(paper_autotrade=False, ctrader_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=False),
         watch=_watch(
             symbol="SPY",
             venue="alpaca",
             alpaca_asset_class="us_equity",
+            alpaca_size_mode="notional",
+            alpaca_size_value=25.0,
             trading_enabled=True,
         ),
+        analysis=_analysis(symbol="SPY"),
     )
 
-    assert decision.accepted is False
+    assert decision.accepted is True
+    assert decision.intent_type == "open"
     assert decision.details["broker_venue"] == "alpaca"
     assert decision.details["alpaca_asset_class"] == "us_equity"
-    assert decision.reasons == [
-        (
-            "Alpaca Paper venue is selected, but autonomous Alpaca execution "
-            "remains fail-closed until the governed runtime broker adapter is "
-            "acceptance-tested."
+    assert decision.details["execution_environment"] == "alpaca_paper"
+
+
+def test_alpaca_auto_trade_requires_explicit_runtime_sizing() -> None:
+    with pytest.raises(ValueError, match="explicit alpaca_size_mode"):
+        _watch(
+            symbol="SPY",
+            venue="alpaca",
+            alpaca_asset_class="us_equity",
+            trading_enabled=True,
         )
-    ]
 
 
 def test_alpaca_venue_does_not_fall_back_to_local_paper_autotrade() -> None:
