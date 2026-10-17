@@ -48,10 +48,10 @@ def _base_url() -> str:
 
 def _stock_feed() -> str:
     value = (os.getenv("ALPACA_STOCK_DATA_FEED") or _DEFAULT_STOCK_FEED).strip().lower()
-    allowed = {"iex", "sip", "delayed_sip", "otc", "boats", "overnight"}
+    allowed = {"iex", "sip", "otc", "boats"}
     if value not in allowed:
         raise AlpacaMarketDataError(
-            "ALPACA_STOCK_DATA_FEED must be one of iex, sip, delayed_sip, otc, boats, or overnight."
+            "ALPACA_STOCK_DATA_FEED must be one of iex, sip, otc, or boats."
         )
     return value
 
