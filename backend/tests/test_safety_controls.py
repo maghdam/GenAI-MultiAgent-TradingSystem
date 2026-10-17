@@ -342,7 +342,7 @@ def test_alpaca_venue_is_not_silently_routed_to_ctrader_autotrade() -> None:
     ]
 
 
-def test_alpaca_venue_can_still_use_common_local_paper_simulation() -> None:
+def test_alpaca_venue_does_not_fall_back_to_local_paper_autotrade() -> None:
     decision = _evaluate(
         config=_config(paper_autotrade=True, ctrader_autotrade=True),
         watch=_watch(
@@ -353,6 +353,6 @@ def test_alpaca_venue_can_still_use_common_local_paper_simulation() -> None:
         ),
     )
 
-    assert decision.accepted is True
-    assert decision.intent_type == "open"
+    assert decision.accepted is False
     assert decision.details["broker_venue"] == "alpaca"
+    assert decision.reasons == ["Automatic execution is disabled for this Alpaca row."]
