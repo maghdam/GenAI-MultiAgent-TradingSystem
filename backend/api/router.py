@@ -13,6 +13,8 @@ from backend.config import SETTINGS
 from backend.domain.models import (
     ActiveIncident,
     AnalyzeRequest,
+    AlpacaPaperCloseRequest,
+    AlpacaPaperMarketOrderRequest,
     BrokerApiLatencyResponse,
     BrokerStatus,
     CTraderAccount,
@@ -56,6 +58,11 @@ from backend.services.alpaca_paper import (
     get_account as get_alpaca_paper_account,
     list_orders as list_alpaca_paper_orders,
     list_positions as list_alpaca_paper_positions,
+)
+from backend.services.alpaca_execution import (
+    close_paper_position as close_alpaca_paper_position,
+    reconcile_paper_execution as reconcile_alpaca_paper_execution,
+    submit_paper_market_order as submit_alpaca_paper_market_order,
 )
 from backend.services.engine import engine
 from backend.services.execution_engine import execute_paper_signal
@@ -607,6 +614,59 @@ async def v2_alpaca_paper_orders(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AlpacaPaperError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/alpaca/paper/orders/market")
+async def v2_alpaca_paper_market_order(
+    request: AlpacaPaperMarketOrderRequest,
+) -> dict[str, object]:
+    try:
+        return await asyncio.to_thread(
+            submit_alpaca_paper_market_order,
+            symbol=request.symbol,
+            asset_class=request.asset_class,
+            side=request.side,
+            qty=request.qty,
+            notional=request.notional,
+            timeframe=request.timeframe,
+            strategy=request.strategy,
+            rationale=request.rationale,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AlpacaPaperError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/alpaca/paper/positions/close")
+async def v2_alpaca_paper_close_position(
+    request: AlpacaPaperCloseRequest,
+) -> dict[str, object]:
+    try:
+        return await asyncio.to_thread(
+            close_alpaca_paper_position,
+            symbol_or_asset_id=request.symbol_or_asset_id,
+            timeframe=request.timeframe,
+            strategy=request.strategy,
+            rationale=request.rationale,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AlpacaPaperError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/alpaca/paper/reconcile")
+async def v2_alpaca_paper_reconcile(
+    limit: int = Query(default=200, ge=1, le=500),
+) -> dict[str, object]:
+    try:
+        return await asyncio.to_thread(
+            reconcile_alpaca_paper_execution,
+            limit=limit,
+        )
     except AlpacaPaperError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

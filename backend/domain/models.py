@@ -279,6 +279,30 @@ class ManualOrderRequest(BaseModel):
     rationale: str = ""
 
 
+class AlpacaPaperMarketOrderRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=64)
+    asset_class: Literal["us_equity", "crypto"]
+    side: Literal["buy", "sell"]
+    qty: Optional[float] = Field(default=None, gt=0)
+    notional: Optional[float] = Field(default=None, gt=0)
+    timeframe: str = Field(default="NA", min_length=1, max_length=32)
+    strategy: str = Field(default="manual", min_length=1, max_length=120)
+    rationale: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def _exactly_one_size(self):
+        if (self.qty is None) == (self.notional is None):
+            raise ValueError("Provide exactly one of qty or notional.")
+        return self
+
+
+class AlpacaPaperCloseRequest(BaseModel):
+    symbol_or_asset_id: str = Field(..., min_length=1, max_length=128)
+    timeframe: str = Field(default="NA", min_length=1, max_length=32)
+    strategy: str = Field(default="manual", min_length=1, max_length=120)
+    rationale: str = Field(default="", max_length=2000)
+
+
 class StrategyAnalysis(BaseModel):
     symbol: str
     timeframe: str
