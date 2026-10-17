@@ -56,6 +56,8 @@ def test_settings_and_watchlist_survive_storage_restart() -> None:
                 trading_enabled=False,
                 venue="alpaca",
                 alpaca_asset_class="us_equity",
+                alpaca_size_mode="notional",
+                alpaca_size_value=25.0,
                 lot_size=0.2,
                 params={"period": 14},
             ),
