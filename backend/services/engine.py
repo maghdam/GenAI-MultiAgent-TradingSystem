@@ -6,6 +6,8 @@ from time import perf_counter
 from typing import Dict
 
 from backend.domain.models import EngineConfig, EngineRuntime, WatchlistItem
+from backend.services.alpaca_execution import reconcile_paper_execution
+from backend.services.alpaca_runtime import execute_alpaca_runtime_signal
 from backend.services.execution_engine import execute_paper_signal
 from backend.services.broker import (
     CTraderProtectionSyncFailure,
@@ -141,6 +143,20 @@ class V2Engine:
             return runtime.last_cycle_summary
 
         runtime.loop_active = True
+        if any(item.venue == "alpaca" for item in watchlist):
+            try:
+                reconcile_paper_execution(limit=200)
+            except Exception as exc:
+                log_incident(
+                    "warning",
+                    "alpaca_runtime_reconciliation_deferred",
+                    "Could not reconcile Alpaca Paper runtime intents during this engine cycle.",
+                    {
+                        "error": str(exc),
+                        "automatic_resubmission": False,
+                        "broker_mutation_suppressed": True,
+                    },
+                )
         if config.ctrader_autotrade:
             try:
                 recover_broker_trackers(config)
@@ -326,8 +342,10 @@ class V2Engine:
         if item.alpaca_asset_class:
             analysis.context["alpaca_asset_class"] = item.alpaca_asset_class
         if item.venue == "alpaca":
-            analysis.context["runtime_execution_state"] = "shadow_only"
-            analysis.context["broker_mutation_suppressed"] = True
+            analysis.context["runtime_execution_state"] = (
+                "paper_execution_enabled" if item.trading_enabled else "shadow_only"
+            )
+            analysis.context["broker_mutation_suppressed"] = not item.trading_enabled
         add_analysis(analysis)
         try:
             record_confluence_shadow(analysis, config.min_confidence)
@@ -340,23 +358,42 @@ class V2Engine:
             )
 
         if item.venue == "alpaca":
-            if key not in self._pending_broker_venue_items:
-                log_incident(
-                    "info",
-                    "alpaca_runtime_execution_pending",
-                    f"Analyzed {symbol}:{timeframe} from Alpaca market data; broker mutation remains disabled.",
-                    {
-                        "broker_venue": item.venue,
-                        "alpaca_asset_class": item.alpaca_asset_class,
-                        "strategy": item.strategy,
-                        "analysis_generated": True,
-                        "broker_mutation_suppressed": True,
-                        "order_intent_suppressed": True,
-                    },
-                )
-                self._pending_broker_venue_items.add(key)
-            bar_state[key] = last_ts
-            return True, False
+            if not item.trading_enabled:
+                if key not in self._pending_broker_venue_items:
+                    log_incident(
+                        "info",
+                        "alpaca_runtime_execution_disabled",
+                        f"Analyzed {symbol}:{timeframe} from Alpaca market data; Paper auto-trade is disabled for this row.",
+                        {
+                            "broker_venue": item.venue,
+                            "alpaca_asset_class": item.alpaca_asset_class,
+                            "strategy": item.strategy,
+                            "analysis_generated": True,
+                            "broker_mutation_suppressed": True,
+                            "order_intent_suppressed": True,
+                        },
+                    )
+                    self._pending_broker_venue_items.add(key)
+                bar_state[key] = last_ts
+                return True, False
+
+            self._pending_broker_venue_items.discard(key)
+            result = execute_alpaca_runtime_signal(
+                config=config,
+                watch_item=item,
+                analysis=analysis,
+                mark_price=float(df["close"].iloc[-1]),
+                bar_timestamp=last_dt,
+                bar_snapshot={
+                    "open": float(df["open"].iloc[-1]),
+                    "high": float(df["high"].iloc[-1]),
+                    "low": float(df["low"].iloc[-1]),
+                    "close": float(df["close"].iloc[-1]),
+                },
+            )
+            if not result.retryable:
+                bar_state[key] = last_ts
+            return True, result.action_taken
 
         self._pending_broker_venue_items.discard(key)
         result = execute_paper_signal(
