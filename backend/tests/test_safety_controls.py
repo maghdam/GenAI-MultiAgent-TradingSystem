@@ -297,3 +297,62 @@ def test_per_symbol_trading_permission_allows_ctrader_path_when_enabled() -> Non
     assert decision.accepted is True
     assert decision.intent_type == "open"
     assert decision.reasons == ["Signal passed risk checks."]
+
+
+def test_watchlist_rows_default_to_explicit_ctrader_venue() -> None:
+    watch = _watch()
+
+    assert watch.venue == "ctrader"
+    assert watch.alpaca_asset_class is None
+
+
+def test_alpaca_venue_requires_explicit_asset_class() -> None:
+    with pytest.raises(ValueError, match="explicit alpaca_asset_class"):
+        WatchlistItem(
+            symbol="SPY",
+            timeframe="M5",
+            strategy="sma_cross",
+            enabled=True,
+            trading_enabled=False,
+            venue="alpaca",
+            lot_size=0.1,
+        )
+
+
+def test_alpaca_venue_is_not_silently_routed_to_ctrader_autotrade() -> None:
+    decision = _evaluate(
+        config=_config(paper_autotrade=False, ctrader_autotrade=True),
+        watch=_watch(
+            symbol="SPY",
+            venue="alpaca",
+            alpaca_asset_class="us_equity",
+            trading_enabled=True,
+        ),
+    )
+
+    assert decision.accepted is False
+    assert decision.details["broker_venue"] == "alpaca"
+    assert decision.details["alpaca_asset_class"] == "us_equity"
+    assert decision.reasons == [
+        (
+            "Alpaca Paper venue is selected, but autonomous Alpaca execution "
+            "remains fail-closed until the governed runtime broker adapter is "
+            "acceptance-tested."
+        )
+    ]
+
+
+def test_alpaca_venue_can_still_use_common_local_paper_simulation() -> None:
+    decision = _evaluate(
+        config=_config(paper_autotrade=True, ctrader_autotrade=True),
+        watch=_watch(
+            symbol="SPY",
+            venue="alpaca",
+            alpaca_asset_class="us_equity",
+            trading_enabled=False,
+        ),
+    )
+
+    assert decision.accepted is True
+    assert decision.intent_type == "open"
+    assert decision.details["broker_venue"] == "alpaca"
