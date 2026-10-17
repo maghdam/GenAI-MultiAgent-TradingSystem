@@ -75,6 +75,13 @@ def test_enabled_targets_uses_only_enabled_unique_watchlist_rows() -> None:
             {"symbol": "XAUUSD", "timeframe": "M5", "enabled": True},
             {"symbol": "NAS100", "timeframe": "M5", "enabled": False},
             {"symbol": "US30", "timeframe": "m15", "enabled": True},
+            {
+                "symbol": "SPY",
+                "timeframe": "M5",
+                "enabled": True,
+                "venue": "alpaca",
+                "alpaca_asset_class": "us_equity",
+            },
             {"symbol": "", "timeframe": "M5", "enabled": True},
         ]
     }
