@@ -20,6 +20,16 @@ class RiskDecision:
     intent_type: str = "skip"
 
 
+@dataclass(frozen=True)
+class RiskPortfolioSnapshot:
+    open_positions_count: int
+    same_symbol_positions_count: int
+    daily_realized_pnl_amount: float
+    daily_trade_count_value: int
+    symbol_cooldown_active: bool = False
+    source: str = "runtime"
+
+
 def _validate_protective_levels(
     analysis: StrategyAnalysis,
     entry_reference: float | None,
@@ -109,10 +119,21 @@ def evaluate_risk(
     bar_snapshot: Dict[str, object] | None,
     source: str = "auto",
     monetary_basis: MonetaryBasis | None = None,
+    portfolio_snapshot: RiskPortfolioSnapshot | None = None,
 ) -> RiskDecision:
     now = datetime.now(UTC).replace(tzinfo=None)
     open_positions = list_paper_positions("open")
     same_symbol_positions = _same_symbol_positions(open_positions, analysis.symbol)
+    open_positions_count = (
+        int(portfolio_snapshot.open_positions_count)
+        if portfolio_snapshot is not None
+        else len(open_positions)
+    )
+    same_symbol_positions_count = (
+        int(portfolio_snapshot.same_symbol_positions_count)
+        if portfolio_snapshot is not None
+        else len(same_symbol_positions)
+    )
     decision = RiskDecision(
         accepted=False,
         reasons=[],
@@ -198,14 +219,22 @@ def evaluate_risk(
         decision.reasons.append("Account monetary basis is not verified.")
         return decision
 
-    pnl_today = daily_realized_pnl()
+    pnl_today = (
+        float(portfolio_snapshot.daily_realized_pnl_amount)
+        if portfolio_snapshot is not None
+        else daily_realized_pnl()
+    )
     loss_budget = daily_loss_budget(config, pnl_today, basis)
     decision.details.update(loss_budget.as_details())
     if loss_budget.breached:
         decision.reasons.append("Daily loss cap reached.")
         return decision
 
-    trades_today = daily_trade_count()
+    trades_today = (
+        int(portfolio_snapshot.daily_trade_count_value)
+        if portfolio_snapshot is not None
+        else daily_trade_count()
+    )
     if trades_today >= int(config.max_daily_trades):
         decision.reasons.append("Max daily trade count reached.")
         decision.details["daily_trade_count"] = trades_today
@@ -225,48 +254,47 @@ def evaluate_risk(
         decision.details["position_id"] = existing_position.id
         return decision
 
-    if len(open_positions) >= int(config.max_open_positions):
+    if open_positions_count >= int(config.max_open_positions):
         decision.reasons.append("Max open positions reached.")
-        decision.details["open_positions"] = len(open_positions)
+        decision.details["open_positions"] = open_positions_count
         return decision
 
-    if len(same_symbol_positions) >= int(config.max_positions_per_symbol):
+    if same_symbol_positions_count >= int(config.max_positions_per_symbol):
         decision.reasons.append("Max open positions per symbol reached.")
-        decision.details["same_symbol_positions"] = len(same_symbol_positions)
+        decision.details["same_symbol_positions"] = same_symbol_positions_count
         return decision
 
-    if _in_symbol_cooldown(config, open_positions, analysis.symbol, analysis.timeframe):
+    cooldown_active = (
+        bool(portfolio_snapshot.symbol_cooldown_active)
+        if portfolio_snapshot is not None
+        else _in_symbol_cooldown(config, open_positions, analysis.symbol, analysis.timeframe)
+    )
+    if cooldown_active:
         decision.reasons.append("Symbol is still inside cooldown from the last closed trade.")
         decision.details["cooldown_minutes"] = config.cooldown_minutes
         return decision
 
     if source != "manual":
         if watch_item.venue == "alpaca":
-            decision.reasons.append(
-                (
-                    "Automatic execution is disabled for this Alpaca row."
-                    if not watch_item.trading_enabled
-                    else (
-                        "Alpaca Paper venue is selected, but autonomous Alpaca execution "
-                        "remains fail-closed until the governed runtime broker adapter is "
-                        "acceptance-tested."
-                    )
+            if not watch_item.trading_enabled:
+                decision.reasons.append("Automatic execution is disabled for this Alpaca row.")
+                return decision
+            decision.details["execution_environment"] = "alpaca_paper"
+        else:
+            paper_enabled = bool(config.paper_autotrade)
+            ctrader_enabled = bool(config.ctrader_autotrade and watch_item.trading_enabled)
+            if not paper_enabled and not ctrader_enabled:
+                decision.reasons.append(
+                    "Paper and cTrader autotrade are disabled."
+                    if not config.ctrader_autotrade
+                    else "Automatic cTrader execution is disabled for this symbol."
                 )
-            )
-            return decision
-
-        paper_enabled = bool(config.paper_autotrade)
-        ctrader_enabled = bool(config.ctrader_autotrade and watch_item.trading_enabled)
-        if not paper_enabled and not ctrader_enabled:
-            decision.reasons.append(
-                "Paper and cTrader autotrade are disabled."
-                if not config.ctrader_autotrade
-                else "Automatic cTrader execution is disabled for this symbol."
-            )
-            return decision
+                return decision
 
     decision.accepted = True
     decision.intent_type = "open"
     decision.reasons.append("Signal passed risk checks.")
     decision.details["watch_item"] = watch_item.model_dump(mode="json")
+    if portfolio_snapshot is not None:
+        decision.details["portfolio_snapshot_source"] = portfolio_snapshot.source
     return decision
