@@ -1627,6 +1627,7 @@ Add one row after every completed task.
 | 2026-10-16 | Phase 10.8 Alpaca Paper read-only broker foundation | Add secure Alpaca Paper credentials plus read-only account/position/order broker truth without changing cTrader routing or allowing Alpaca execution | ✅ 17/17 focused Alpaca+credential tests, full canonical validation, 707-module frontend build, clean diff/worktree, CI #495 on `e562a91`, and real read-only Paper smoke returning ACTIVE account + 4 positions + 19 orders with no broker mutation | PR #114 / `e562a91` | Final docs-head CI, merge, sync main; then Phase 10.9 Alpaca Paper execution/reconciliation |
 | 2026-10-17 | Phase 10.9 Alpaca Paper execution and reconciliation | Add durable/idempotent Paper mutation with exact client-order identity, restart-safe reconciliation, explicit full-position close semantics, and immutable broker evidence while keeping Alpaca out of autonomous routing | ✅ 35/35 focused Alpaca+credential tests, 45/45 cTrader/execution safety regression, full canonical validation, 707-module frontend build, clean diff/worktree, CI #505 on `5c12630`, and real SOL/USD Paper field cycle: minimum-size rejection captured safely, $10 entry recovered after restart by exact client-order ID with no automatic resubmission, then full close reconciled to flat with zero open positions | PR #115 / `5c12630` | Final docs-head CI, merge, sync main; then Phase 10.10 explicit broker venue selection |
 | 2026-10-17 | Phase 10.10 explicit broker venue selection | Persist operator-selected cTrader/Alpaca routing identity per watchlist row, require explicit Alpaca asset class, expose compact Trade setup controls, and block wrong-broker fallback while autonomous Alpaca routing remains gated | ✅ 47/47 focused venue/model/persistence/risk/API/engine tests, 35/35 Alpaca 10.9 regression, 57/57 cTrader execution/recovery regression, full canonical validation, 707-module frontend build, clean diff/worktree, and CI #508 on `8aca54a` | PR #116 / `8aca54a` | Final docs-head CI, merge, sync main; then Phase 4.9 sandboxed Strategy Studio runtime adapter |
+| 2026-10-17 | Phase 10.11 Alpaca runtime market-data shadow | Add provider-specific Alpaca stock/ETF + crypto bars to trusted runtime strategy analysis while preserving explicit venue identity, separate cache boundaries, and zero autonomous broker mutation | ✅ 45/45 focused Phase 10.11 tests, 35/35 Alpaca 10.9 regression, 66/66 venue/cTrader safety regression, real read-only SPY + BTC/USD local adapter smoke (20 M5 bars each), full canonical validation, 707-module frontend build, clean diff/worktree, and CI #511 on `d279e41` | PR #117 / `d279e41` | Final docs-head CI, merge, sync main; then Phase 10.12 Alpaca Paper trusted-runtime execution routing |
 
 ---
 
@@ -1975,7 +1976,7 @@ This item establishes the explicit persisted broker-routing identity and prevent
 
 ### 10.11 Alpaca runtime market-data shadow
 **Priority:** P1
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 Allow trusted runtime strategies to consume Alpaca stock/ETF and crypto bars for rows explicitly assigned to Alpaca, while keeping the entire broker-mutation side disabled. This closes the first real runtime gap after venue selection without mixing Alpaca data into cTrader caches or pretending that Strategy Studio generated code is required for basic Alpaca integration.
 
@@ -1992,12 +1993,19 @@ Allow trusted runtime strategies to consume Alpaca stock/ETF and crypto bars for
 - [x] Preserve the ChatGPT Alpaca connector as a separate account interface; TradeAgent continues to own its own API credentials/state.
 
 **Acceptance**
-- [ ] Focused Alpaca market-data/shared-routing/engine shadow tests pass locally.
-- [ ] Existing Phase 10.9 Alpaca Paper execution/reconciliation regression remains green.
-- [ ] Existing Phase 10.10 venue-selection and cTrader execution/safety regressions remain green.
-- [ ] Real read-only field smoke retrieves current SPY stock bars and BTC/USD crypto bars through the local TradeAgent Alpaca market-data adapter with no broker mutation.
-- [ ] Full canonical validation passes locally, including frontend production build and clean diff/worktree.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused Alpaca market-data/shared-routing/engine shadow tests pass locally.
+- [x] Existing Phase 10.9 Alpaca Paper execution/reconciliation regression remains green.
+- [x] Existing Phase 10.10 venue-selection and cTrader execution/safety regressions remain green.
+- [x] Real read-only field smoke retrieves current SPY stock bars and BTC/USD crypto bars through the local TradeAgent Alpaca market-data adapter with no broker mutation.
+- [x] Full canonical validation passes locally, including frontend production build and clean diff/worktree.
+- [x] GitHub CI passes on the exact implementation head.
+
+**Verification**
+- Exact implementation-head local validation on `d279e41f75e42ba78a2e5c3718de774afa50e897`: 45/45 focused Phase 10.11 tests, 35/35 Phase 10.9 Alpaca regression, 66/66 venue/cTrader safety regression, full canonical `python scripts\validate.py`, 707-module frontend production build, clean `git diff --check origin/main...HEAD`, and clean worktree.
+- Real local read-only field smoke returned 20 SPY M5 bars through the explicit `us_equity`/IEX route and 20 BTC/USD M5 bars through the explicit `crypto` route, proving that TradeAgent itself can consume live Alpaca market data without broker mutation.
+- SPY field sample covered 2026-10-16 18:25–20:45 UTC with last close 763.31; BTC/USD field sample covered 2026-10-17 15:00–16:35 UTC with last close 81162.934.
+- GitHub CI #511 passed on the same exact implementation head.
+- Alpaca rows now produce persisted trusted-strategy analyses with explicit venue/asset-class evidence while order-intent creation and automatic broker mutation remain suppressed.
 
 **Scope boundary**
 This item is read-only with respect to Alpaca broker state. It may generate normal analysis records from Alpaca market data, but it must not create Alpaca order intents or call the Phase 10.9 mutation adapter automatically. Autonomous Alpaca Paper execution is reserved for Phase 10.12.
@@ -2012,4 +2020,4 @@ Connect existing trusted runtime strategies to the already-verified Phase 10.9 A
 
 ## 15. Next item
 
-**User-requested priority: validate and complete Phase 10.11 Alpaca runtime market-data shadow on the current PR head. After merge/sync, continue to Phase 10.12 Alpaca Paper trusted-runtime execution routing. Only after the core Alpaca broker integration is complete should the roadmap resume Phase 4.9/4.10 generated Strategy Studio runtime work. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
+**User-requested priority: merge/sync the now-verified Phase 10.11 Alpaca runtime market-data shadow after final docs-head CI, then continue to Phase 10.12 Alpaca Paper trusted-runtime execution routing. Only after the core Alpaca broker integration is complete should the roadmap resume Phase 4.9/4.10 generated Strategy Studio runtime work. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
