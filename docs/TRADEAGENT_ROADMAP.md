@@ -1626,6 +1626,7 @@ Add one row after every completed task.
 | 2026-10-11 | Phase 4.8 explicit flat-target runtime semantics | Distinguish Strategy Studio target-flat from runtime no-trade hold; make flat a close-only action for tracked paper/cTrader positions while preserving verified broker-close safety and entry-only gate bypass | ✅ 40/40 focused safety+engine tests, full canonical validation, 707-module frontend build, clean diff/worktree, and exact-head CI #492 on `f852481` | PR #113 / `f852481` | Final docs-head CI, merge, sync main; then Phase 4.9 sandboxed exact-source runtime adapter |
 | 2026-10-16 | Phase 10.8 Alpaca Paper read-only broker foundation | Add secure Alpaca Paper credentials plus read-only account/position/order broker truth without changing cTrader routing or allowing Alpaca execution | ✅ 17/17 focused Alpaca+credential tests, full canonical validation, 707-module frontend build, clean diff/worktree, CI #495 on `e562a91`, and real read-only Paper smoke returning ACTIVE account + 4 positions + 19 orders with no broker mutation | PR #114 / `e562a91` | Final docs-head CI, merge, sync main; then Phase 10.9 Alpaca Paper execution/reconciliation |
 | 2026-10-17 | Phase 10.9 Alpaca Paper execution and reconciliation | Add durable/idempotent Paper mutation with exact client-order identity, restart-safe reconciliation, explicit full-position close semantics, and immutable broker evidence while keeping Alpaca out of autonomous routing | ✅ 35/35 focused Alpaca+credential tests, 45/45 cTrader/execution safety regression, full canonical validation, 707-module frontend build, clean diff/worktree, CI #505 on `5c12630`, and real SOL/USD Paper field cycle: minimum-size rejection captured safely, $10 entry recovered after restart by exact client-order ID with no automatic resubmission, then full close reconciled to flat with zero open positions | PR #115 / `5c12630` | Final docs-head CI, merge, sync main; then Phase 10.10 explicit broker venue selection |
+| 2026-10-17 | Phase 10.10 explicit broker venue selection | Persist operator-selected cTrader/Alpaca routing identity per watchlist row, require explicit Alpaca asset class, expose compact Trade setup controls, and block wrong-broker fallback while autonomous Alpaca routing remains gated | ✅ 47/47 focused venue/model/persistence/risk/API/engine tests, 35/35 Alpaca 10.9 regression, 57/57 cTrader execution/recovery regression, full canonical validation, 707-module frontend build, clean diff/worktree, and CI #508 on `8aca54a` | PR #116 / `8aca54a` | Final docs-head CI, merge, sync main; then Phase 4.9 sandboxed Strategy Studio runtime adapter |
 
 ---
 
@@ -1938,7 +1939,7 @@ This item is still Alpaca **Paper only** and exposes explicit operator/API mutat
 
 ### 10.10 Broker venue selection
 **Priority:** P1
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 Add an explicit broker/venue dimension so each enabled symbol-strategy row carries operator-selected cTrader or Alpaca routing identity without inferring venue from the symbol. Preserve the existing common lifecycle/risk/audit policy and fail closed anywhere a selected venue is not yet acceptance-tested for autonomous execution.
 
@@ -1955,12 +1956,19 @@ Add an explicit broker/venue dimension so each enabled symbol-strategy row carri
 - [x] Carry selected venue evidence into the shared risk decision path; do not infer venue from symbol text.
 
 **Acceptance**
-- [ ] Focused venue/model/persistence/risk/API/engine tests pass locally.
-- [ ] Existing Phase 10.9 Alpaca Paper execution/reconciliation tests remain green.
-- [ ] Existing cTrader execution/safety regression remains green.
-- [ ] Frontend production build passes with the explicit venue editor.
-- [ ] Full canonical validation passes locally with a clean diff/worktree.
-- [ ] GitHub CI passes on the exact implementation head.
+- [x] Focused venue/model/persistence/risk/API/engine tests pass locally.
+- [x] Existing Phase 10.9 Alpaca Paper execution/reconciliation tests remain green.
+- [x] Existing cTrader execution/safety regression remains green.
+- [x] Frontend production build passes with the explicit venue editor.
+- [x] Full canonical validation passes locally with a clean diff/worktree.
+- [x] GitHub CI passes on the exact implementation head.
+
+**Verification**
+- Exact implementation-head local validation on `8aca54a18d287663e151d22ae29322683b38fc2b`: Phase 10.10 focused suite 47/47, Phase 10.9 Alpaca regression 35/35, cTrader execution/recovery regression 57/57, full canonical `python scripts\validate.py`, 707-module frontend production build, clean `git diff --check origin/main...HEAD`, and clean worktree.
+- GitHub CI #508 passed on that same exact implementation head.
+- Legacy watchlist rows retain explicit cTrader behavior by default; Alpaca rows require explicit `us_equity` or `crypto` metadata and survive EngineConfig/SQLite persistence.
+- Trade setup exposes per-row cTrader or Alpaca Paper selection, explicit Alpaca asset class, and direct Alpaca symbol entry while keeping cTrader lot sizing/automatic-order controls venue-specific.
+- Alpaca-selected rows fail closed from cTrader market data, cTrader broker mutation, local-paper autotrade fallback, Dashboard manual-order routing, and cTrader-only runtime verification until the governed runtime adapter is acceptance-tested.
 
 **Scope boundary**
 This item establishes the explicit persisted broker-routing identity and prevents wrong-broker fallback. It does **not** yet enable autonomous Alpaca market-data/execution from watchlist rows. Alpaca broker mutation remains limited to the explicit Phase 10.9 Paper operator endpoints until the governed Strategy Studio/runtime adapter in Phase 4.9/4.10 is acceptance-tested. cTrader execution behavior remains unchanged for rows whose venue is cTrader.
@@ -1969,4 +1977,4 @@ This item establishes the explicit persisted broker-routing identity and prevent
 
 ## 15. Next item
 
-**User-requested priority: validate and complete Phase 10.10 explicit broker venue selection on the current PR head. After merge/sync, resume the governed Strategy Studio runtime bridge in Phase 4.9/4.10, which is the next step allowed to activate autonomous Alpaca routing. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
+**User-requested priority: merge/sync the now-verified Phase 10.10 explicit broker venue selection after final docs-head CI, then resume Phase 4.9 sandboxed Strategy Studio runtime adapter followed by Phase 4.10 governed runtime selector and Demo/Live deployment. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
