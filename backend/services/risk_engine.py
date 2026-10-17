@@ -113,7 +113,15 @@ def evaluate_risk(
     now = datetime.now(UTC).replace(tzinfo=None)
     open_positions = list_paper_positions("open")
     same_symbol_positions = _same_symbol_positions(open_positions, analysis.symbol)
-    decision = RiskDecision(accepted=False, reasons=[], details={}, intent_type="skip")
+    decision = RiskDecision(
+        accepted=False,
+        reasons=[],
+        details={
+            "broker_venue": watch_item.venue,
+            "alpaca_asset_class": watch_item.alpaca_asset_class,
+        },
+        intent_type="skip",
+    )
 
     if analysis.signal == "no_trade":
         decision.reasons.append("Strategy returned no_trade.")
@@ -233,6 +241,20 @@ def evaluate_risk(
         return decision
 
     if source != "manual":
+        if watch_item.venue == "alpaca":
+            decision.reasons.append(
+                (
+                    "Automatic execution is disabled for this Alpaca row."
+                    if not watch_item.trading_enabled
+                    else (
+                        "Alpaca Paper venue is selected, but autonomous Alpaca execution "
+                        "remains fail-closed until the governed runtime broker adapter is "
+                        "acceptance-tested."
+                    )
+                )
+            )
+            return decision
+
         paper_enabled = bool(config.paper_autotrade)
         ctrader_enabled = bool(config.ctrader_autotrade and watch_item.trading_enabled)
         if not paper_enabled and not ctrader_enabled:

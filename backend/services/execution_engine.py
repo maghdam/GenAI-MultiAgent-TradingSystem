@@ -653,7 +653,11 @@ def execute_paper_signal(
     quantity: float | None = None,
     source: str = "auto",
 ) -> ExecutionResult:
-    ctrader_execution = bool(config.ctrader_autotrade and watch_item.trading_enabled)
+    ctrader_execution = bool(
+        watch_item.venue == "ctrader"
+        and config.ctrader_autotrade
+        and watch_item.trading_enabled
+    )
     try:
         position = _refresh_open_position(watch_item, mark_price, ctrader_execution=ctrader_execution)
     except BrokerPositionIdentityError as exc:

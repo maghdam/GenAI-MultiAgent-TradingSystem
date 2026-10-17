@@ -55,6 +55,7 @@ class V2Engine:
         self._protection_failsafe_pending_positions: set[int] = set()
         self._stale_market_items: set[str] = set()
         self._malformed_market_items: set[str] = set()
+        self._pending_broker_venue_items: set[str] = set()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -210,6 +211,25 @@ class V2Engine:
         symbol = item.symbol.upper()
         timeframe = item.timeframe.upper()
         key = f"{symbol}|{timeframe}"
+
+        if item.venue == "alpaca":
+            if key not in self._pending_broker_venue_items:
+                log_incident(
+                    "info",
+                    "alpaca_runtime_route_pending",
+                    f"Deferred {symbol}:{timeframe} until the governed Alpaca runtime adapter is verified.",
+                    {
+                        "broker_venue": item.venue,
+                        "alpaca_asset_class": item.alpaca_asset_class,
+                        "strategy": item.strategy,
+                        "broker_mutation_suppressed": True,
+                        "ctrader_market_data_suppressed": True,
+                    },
+                )
+                self._pending_broker_venue_items.add(key)
+            return False, False
+
+        self._pending_broker_venue_items.discard(key)
         try:
             df = get_bars(symbol, timeframe, 600)
         except MarketDataError as exc:
@@ -309,6 +329,9 @@ class V2Engine:
             params=item.params,
         )
         analysis.context["engine_source"] = "auto_loop"
+        analysis.context["broker_venue"] = item.venue
+        if item.alpaca_asset_class:
+            analysis.context["alpaca_asset_class"] = item.alpaca_asset_class
         add_analysis(analysis)
         try:
             record_confluence_shadow(analysis, config.min_confidence)
@@ -348,7 +371,11 @@ class V2Engine:
         item: WatchlistItem,
         last_price: float,
     ) -> None:
-        if not (config.ctrader_autotrade and item.trading_enabled):
+        if not (
+            item.venue == "ctrader"
+            and config.ctrader_autotrade
+            and item.trading_enabled
+        ):
             return
         position = get_open_position(item.symbol.upper(), item.timeframe.upper())
         if not position:
@@ -543,7 +570,11 @@ class V2Engine:
         if not position:
             return
 
-        ctrader_managed = bool(config.ctrader_autotrade and item.trading_enabled)
+        ctrader_managed = bool(
+            item.venue == "ctrader"
+            and config.ctrader_autotrade
+            and item.trading_enabled
+        )
         if not ctrader_managed:
             reconcile_position(position, last_price)
             return

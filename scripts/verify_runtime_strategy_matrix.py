@@ -62,6 +62,8 @@ def _enabled_targets(config: dict[str, Any]) -> list[tuple[str, str]]:
     for item in watchlist:
         if not isinstance(item, dict) or not bool(item.get("enabled")):
             continue
+        if str(item.get("venue") or "ctrader").strip().lower() != "ctrader":
+            continue
         symbol = str(item.get("symbol") or "").strip().upper()
         timeframe = str(item.get("timeframe") or "").strip().upper()
         if not symbol or not timeframe:

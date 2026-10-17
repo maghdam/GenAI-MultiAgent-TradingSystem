@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 SignalValue = Literal["long", "short", "flat", "no_trade"]
+BrokerVenue = Literal["ctrader", "alpaca"]
+AlpacaAssetClass = Literal["us_equity", "crypto"]
 IncidentLevel = Literal["info", "warning", "error"]
 StrategyLifecycleStage = Literal["draft", "backtested", "validated", "paper", "eligible", "retired"]
 StrategyEvidenceType = Literal["development_backtest", "out_of_sample", "regime", "paper"]
@@ -179,8 +181,18 @@ class WatchlistItem(BaseModel):
     strategy: str = "sma_cross"
     enabled: bool = True
     trading_enabled: bool = False
+    venue: BrokerVenue = "ctrader"
+    alpaca_asset_class: Optional[AlpacaAssetClass] = None
     lot_size: Optional[float] = Field(default=None, gt=0, le=100)
     params: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_explicit_broker_venue(self):
+        if self.venue == "alpaca" and self.alpaca_asset_class is None:
+            raise ValueError("Alpaca watchlist rows require an explicit alpaca_asset_class.")
+        if self.venue == "ctrader" and self.alpaca_asset_class is not None:
+            raise ValueError("cTrader watchlist rows must not define alpaca_asset_class.")
+        return self
 
 
 class StrategyInfo(BaseModel):

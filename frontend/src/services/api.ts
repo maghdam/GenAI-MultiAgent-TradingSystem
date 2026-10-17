@@ -74,6 +74,8 @@ export interface V2WatchlistItem {
   strategy: string;
   enabled: boolean;
   trading_enabled: boolean;
+  venue: 'ctrader' | 'alpaca';
+  alpaca_asset_class?: 'us_equity' | 'crypto' | null;
   lot_size?: number | null;
   params: Record<string, unknown>;
 }
