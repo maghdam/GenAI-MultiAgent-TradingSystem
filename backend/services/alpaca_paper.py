@@ -102,6 +102,13 @@ def _safe_broker_error_details(response: httpx.Response) -> dict[str, object]:
     return details
 
 
+def _position_key(symbol_or_asset_id: str) -> str:
+    normalized = str(symbol_or_asset_id or "").strip()
+    if not normalized:
+        raise ValueError("Alpaca symbol_or_asset_id must not be empty.")
+    return normalized.replace("/", "")
+
+
 def _request_mutation_json(
     method: str,
     path: str,
@@ -273,10 +280,7 @@ def get_order_by_id(order_id: str) -> dict[str, object] | None:
 
 
 def get_open_position(symbol_or_asset_id: str) -> dict[str, object] | None:
-    normalized = str(symbol_or_asset_id or "").strip()
-    if not normalized:
-        raise ValueError("Alpaca symbol_or_asset_id must not be empty.")
-    encoded = quote(normalized, safe="")
+    encoded = quote(_position_key(symbol_or_asset_id), safe="")
     payload = _request_optional_json(f"/v2/positions/{encoded}")
     if payload is None:
         return None
@@ -336,10 +340,7 @@ def submit_market_order(
 
 
 def close_position(symbol_or_asset_id: str) -> dict[str, object]:
-    normalized = str(symbol_or_asset_id or "").strip()
-    if not normalized:
-        raise ValueError("Alpaca symbol_or_asset_id must not be empty.")
-    encoded = quote(normalized, safe="")
+    encoded = quote(_position_key(symbol_or_asset_id), safe="")
     payload = _request_mutation_json(
         "DELETE",
         f"/v2/positions/{encoded}",
