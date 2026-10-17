@@ -65,6 +65,20 @@ class V2Engine:
         config = load_engine_config(EngineConfig())
         recover_runtime_state(config)
         reconcile_open_positions(reason="startup")
+        if any(item.venue == "alpaca" for item in config.watchlist):
+            try:
+                reconcile_paper_execution(limit=200)
+            except Exception as exc:
+                log_incident(
+                    "warning",
+                    "alpaca_startup_reconciliation_deferred",
+                    "Could not reconcile Alpaca Paper intents during engine startup.",
+                    {
+                        "error": str(exc),
+                        "automatic_resubmission": False,
+                        "broker_mutation_suppressed": True,
+                    },
+                )
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
         self._task = asyncio.create_task(self._run_forever(), name="tradeagent-engine")
