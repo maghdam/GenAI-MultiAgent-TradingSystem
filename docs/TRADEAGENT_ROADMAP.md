@@ -1937,12 +1937,36 @@ Add idempotent paper order submission with TradeAgent client order IDs, order/fi
 This item is still Alpaca **Paper only** and exposes explicit operator/API mutation endpoints for field validation. It does not add Alpaca to the per-symbol runtime broker selector, does not route autonomous Strategy Studio signals to Alpaca, does not add Alpaca Live trading, and does not weaken the existing cTrader/live-arm/risk/protection/reconciliation gates.
 
 ### 10.10 Broker venue selection
-**Status:** ⏳ Planned
+**Priority:** P1
+**Status:** 🧪 Ready to test
 
-Add an explicit broker/venue dimension so each enabled symbol-strategy row can route to cTrader or Alpaca according to supported asset class and operator selection. Preserve one common risk/lifecycle/audit policy above both broker adapters; do not silently infer venue from a symbol string.
+Add an explicit broker/venue dimension so each enabled symbol-strategy row carries operator-selected cTrader or Alpaca routing identity without inferring venue from the symbol. Preserve the existing common lifecycle/risk/audit policy and fail closed anywhere a selected venue is not yet acceptance-tested for autonomous execution.
+
+**Target behavior**
+- [x] Add an explicit per-row `venue` value with supported values `ctrader` and `alpaca`; legacy rows default to cTrader.
+- [x] Require an explicit Alpaca asset class (`us_equity` or `crypto`) for Alpaca rows and reject contradictory cTrader rows carrying Alpaca-only metadata.
+- [x] Persist venue and asset-class selection through the existing EngineConfig/SQLite serialization path without a schema migration.
+- [x] Expose venue and Alpaca asset class in the frontend API contract and Trade setup editor.
+- [x] Keep cTrader lot sizing and automatic-order permission specific to cTrader rows.
+- [x] Permit an explicit Alpaca symbol to be entered without relying on the cTrader symbol directory.
+- [x] Prevent Alpaca rows from falling through cTrader market-data, protection, broker-order, or local-paper autotrade paths.
+- [x] Make Dashboard manual orders fail closed when the configured row is assigned to Alpaca rather than silently using the cTrader/local-paper execution path.
+- [x] Keep the existing cTrader runtime strategy-matrix verifier scoped only to cTrader venue rows.
+- [x] Carry selected venue evidence into the shared risk decision path; do not infer venue from symbol text.
+
+**Acceptance**
+- [ ] Focused venue/model/persistence/risk/API/engine tests pass locally.
+- [ ] Existing Phase 10.9 Alpaca Paper execution/reconciliation tests remain green.
+- [ ] Existing cTrader execution/safety regression remains green.
+- [ ] Frontend production build passes with the explicit venue editor.
+- [ ] Full canonical validation passes locally with a clean diff/worktree.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item establishes the explicit persisted broker-routing identity and prevents wrong-broker fallback. It does **not** yet enable autonomous Alpaca market-data/execution from watchlist rows. Alpaca broker mutation remains limited to the explicit Phase 10.9 Paper operator endpoints until the governed Strategy Studio/runtime adapter in Phase 4.9/4.10 is acceptance-tested. cTrader execution behavior remains unchanged for rows whose venue is cTrader.
 
 ---
 
 ## 15. Next item
 
-**User-requested priority: merge/sync the now-verified Phase 10.9 Alpaca Paper execution/reconciliation item after final docs-head CI, then continue to Phase 10.10 explicit broker venue selection. After venue selection, resume the governed Strategy Studio runtime bridge in Phase 4.9/4.10. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
+**User-requested priority: validate and complete Phase 10.10 explicit broker venue selection on the current PR head. After merge/sync, resume the governed Strategy Studio runtime bridge in Phase 4.9/4.10, which is the next step allowed to activate autonomous Alpaca routing. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
