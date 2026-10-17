@@ -69,6 +69,56 @@ def _position(symbol: str = "AAPL") -> dict[str, object]:
     }
 
 
+def test_low_level_rejection_preserves_only_sanitized_broker_details(monkeypatch) -> None:
+    class _Response:
+        status_code = 403
+
+        @staticmethod
+        def json():
+            return {
+                "code": 40310000,
+                "message": "insufficient buying power",
+                "secret": "must-not-propagate",
+            }
+
+    class _Client:
+        def __init__(self, *, base_url, timeout, headers):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, path, params=None, json=None):
+            return _Response()
+
+    monkeypatch.setattr(alpaca_paper, "get_alpaca_secret", lambda name: {
+        "ALPACA_API_KEY_ID": "key-id",
+        "ALPACA_API_SECRET_KEY": "secret-key",
+    }[name])
+    monkeypatch.setattr(alpaca_paper.httpx, "Client", _Client)
+
+    try:
+        alpaca_paper.submit_market_order(
+            symbol="AAPL",
+            asset_class="us_equity",
+            side="buy",
+            client_order_id="tradeagent-alpaca-reject",
+            qty=1,
+        )
+    except alpaca_paper.AlpacaPaperError as exc:
+        assert exc.status_code == 403
+        assert exc.ambiguous is False
+        assert exc.broker_details == {
+            "code": 40310000,
+            "message": "insufficient buying power",
+        }
+    else:
+        raise AssertionError("Expected AlpacaPaperError")
+
+
 def test_low_level_market_order_uses_explicit_client_id_and_equity_day_tif(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -281,6 +331,51 @@ def test_nonterminal_order_blocks_duplicate_symbol_submission(monkeypatch) -> No
     assert second["status"] == "blocked"
     assert second["intent_id"] == first["intent_id"]
     assert calls["submit"] == 1
+
+
+def test_definite_rejection_records_broker_message_without_retry(monkeypatch) -> None:
+    monkeypatch.setattr(alpaca_execution, "get_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "get_open_position", lambda _symbol: None)
+
+    def _reject(**kwargs):
+        raise alpaca_paper.AlpacaPaperError(
+            "forbidden",
+            status_code=403,
+            ambiguous=False,
+            broker_details={
+                "code": 40310000,
+                "message": "insufficient buying power",
+            },
+        )
+
+    monkeypatch.setattr(alpaca_execution, "submit_market_order", _reject)
+
+    result = alpaca_execution.submit_paper_market_order(
+        symbol="AAPL",
+        asset_class="us_equity",
+        side="buy",
+        qty=0.01,
+        notional=None,
+        timeframe="D1",
+        strategy="manual",
+        rationale="definite rejection",
+    )
+
+    assert result["status"] == "failed"
+    intent = list_order_intents(1)[0]
+    assert intent.details["broker_status_code"] == 403
+    assert intent.details["broker_details"] == {
+        "code": 40310000,
+        "message": "insufficient buying power",
+    }
+    assert intent.details["automatic_retry"] is False
+
+    audit = next(
+        row
+        for row in list_trade_audits(10)
+        if row.event_type == "alpaca_paper_order_failed"
+    )
+    assert audit.details["broker_details"]["message"] == "insufficient buying power"
 
 
 def test_ambiguous_submit_recovers_exact_client_order_id(monkeypatch) -> None:
