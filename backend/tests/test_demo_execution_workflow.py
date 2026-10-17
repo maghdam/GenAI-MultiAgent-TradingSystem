@@ -398,6 +398,7 @@ def test_engine_analyzes_alpaca_row_but_suppresses_broker_execution(monkeypatch)
     monkeypatch.setattr(engine_module, "get_bars", _bars)
     monkeypatch.setattr(engine_module, "get_strategy", lambda name: _AlpacaStrategy())
     monkeypatch.setattr(engine_module, "record_confluence_shadow", lambda *args, **kwargs: None)
+    monkeypatch.setattr(engine_module, "reconcile_paper_execution", lambda **kwargs: {"checked_intents": 0})
     monkeypatch.setattr(
         engine_module,
         "execute_paper_signal",
@@ -425,12 +426,86 @@ def test_engine_analyzes_alpaca_row_but_suppresses_broker_execution(monkeypatch)
     assert list_order_intents(10) == []
 
     incidents = list_incidents(10)
-    assert incidents[0].code == "alpaca_runtime_execution_pending"
+    assert incidents[0].code == "alpaca_runtime_execution_disabled"
     assert incidents[0].details["broker_venue"] == "alpaca"
     assert incidents[0].details["alpaca_asset_class"] == "us_equity"
     assert incidents[0].details["analysis_generated"] is True
     assert incidents[0].details["broker_mutation_suppressed"] is True
     assert incidents[0].details["order_intent_suppressed"] is True
+
+
+def test_engine_routes_enabled_alpaca_row_to_paper_runtime_adapter(monkeypatch) -> None:
+    watch = WatchlistItem(
+        symbol="SPY",
+        timeframe="M5",
+        strategy="sma_cross",
+        enabled=True,
+        trading_enabled=True,
+        venue="alpaca",
+        alpaca_asset_class="us_equity",
+        alpaca_size_mode="notional",
+        alpaca_size_value=25.0,
+        lot_size=0.25,
+    )
+    config = _config().model_copy(
+        update={
+            "ctrader_autotrade": False,
+            "watchlist": [watch],
+        }
+    )
+    save_engine_config(config)
+    bars = pd.DataFrame(
+        [{"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0, "volume": 12.0}],
+        index=pd.to_datetime(["2026-10-17T15:15:00Z"], utc=True),
+    )
+    captured: dict[str, object] = {}
+
+    class _AlpacaStrategy:
+        def analyze(self, **kwargs):
+            return _analysis().model_copy(
+                update={
+                    "symbol": "SPY",
+                    "timeframe": "M5",
+                    "context": {},
+                }
+            )
+
+    monkeypatch.setattr(engine_module, "get_bars", lambda *args, **kwargs: bars)
+    monkeypatch.setattr(engine_module, "get_strategy", lambda name: _AlpacaStrategy())
+    monkeypatch.setattr(engine_module, "record_confluence_shadow", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        engine_module,
+        "reconcile_paper_execution",
+        lambda **kwargs: captured.update(reconcile=True) or {"checked_intents": 0},
+    )
+
+    def _runtime(**kwargs):
+        captured["runtime"] = kwargs
+        return SimpleNamespace(
+            action_taken=True,
+            retryable=False,
+            status="accepted",
+            position_id=None,
+        )
+
+    monkeypatch.setattr(engine_module, "execute_alpaca_runtime_signal", _runtime)
+    monkeypatch.setattr(
+        engine_module,
+        "execute_paper_signal",
+        lambda **kwargs: pytest.fail("Alpaca row must not enter the cTrader/local-paper execution path"),
+    )
+
+    summary = asyncio.run(V2Engine().run_once())
+
+    assert "processed=1" in summary
+    assert "actions=1" in summary
+    assert captured["reconcile"] is True
+    assert captured["runtime"]["watch_item"].venue == "alpaca"
+    assert captured["runtime"]["watch_item"].alpaca_size_mode == "notional"
+    assert captured["runtime"]["watch_item"].alpaca_size_value == 25.0
+    saved = list_recent_analyses(5)
+    assert saved[0].context["runtime_execution_state"] == "paper_execution_enabled"
+    assert saved[0].context["broker_mutation_suppressed"] is False
 
 
 def test_engine_uses_enabled_row_strategy_and_preserves_per_symbol_lot(monkeypatch) -> None:
