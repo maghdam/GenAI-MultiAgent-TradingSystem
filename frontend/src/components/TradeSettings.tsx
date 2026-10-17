@@ -24,6 +24,8 @@ const newWatchItem = (strategy: string, lotSize: number): V2WatchlistItem => ({
   strategy,
   enabled: true,
   trading_enabled: false,
+  venue: 'ctrader',
+  alpaca_asset_class: null,
   lot_size: normalizeCTraderLotInput(lotSize),
   params: {},
 });
@@ -94,7 +96,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
         <div className="ta-overlay__header">
           <div>
             <h2 className="ta-overlay__title">Trade setup</h2>
-            <div className="mi-muted">Choose per-symbol signal generation, strategy, lot size, and automatic-order permission.</div>
+            <div className="mi-muted">Choose each row's signal source, strategy, broker venue, and automatic-order permission.</div>
           </div>
           <button className="ta-btn ta-btn--ghost ta-btn--icon" type="button" onClick={onClose}>✕</button>
         </div>
@@ -158,9 +160,9 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                     onChange={(e) => setConfig({ ...config, ctrader_autotrade: e.target.checked })}
                   />
                   <span>
-                    <strong>System auto-trade</strong>
+                    <strong>cTrader auto-trade</strong>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--ta-text-muted)' }}>
-                      Allow the engine to place automatic orders on the selected active cTrader account.
+                      Allow automatic orders only for rows whose venue is cTrader.
                       Live orders also require the separate runtime-only Live Trading arm in System plus per-symbol "Auto-trade" below.
                     </span>
                   </span>
@@ -168,6 +170,9 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
               </div>
 
               <div className="ta-settings-section">Watchlist</div>
+              <div className="mi-muted" style={{ marginBottom: 10 }}>
+                Broker venue is explicit per row. Alpaca rows store their asset class now; automatic Alpaca orders remain blocked until the governed runtime adapter is verified.
+              </div>
               <div
                 className={
                   accountVerified && accountType === 'demo'
@@ -194,9 +199,46 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                     <input type="checkbox" checked={item.enabled} onChange={(event) => updateWatchItem(index, { enabled: event.target.checked })} />
                     <span>Signals</span>
                   </label>
-                  <select className="ta-select ta-select--sm" value={item.symbol} onChange={(event) => updateWatchItem(index, { symbol: event.target.value })}>
-                    {[item.symbol, ...symbols.filter((symbol) => symbol !== item.symbol)].map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
+                  <select
+                    className="ta-select ta-select--sm"
+                    value={item.venue}
+                    aria-label={`Broker venue for ${item.symbol}`}
+                    onChange={(event) => {
+                      const venue = event.target.value as V2WatchlistItem['venue'];
+                      updateWatchItem(index, {
+                        venue,
+                        alpaca_asset_class: venue === 'alpaca' ? (item.alpaca_asset_class ?? 'us_equity') : null,
+                        trading_enabled: venue === 'alpaca' ? false : item.trading_enabled,
+                      });
+                    }}
+                  >
+                    <option value="ctrader">cTrader</option>
+                    <option value="alpaca">Alpaca Paper</option>
                   </select>
+                  {item.venue === 'alpaca' ? (
+                    <input
+                      className="ta-input ta-input--mono"
+                      value={item.symbol}
+                      aria-label="Alpaca symbol"
+                      placeholder="SPY or BTC/USD"
+                      onChange={(event) => updateWatchItem(index, { symbol: event.target.value.toUpperCase() })}
+                    />
+                  ) : (
+                    <select className="ta-select ta-select--sm" value={item.symbol} onChange={(event) => updateWatchItem(index, { symbol: event.target.value })}>
+                      {[item.symbol, ...symbols.filter((symbol) => symbol !== item.symbol)].map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
+                    </select>
+                  )}
+                  {item.venue === 'alpaca' && (
+                    <select
+                      className="ta-select ta-select--sm"
+                      value={item.alpaca_asset_class ?? 'us_equity'}
+                      aria-label={`Alpaca asset class for ${item.symbol}`}
+                      onChange={(event) => updateWatchItem(index, { alpaca_asset_class: event.target.value as 'us_equity' | 'crypto' })}
+                    >
+                      <option value="us_equity">US stock / ETF</option>
+                      <option value="crypto">Crypto</option>
+                    </select>
+                  )}
                   <select className="ta-select ta-select--sm" value={item.timeframe} onChange={(event) => updateWatchItem(index, { timeframe: event.target.value })}>
                     {TIMEFRAMES.map((timeframe) => <option key={timeframe} value={timeframe}>{timeframe}</option>)}
                   </select>
@@ -208,8 +250,11 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                     type="number"
                     min={CTRADER_LOT_INPUT_MIN}
                     step={CTRADER_LOT_INPUT_STEP}
-                    title="Order size in lots (cTrader-style two-decimal entry; broker limits are validated at execution)"
+                    title={item.venue === 'ctrader'
+                      ? 'Order size in lots (cTrader-style two-decimal entry; broker limits are validated at execution)'
+                      : 'cTrader lot size is retained but is not used for Alpaca venue rows.'}
                     aria-label={`Lot size for ${item.symbol}`}
+                    disabled={item.venue === 'alpaca'}
                     defaultValue={formatCTraderLotInput(item.lot_size ?? config.paper_trade_size)}
                     onChange={(event) => {
                       const value = Number(event.target.value);
@@ -218,9 +263,19 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                       }
                     }}
                   />
-                  <label className="ta-watch-control" title="Permit automatic order execution for this symbol">
-                    <input type="checkbox" checked={item.trading_enabled} onChange={(event) => updateWatchItem(index, { trading_enabled: event.target.checked })} />
-                    <span>Auto-trade</span>
+                  <label
+                    className="ta-watch-control"
+                    title={item.venue === 'alpaca'
+                      ? 'Automatic Alpaca execution stays blocked until the governed runtime adapter is verified.'
+                      : 'Permit automatic cTrader order execution for this symbol'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={item.trading_enabled}
+                      disabled={item.venue === 'alpaca'}
+                      onChange={(event) => updateWatchItem(index, { trading_enabled: event.target.checked })}
+                    />
+                    <span>{item.venue === 'alpaca' ? 'Auto-trade pending' : 'Auto-trade'}</span>
                   </label>
                   <button className="ta-btn ta-btn--danger ta-btn--sm ta-btn--icon" type="button" onClick={() => setConfig({ ...config, watchlist: config.watchlist.filter((_, itemIndex) => itemIndex !== index) })}>✕</button>
                 </div>
