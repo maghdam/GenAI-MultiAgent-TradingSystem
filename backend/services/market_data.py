@@ -294,8 +294,13 @@ def get_bars(
             )
         else:
             df, _ = adapter.get_bars(symbol=symbol, timeframe=timeframe, num_bars=num_bars)
-    except (MarketDataError, AlpacaMarketDataError):
+    except MarketDataError:
         raise
+    except AlpacaMarketDataError as exc:
+        market_data_dependency_state.last_success = False
+        market_data_dependency_state.market_data_ready = False
+        market_data_dependency_state.last_reason = str(exc)
+        raise MarketDataError(str(exc)) from exc
     except Exception as exc:
         market_data_dependency_state.last_success = False
         market_data_dependency_state.market_data_ready = False
