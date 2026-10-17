@@ -194,6 +194,8 @@ export default function DashboardPage() {
         strategy,
         enabled: previous?.enabled ?? true,
         trading_enabled: previous?.trading_enabled ?? false,
+        venue: previous?.venue ?? 'ctrader',
+        alpaca_asset_class: previous?.alpaca_asset_class ?? null,
         lot_size: lotSize,
         params: previous?.params ?? {},
       };
