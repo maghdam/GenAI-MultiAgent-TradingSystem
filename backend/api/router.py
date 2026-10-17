@@ -1462,6 +1462,16 @@ async def v2_manual_order(request: ManualOrderRequest) -> dict:
         ),
         None,
     )
+    if configured_item and configured_item.venue == "alpaca":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This watchlist row is assigned to Alpaca Paper. "
+                "Dashboard manual routing remains fail-closed until the governed Alpaca runtime adapter is verified; "
+                "use the explicit Alpaca Paper operator endpoints for broker mutation."
+            ),
+        )
+
     watch_item = (
         configured_item.model_copy(
             update={
