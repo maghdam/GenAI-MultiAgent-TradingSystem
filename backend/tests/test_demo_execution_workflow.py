@@ -12,6 +12,7 @@ from backend.services import engine as engine_module
 from backend.services.engine import V2Engine
 from backend.services.execution_engine import execute_paper_signal
 from backend.storage.repositories import (
+    list_incidents,
     list_order_intents,
     list_paper_positions,
     load_engine_config,
@@ -351,6 +352,42 @@ def test_demo_order_failure_does_not_create_local_position(monkeypatch) -> None:
     assert list_paper_positions("open") == []
     intents = list_order_intents(5)
     assert intents[0].status == "failed"
+
+
+def test_engine_defers_alpaca_row_without_touching_ctrader_market_data(monkeypatch) -> None:
+    watch = WatchlistItem(
+        symbol="SPY",
+        timeframe="M5",
+        strategy="sma_cross",
+        enabled=True,
+        trading_enabled=False,
+        venue="alpaca",
+        alpaca_asset_class="us_equity",
+        lot_size=0.25,
+    )
+    config = _config().model_copy(
+        update={
+            "ctrader_autotrade": False,
+            "watchlist": [watch],
+        }
+    )
+    save_engine_config(config)
+
+    monkeypatch.setattr(
+        engine_module,
+        "get_bars",
+        lambda *args, **kwargs: pytest.fail("cTrader market data must not be used for an Alpaca venue row"),
+    )
+
+    summary = asyncio.run(V2Engine().run_once())
+
+    assert "processed=0" in summary
+    assert "actions=0" in summary
+    incidents = list_incidents(10)
+    assert incidents[0].code == "alpaca_runtime_route_pending"
+    assert incidents[0].details["broker_venue"] == "alpaca"
+    assert incidents[0].details["alpaca_asset_class"] == "us_equity"
+    assert incidents[0].details["ctrader_market_data_suppressed"] is True
 
 
 def test_engine_uses_enabled_row_strategy_and_preserves_per_symbol_lot(monkeypatch) -> None:
