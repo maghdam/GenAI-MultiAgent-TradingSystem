@@ -21,10 +21,12 @@ class AlpacaPaperError(RuntimeError):
         *,
         status_code: int | None = None,
         ambiguous: bool = False,
+        broker_details: dict[str, object] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.ambiguous = ambiguous
+        self.broker_details = dict(broker_details or {})
 
 
 def _base_url() -> str:
@@ -84,6 +86,22 @@ def _request_optional_json(
         raise
 
 
+def _safe_broker_error_details(response: httpx.Response) -> dict[str, object]:
+    try:
+        payload = response.json()
+    except ValueError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    details: dict[str, object] = {}
+    if payload.get("code") is not None:
+        details["code"] = payload.get("code")
+    if payload.get("message") is not None:
+        details["message"] = str(payload.get("message"))
+    return details
+
+
 def _request_mutation_json(
     method: str,
     path: str,
@@ -112,6 +130,7 @@ def _request_mutation_json(
             f"Alpaca Paper {method.upper()} returned HTTP {response.status_code} for {path}.",
             status_code=int(response.status_code),
             ambiguous=False,
+            broker_details=_safe_broker_error_details(response),
         )
 
     try:
