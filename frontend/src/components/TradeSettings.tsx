@@ -257,7 +257,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                         type="number"
                         min="0.000000001"
                         step="any"
-                        value={item.alpaca_size_value ?? 10}
+                        value={item.alpaca_size_value ?? ''}
                         aria-label={`Alpaca size value for ${item.symbol}`}
                         title={item.alpaca_size_mode === 'qty' ? 'Shares or crypto quantity per entry.' : 'USD notional per long entry.'}
                         onChange={(event) => {
@@ -299,6 +299,10 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                     <input
                       type="checkbox"
                       checked={item.trading_enabled}
+                      disabled={
+                        item.venue === 'alpaca'
+                        && (!item.alpaca_size_mode || !item.alpaca_size_value || item.alpaca_size_value <= 0)
+                      }
                       onChange={(event) => updateWatchItem(index, { trading_enabled: event.target.checked })}
                     />
                     <span>{item.venue === 'alpaca' ? 'Paper auto-trade' : 'Auto-trade'}</span>
