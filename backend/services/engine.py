@@ -55,6 +55,7 @@ class V2Engine:
         self._protection_failsafe_pending_positions: set[int] = set()
         self._stale_market_items: set[str] = set()
         self._malformed_market_items: set[str] = set()
+        self._pending_broker_venue_items: set[str] = set()
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -210,6 +211,25 @@ class V2Engine:
         symbol = item.symbol.upper()
         timeframe = item.timeframe.upper()
         key = f"{symbol}|{timeframe}"
+
+        if item.venue == "alpaca":
+            if key not in self._pending_broker_venue_items:
+                log_incident(
+                    "info",
+                    "alpaca_runtime_route_pending",
+                    f"Deferred {symbol}:{timeframe} until the governed Alpaca runtime adapter is verified.",
+                    {
+                        "broker_venue": item.venue,
+                        "alpaca_asset_class": item.alpaca_asset_class,
+                        "strategy": item.strategy,
+                        "broker_mutation_suppressed": True,
+                        "ctrader_market_data_suppressed": True,
+                    },
+                )
+                self._pending_broker_venue_items.add(key)
+            return False, False
+
+        self._pending_broker_venue_items.discard(key)
         try:
             df = get_bars(symbol, timeframe, 600)
         except MarketDataError as exc:
