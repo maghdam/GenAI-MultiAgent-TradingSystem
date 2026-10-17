@@ -254,6 +254,58 @@ def test_v2_manual_order_executes_even_if_paper_autotrade_is_disabled(monkeypatc
     assert payload["status"] == "executed"
 
 
+def test_v2_manual_order_fails_closed_for_alpaca_venue_row(monkeypatch) -> None:
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
+
+    from backend.domain.models import EngineConfig, WatchlistItem
+    from backend.storage.repositories import save_engine_config
+
+    save_engine_config(
+        EngineConfig(
+            enabled=True,
+            paper_autotrade=False,
+            ctrader_autotrade=True,
+            kill_switch=False,
+            watchlist=[
+                WatchlistItem(
+                    symbol="SPY",
+                    timeframe="M5",
+                    strategy="sma_cross",
+                    enabled=True,
+                    trading_enabled=False,
+                    venue="alpaca",
+                    alpaca_asset_class="us_equity",
+                    lot_size=0.1,
+                )
+            ],
+        )
+    )
+
+    from backend.app import app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/orders/manual",
+            json={
+                "symbol": "SPY",
+                "timeframe": "M5",
+                "strategy": "sma_cross",
+                "signal": "long",
+                "quantity": 1,
+                "confidence": 0.9,
+                "entry_price": 100.0,
+                "stop_loss": 99.0,
+                "take_profit": 102.0,
+                "reasons": ["venue routing acceptance test"],
+            },
+        )
+
+    assert response.status_code == 409
+    assert "assigned to Alpaca Paper" in response.json()["detail"]
+
+
 def test_v2_manual_order_rejects_invalid_quantity(monkeypatch) -> None:
     monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
     monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
