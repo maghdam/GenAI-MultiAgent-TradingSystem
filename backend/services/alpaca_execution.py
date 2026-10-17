@@ -351,6 +351,7 @@ def submit_paper_market_order(
                     "retryable": True,
                     "broker_error": str(exc),
                     "broker_status_code": exc.status_code,
+                    "broker_details": exc.broker_details,
                     "automatic_retry": False,
                 },
                 reason="alpaca_paper_submission_rejected",
@@ -366,6 +367,7 @@ def submit_paper_market_order(
                     "client_order_id": client_order_id,
                     "broker_error": str(exc),
                     "broker_status_code": exc.status_code,
+                    "broker_details": exc.broker_details,
                 },
             )
             return {
@@ -503,6 +505,7 @@ def close_paper_position(
                     "retryable": True,
                     "broker_error": str(exc),
                     "broker_status_code": exc.status_code,
+                    "broker_details": exc.broker_details,
                     "automatic_retry": False,
                 },
                 reason="alpaca_paper_close_rejected",
