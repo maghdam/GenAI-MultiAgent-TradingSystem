@@ -7,6 +7,10 @@ from time import monotonic
 import pandas as pd
 
 from backend.adapters.ctrader import adapter
+from backend.services.alpaca_market_data import (
+    AlpacaMarketDataError,
+    get_bars as get_alpaca_bars,
+)
 from backend.storage.repositories import load_cached_market_bars, upsert_market_bars
 from backend.services.runtime_state import market_data_dependency_state
 from backend.services.market_bar_validation import assess_market_frame
@@ -141,8 +145,35 @@ def _cache_ttl_for_request(prefer_live: bool) -> float:
     return _LIVE_BARS_CACHE_TTL_SEC if prefer_live else _DEFAULT_BARS_CACHE_TTL_SEC
 
 
-def _get_cached_bars(symbol: str, timeframe: str, num_bars: int, *, ttl_sec: float) -> pd.DataFrame | None:
-    key = (symbol.upper(), timeframe.upper())
+def _cache_symbol_key(
+    symbol: str,
+    *,
+    venue: str,
+    alpaca_asset_class: str | None,
+) -> str:
+    normalized_symbol = symbol.upper()
+    if venue == "alpaca":
+        return f"ALPACA:{str(alpaca_asset_class or '').upper()}:{normalized_symbol}"
+    return normalized_symbol
+
+
+def _get_cached_bars(
+    symbol: str,
+    timeframe: str,
+    num_bars: int,
+    *,
+    ttl_sec: float,
+    venue: str = "ctrader",
+    alpaca_asset_class: str | None = None,
+) -> pd.DataFrame | None:
+    key = (
+        _cache_symbol_key(
+            symbol,
+            venue=venue,
+            alpaca_asset_class=alpaca_asset_class,
+        ),
+        timeframe.upper(),
+    )
     now = monotonic()
     with _bars_cache_lock:
         cached = _bars_cache.get(key)
@@ -156,8 +187,22 @@ def _get_cached_bars(symbol: str, timeframe: str, num_bars: int, *, ttl_sec: flo
         return df.tail(num_bars).copy()
 
 
-def _store_cached_bars(symbol: str, timeframe: str, df: pd.DataFrame) -> None:
-    key = (symbol.upper(), timeframe.upper())
+def _store_cached_bars(
+    symbol: str,
+    timeframe: str,
+    df: pd.DataFrame,
+    *,
+    venue: str = "ctrader",
+    alpaca_asset_class: str | None = None,
+) -> None:
+    key = (
+        _cache_symbol_key(
+            symbol,
+            venue=venue,
+            alpaca_asset_class=alpaca_asset_class,
+        ),
+        timeframe.upper(),
+    )
     with _bars_cache_lock:
         _bars_cache[key] = (monotonic(), df.copy())
 
@@ -178,8 +223,31 @@ def _persistent_cache_fresh_enough(
     return -_MAX_FUTURE_CLOCK_SKEW_SECONDS <= age_seconds <= max_age
 
 
-def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = False) -> pd.DataFrame:
-    cached = _get_cached_bars(symbol, timeframe, num_bars, ttl_sec=_cache_ttl_for_request(prefer_live))
+def get_bars(
+    symbol: str,
+    timeframe: str,
+    num_bars: int,
+    *,
+    prefer_live: bool = False,
+    venue: str = "ctrader",
+    alpaca_asset_class: str | None = None,
+) -> pd.DataFrame:
+    normalized_venue = str(venue or "ctrader").strip().lower()
+    if normalized_venue not in {"ctrader", "alpaca"}:
+        raise MarketDataError(f"Unsupported market-data venue: {venue}.")
+    if normalized_venue == "alpaca" and alpaca_asset_class not in {"us_equity", "crypto"}:
+        raise MarketDataError(
+            "Alpaca market data requires an explicit us_equity or crypto asset class."
+        )
+
+    cached = _get_cached_bars(
+        symbol,
+        timeframe,
+        num_bars,
+        ttl_sec=_cache_ttl_for_request(prefer_live),
+        venue=normalized_venue,
+        alpaca_asset_class=alpaca_asset_class,
+    )
     market_data_dependency_state.last_symbol = symbol.upper()
     market_data_dependency_state.last_timeframe = timeframe.upper()
     market_data_dependency_state.last_checked_at = datetime.now(UTC).replace(tzinfo=None)
@@ -189,15 +257,18 @@ def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = 
             symbol,
             timeframe,
             cached,
-            source="memory_cache",
+            source=f"{normalized_venue}_memory_cache",
         )
         market_data_dependency_state.last_success = True
         market_data_dependency_state.last_success_at = datetime.now(UTC).replace(tzinfo=None)
         market_data_dependency_state.market_data_ready = True
-        market_data_dependency_state.last_reason = f"Served {len(cached)} cached bars for {symbol.upper()}:{timeframe.upper()}"
+        market_data_dependency_state.last_reason = (
+            f"Served {len(cached)} cached {normalized_venue} bars "
+            f"for {symbol.upper()}:{timeframe.upper()}"
+        )
         return cached
 
-    if not prefer_live:
+    if normalized_venue == "ctrader" and not prefer_live:
         persisted, fetched_at = load_cached_market_bars(symbol, timeframe, num_bars)
         if len(persisted) >= num_bars and _persistent_cache_fresh_enough(fetched_at, timeframe):
             persisted = _require_valid_market_frame(
@@ -214,31 +285,59 @@ def get_bars(symbol: str, timeframe: str, num_bars: int, *, prefer_live: bool = 
             return persisted.tail(num_bars).copy()
 
     try:
-        df, _ = adapter.get_bars(symbol=symbol, timeframe=timeframe, num_bars=num_bars)
+        if normalized_venue == "alpaca":
+            df = get_alpaca_bars(
+                symbol=symbol,
+                timeframe=timeframe,
+                num_bars=num_bars,
+                asset_class=str(alpaca_asset_class),
+            )
+        else:
+            df, _ = adapter.get_bars(symbol=symbol, timeframe=timeframe, num_bars=num_bars)
     except MarketDataError:
         raise
+    except AlpacaMarketDataError as exc:
+        market_data_dependency_state.last_success = False
+        market_data_dependency_state.market_data_ready = False
+        market_data_dependency_state.last_reason = str(exc)
+        raise MarketDataError(str(exc)) from exc
     except Exception as exc:
         market_data_dependency_state.last_success = False
         market_data_dependency_state.market_data_ready = False
         market_data_dependency_state.last_reason = str(exc)
         raise MarketDataError(str(exc)) from exc
+
     if df is None or df.empty:
         market_data_dependency_state.last_success = False
         market_data_dependency_state.market_data_ready = False
-        market_data_dependency_state.last_reason = f"No market data available for {symbol}:{timeframe}"
+        market_data_dependency_state.last_reason = (
+            f"No {normalized_venue} market data available for {symbol}:{timeframe}"
+        )
         raise MarketDataError(market_data_dependency_state.last_reason)
+
     df = _require_valid_market_frame(
         symbol,
         timeframe,
         df,
-        source="broker",
+        source=f"{normalized_venue}_broker",
     )
-    _store_cached_bars(symbol, timeframe, df)
-    upsert_market_bars(symbol, timeframe, df)
+    _store_cached_bars(
+        symbol,
+        timeframe,
+        df,
+        venue=normalized_venue,
+        alpaca_asset_class=alpaca_asset_class,
+    )
+    if normalized_venue == "ctrader":
+        upsert_market_bars(symbol, timeframe, df)
+
     market_data_dependency_state.last_success = True
     market_data_dependency_state.last_success_at = datetime.now(UTC).replace(tzinfo=None)
     market_data_dependency_state.market_data_ready = True
-    market_data_dependency_state.last_reason = f"Fetched {len(df)} bars for {symbol.upper()}:{timeframe.upper()}"
+    market_data_dependency_state.last_reason = (
+        f"Fetched {len(df)} {normalized_venue} bars "
+        f"for {symbol.upper()}:{timeframe.upper()}"
+    )
     return df
 
 

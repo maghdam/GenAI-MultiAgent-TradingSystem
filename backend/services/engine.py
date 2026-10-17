@@ -210,28 +210,20 @@ class V2Engine:
     async def _scan_item(self, config: EngineConfig, item: WatchlistItem, bar_state: Dict[str, int]) -> tuple[bool, bool]:
         symbol = item.symbol.upper()
         timeframe = item.timeframe.upper()
-        key = f"{symbol}|{timeframe}"
+        key = (
+            f"{symbol}|{timeframe}"
+            if item.venue == "ctrader"
+            else f"alpaca:{item.alpaca_asset_class}:{symbol}|{timeframe}"
+        )
 
-        if item.venue == "alpaca":
-            if key not in self._pending_broker_venue_items:
-                log_incident(
-                    "info",
-                    "alpaca_runtime_route_pending",
-                    f"Deferred {symbol}:{timeframe} until the governed Alpaca runtime adapter is verified.",
-                    {
-                        "broker_venue": item.venue,
-                        "alpaca_asset_class": item.alpaca_asset_class,
-                        "strategy": item.strategy,
-                        "broker_mutation_suppressed": True,
-                        "ctrader_market_data_suppressed": True,
-                    },
-                )
-                self._pending_broker_venue_items.add(key)
-            return False, False
-
-        self._pending_broker_venue_items.discard(key)
         try:
-            df = get_bars(symbol, timeframe, 600)
+            df = get_bars(
+                symbol,
+                timeframe,
+                600,
+                venue=item.venue,
+                alpaca_asset_class=item.alpaca_asset_class,
+            )
         except MarketDataError as exc:
             if "malformed market data" in str(exc).lower():
                 if key not in self._malformed_market_items:
@@ -317,9 +309,10 @@ class V2Engine:
         self._stale_market_items.discard(key)
         last_ts = int(last_dt.timestamp())
         if bar_state.get(key) == last_ts:
-            last_price = float(df["close"].iloc[-1])
-            self._mark_positions(config, item, last_price)
-            self._sync_existing_ctrader_protection(config, item, last_price)
+            if item.venue == "ctrader":
+                last_price = float(df["close"].iloc[-1])
+                self._mark_positions(config, item, last_price)
+                self._sync_existing_ctrader_protection(config, item, last_price)
             return False, False
         strategy = get_strategy(item.strategy)
         analysis = strategy.analyze(
@@ -332,6 +325,9 @@ class V2Engine:
         analysis.context["broker_venue"] = item.venue
         if item.alpaca_asset_class:
             analysis.context["alpaca_asset_class"] = item.alpaca_asset_class
+        if item.venue == "alpaca":
+            analysis.context["runtime_execution_state"] = "shadow_only"
+            analysis.context["broker_mutation_suppressed"] = True
         add_analysis(analysis)
         try:
             record_confluence_shadow(analysis, config.min_confidence)
@@ -342,6 +338,27 @@ class V2Engine:
                 f"Shadow confluence failed for {analysis.symbol}:{analysis.timeframe}",
                 {"error": str(exc), "execution_unchanged": True},
             )
+
+        if item.venue == "alpaca":
+            if key not in self._pending_broker_venue_items:
+                log_incident(
+                    "info",
+                    "alpaca_runtime_execution_pending",
+                    f"Analyzed {symbol}:{timeframe} from Alpaca market data; broker mutation remains disabled.",
+                    {
+                        "broker_venue": item.venue,
+                        "alpaca_asset_class": item.alpaca_asset_class,
+                        "strategy": item.strategy,
+                        "analysis_generated": True,
+                        "broker_mutation_suppressed": True,
+                        "order_intent_suppressed": True,
+                    },
+                )
+                self._pending_broker_venue_items.add(key)
+            bar_state[key] = last_ts
+            return True, False
+
+        self._pending_broker_venue_items.discard(key)
         result = execute_paper_signal(
             config=config,
             watch_item=item,

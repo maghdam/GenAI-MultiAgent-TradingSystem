@@ -15,6 +15,7 @@ from backend.storage.repositories import (
     list_incidents,
     list_order_intents,
     list_paper_positions,
+    list_recent_analyses,
     load_engine_config,
     save_engine_config,
 )
@@ -354,7 +355,7 @@ def test_demo_order_failure_does_not_create_local_position(monkeypatch) -> None:
     assert intents[0].status == "failed"
 
 
-def test_engine_defers_alpaca_row_without_touching_ctrader_market_data(monkeypatch) -> None:
+def test_engine_analyzes_alpaca_row_but_suppresses_broker_execution(monkeypatch) -> None:
     watch = WatchlistItem(
         symbol="SPY",
         timeframe="M5",
@@ -372,22 +373,64 @@ def test_engine_defers_alpaca_row_without_touching_ctrader_market_data(monkeypat
         }
     )
     save_engine_config(config)
+    bars = pd.DataFrame(
+        [{"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0, "volume": 12.0}],
+        index=pd.to_datetime(["2026-10-17T15:15:00Z"], utc=True),
+    )
+    captured: dict[str, object] = {}
 
+    class _AlpacaStrategy:
+        def analyze(self, **kwargs):
+            captured["analysis_kwargs"] = kwargs
+            return _analysis().model_copy(
+                update={
+                    "symbol": "SPY",
+                    "timeframe": "M5",
+                    "context": {},
+                }
+            )
+
+    def _bars(*args, **kwargs):
+        captured["bar_args"] = args
+        captured["bar_kwargs"] = kwargs
+        return bars
+
+    monkeypatch.setattr(engine_module, "get_bars", _bars)
+    monkeypatch.setattr(engine_module, "get_strategy", lambda name: _AlpacaStrategy())
+    monkeypatch.setattr(engine_module, "record_confluence_shadow", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         engine_module,
-        "get_bars",
-        lambda *args, **kwargs: pytest.fail("cTrader market data must not be used for an Alpaca venue row"),
+        "execute_paper_signal",
+        lambda **kwargs: pytest.fail("Alpaca shadow analysis must not create broker execution"),
     )
 
     summary = asyncio.run(V2Engine().run_once())
 
-    assert "processed=0" in summary
+    assert "processed=1" in summary
     assert "actions=0" in summary
+    assert captured["bar_args"] == ("SPY", "M5", 600)
+    assert captured["bar_kwargs"] == {
+        "venue": "alpaca",
+        "alpaca_asset_class": "us_equity",
+    }
+    analyses = captured["analysis_kwargs"]
+    assert isinstance(analyses, dict)
+    assert analyses["symbol"] == "SPY"
+    saved = list_recent_analyses(5)
+    assert saved[0].symbol == "SPY"
+    assert saved[0].context["broker_venue"] == "alpaca"
+    assert saved[0].context["alpaca_asset_class"] == "us_equity"
+    assert saved[0].context["runtime_execution_state"] == "shadow_only"
+    assert saved[0].context["broker_mutation_suppressed"] is True
+    assert list_order_intents(10) == []
+
     incidents = list_incidents(10)
-    assert incidents[0].code == "alpaca_runtime_route_pending"
+    assert incidents[0].code == "alpaca_runtime_execution_pending"
     assert incidents[0].details["broker_venue"] == "alpaca"
     assert incidents[0].details["alpaca_asset_class"] == "us_equity"
-    assert incidents[0].details["ctrader_market_data_suppressed"] is True
+    assert incidents[0].details["analysis_generated"] is True
+    assert incidents[0].details["broker_mutation_suppressed"] is True
+    assert incidents[0].details["order_intent_suppressed"] is True
 
 
 def test_engine_uses_enabled_row_strategy_and_preserves_per_symbol_lot(monkeypatch) -> None:
