@@ -196,6 +196,35 @@ def test_low_level_crypto_market_order_uses_gtc_and_notional(monkeypatch) -> Non
     assert "qty" not in captured["body"]
 
 
+def test_low_level_position_lookup_normalizes_crypto_pair_key(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _optional(path, *, params=None):
+        captured.update({"path": path, "params": params})
+        return {
+            "asset_id": "asset-sol",
+            "symbol": "SOLUSD",
+            "asset_class": "crypto",
+            "exchange": "CRYPTO",
+            "side": "long",
+            "qty": "0.1",
+            "qty_available": "0.1",
+            "avg_entry_price": "100",
+            "current_price": "101",
+            "market_value": "10.1",
+            "cost_basis": "10",
+            "unrealized_pl": "0.1",
+            "unrealized_plpc": "0.01",
+        }
+
+    monkeypatch.setattr(alpaca_paper, "_request_optional_json", _optional)
+
+    position = alpaca_paper.get_open_position("SOL/USD")
+
+    assert captured == {"path": "/v2/positions/SOLUSD", "params": None}
+    assert position["symbol"] == "SOLUSD"
+
+
 def test_low_level_close_encodes_symbol_and_requests_full_flatten(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -221,7 +250,7 @@ def test_low_level_close_encodes_symbol_and_requests_full_flatten(monkeypatch) -
 
     assert captured == {
         "method": "DELETE",
-        "path": "/v2/positions/BTC%2FUSD",
+        "path": "/v2/positions/BTCUSD",
         "params": {"percentage": 100},
     }
     assert order["id"] == "close-order"
