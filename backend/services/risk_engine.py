@@ -241,31 +241,28 @@ def evaluate_risk(
         return decision
 
     if source != "manual":
-        paper_enabled = bool(config.paper_autotrade)
-        ctrader_enabled = bool(
-            watch_item.venue == "ctrader"
-            and config.ctrader_autotrade
-            and watch_item.trading_enabled
-        )
-        if not paper_enabled and not ctrader_enabled:
-            if watch_item.venue == "alpaca":
-                decision.reasons.append(
-                    (
-                        "Automatic execution is disabled for this Alpaca row."
-                        if not watch_item.trading_enabled
-                        else (
-                            "Alpaca Paper venue is selected, but autonomous Alpaca execution "
-                            "remains fail-closed until the governed runtime broker adapter is "
-                            "acceptance-tested."
-                        )
+        if watch_item.venue == "alpaca":
+            decision.reasons.append(
+                (
+                    "Automatic execution is disabled for this Alpaca row."
+                    if not watch_item.trading_enabled
+                    else (
+                        "Alpaca Paper venue is selected, but autonomous Alpaca execution "
+                        "remains fail-closed until the governed runtime broker adapter is "
+                        "acceptance-tested."
                     )
                 )
-            else:
-                decision.reasons.append(
-                    "Paper and cTrader autotrade are disabled."
-                    if not config.ctrader_autotrade
-                    else "Automatic cTrader execution is disabled for this symbol."
-                )
+            )
+            return decision
+
+        paper_enabled = bool(config.paper_autotrade)
+        ctrader_enabled = bool(config.ctrader_autotrade and watch_item.trading_enabled)
+        if not paper_enabled and not ctrader_enabled:
+            decision.reasons.append(
+                "Paper and cTrader autotrade are disabled."
+                if not config.ctrader_autotrade
+                else "Automatic cTrader execution is disabled for this symbol."
+            )
             return decision
 
     decision.accepted = True
