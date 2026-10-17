@@ -7,7 +7,7 @@ import pytest
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services import risk_engine
 from backend.services.financial_units import MonetaryBasis
-from backend.services.risk_engine import evaluate_risk
+from backend.services.risk_engine import RiskPortfolioSnapshot, evaluate_risk
 
 
 def _config(**overrides) -> EngineConfig:
@@ -348,6 +348,42 @@ def test_alpaca_auto_trade_requires_explicit_runtime_sizing() -> None:
             alpaca_asset_class="us_equity",
             trading_enabled=True,
         )
+
+
+def test_external_portfolio_snapshot_drives_common_position_limit() -> None:
+    decision = evaluate_risk(
+        config=_config(max_open_positions=1),
+        watch_item=_watch(
+            symbol="SPY",
+            venue="alpaca",
+            alpaca_asset_class="us_equity",
+            alpaca_size_mode="notional",
+            alpaca_size_value=25.0,
+            trading_enabled=True,
+        ),
+        analysis=_analysis(symbol="SPY"),
+        existing_position=None,
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+        monetary_basis=MonetaryBasis(
+            currency="USD",
+            equity_amount=100_000.0,
+            source="alpaca_paper",
+            verified=True,
+        ),
+        portfolio_snapshot=RiskPortfolioSnapshot(
+            open_positions_count=1,
+            same_symbol_positions_count=0,
+            daily_realized_pnl_amount=0.0,
+            daily_trade_count_value=0,
+            source="test_external",
+        ),
+    )
+
+    assert decision.accepted is False
+    assert decision.reasons == ["Max open positions reached."]
+    assert decision.details["open_positions"] == 1
 
 
 def test_alpaca_venue_does_not_fall_back_to_local_paper_autotrade() -> None:
