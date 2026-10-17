@@ -1971,10 +1971,45 @@ Add an explicit broker/venue dimension so each enabled symbol-strategy row carri
 - Alpaca-selected rows fail closed from cTrader market data, cTrader broker mutation, local-paper autotrade fallback, Dashboard manual-order routing, and cTrader-only runtime verification until the governed runtime adapter is acceptance-tested.
 
 **Scope boundary**
-This item establishes the explicit persisted broker-routing identity and prevents wrong-broker fallback. It does **not** yet enable autonomous Alpaca market-data/execution from watchlist rows. Alpaca broker mutation remains limited to the explicit Phase 10.9 Paper operator endpoints until the governed Strategy Studio/runtime adapter in Phase 4.9/4.10 is acceptance-tested. cTrader execution behavior remains unchanged for rows whose venue is cTrader.
+This item establishes the explicit persisted broker-routing identity and prevents wrong-broker fallback. It does **not** itself enable Alpaca market data or autonomous Alpaca execution from watchlist rows. cTrader execution behavior remains unchanged for rows whose venue is cTrader.
+
+### 10.11 Alpaca runtime market-data shadow
+**Priority:** P1
+**Status:** 🧪 Ready to test
+
+Allow trusted runtime strategies to consume Alpaca stock/ETF and crypto bars for rows explicitly assigned to Alpaca, while keeping the entire broker-mutation side disabled. This closes the first real runtime gap after venue selection without mixing Alpaca data into cTrader caches or pretending that Strategy Studio generated code is required for basic Alpaca integration.
+
+**Target behavior**
+- [x] Add a dedicated Alpaca Market Data adapter using the existing secure Alpaca credential source and `https://data.alpaca.markets` by default.
+- [x] Support the current TradeAgent runtime timeframes `M1/M5/M15/M30/H1/H4/D1/W1` with explicit Alpaca timeframe mapping.
+- [x] Support explicit `us_equity` and `crypto` market-data routes without inferring asset class from the symbol.
+- [x] Default stock/ETF data to IEX while allowing an explicit `ALPACA_STOCK_DATA_FEED` override.
+- [x] Follow Alpaca pagination, normalize OHLCV bars into the shared DataFrame contract, and fail closed on malformed/non-JSON/error responses.
+- [x] Keep Alpaca in-memory bar cache keys provider/asset-class scoped and do not read/write the cTrader-only persistent market-bar cache.
+- [x] Route engine bar retrieval through the explicit watchlist venue and asset class.
+- [x] Generate and persist trusted-strategy analysis for Alpaca rows with venue evidence in analysis context.
+- [x] Suppress order intents, local-paper fallback, cTrader position maintenance, and all broker mutation for Alpaca rows in this phase.
+- [x] Preserve the ChatGPT Alpaca connector as a separate account interface; TradeAgent continues to own its own API credentials/state.
+
+**Acceptance**
+- [ ] Focused Alpaca market-data/shared-routing/engine shadow tests pass locally.
+- [ ] Existing Phase 10.9 Alpaca Paper execution/reconciliation regression remains green.
+- [ ] Existing Phase 10.10 venue-selection and cTrader execution/safety regressions remain green.
+- [ ] Real read-only field smoke retrieves current SPY stock bars and BTC/USD crypto bars through the local TradeAgent Alpaca market-data adapter with no broker mutation.
+- [ ] Full canonical validation passes locally, including frontend production build and clean diff/worktree.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item is read-only with respect to Alpaca broker state. It may generate normal analysis records from Alpaca market data, but it must not create Alpaca order intents or call the Phase 10.9 mutation adapter automatically. Autonomous Alpaca Paper execution is reserved for Phase 10.12.
+
+### 10.12 Alpaca Paper trusted-runtime execution routing
+**Priority:** P1
+**Status:** ⏳ Planned
+
+Connect existing trusted runtime strategies to the already-verified Phase 10.9 Alpaca Paper mutation/reconciliation adapter. Add explicit Alpaca quantity/notional sizing semantics rather than reusing cTrader lots, preserve the common lifecycle/risk/audit gates, map long/short/flat safely for supported asset classes, reconcile non-terminal orders, and remain Paper-only. This item is for existing trusted strategies; Strategy Studio generated-source runtime work remains separately governed by Phase 4.9/4.10.
 
 ---
 
 ## 15. Next item
 
-**User-requested priority: merge/sync the now-verified Phase 10.10 explicit broker venue selection after final docs-head CI, then resume Phase 4.9 sandboxed Strategy Studio runtime adapter followed by Phase 4.10 governed runtime selector and Demo/Live deployment. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
+**User-requested priority: validate and complete Phase 10.11 Alpaca runtime market-data shadow on the current PR head. After merge/sync, continue to Phase 10.12 Alpaca Paper trusted-runtime execution routing. Only after the core Alpaca broker integration is complete should the roadmap resume Phase 4.9/4.10 generated Strategy Studio runtime work. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
