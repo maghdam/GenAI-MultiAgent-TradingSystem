@@ -132,7 +132,7 @@ The access token supplies the authorized account directory, and TradeAgent disco
 
 ### Alpaca Paper setup
 
-TradeAgent also has a read-only Alpaca Paper broker boundary for US equities/ETFs, crypto, and future multi-broker work. This phase does **not** place or cancel Alpaca orders. It reads authoritative paper account, open-position, and order state from Alpaca's Trading API.
+TradeAgent has a Paper-only Alpaca boundary for US equities/ETFs and crypto. It reads authoritative account/position/order truth, supports explicit operator-triggered Paper market orders/full-position closes with durable reconciliation, and can now use Alpaca Market Data for read-only strategy analysis on rows whose venue is set to Alpaca. Autonomous watchlist-to-Alpaca broker mutation remains disabled until the dedicated Paper runtime-routing item is acceptance-tested. No Alpaca Live route is exposed.
 
 On Windows, store the Alpaca Paper key pair in Windows Credential Manager:
 
@@ -141,15 +141,18 @@ python scripts/manage_alpaca_credentials.py set
 python scripts/manage_alpaca_credentials.py status
 ```
 
-The CLI never prints credential values. Non-Windows/CI environments can use `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` environment variables instead. The default broker host is `https://paper-api.alpaca.markets`.
+The CLI never prints credential values. Non-Windows/CI environments can use `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` environment variables instead. Trading defaults to `https://paper-api.alpaca.markets`; market data defaults to `https://data.alpaca.markets`. Stock/ETF runtime data defaults to the IEX feed so Paper/free entitlements fail less often; `ALPACA_STOCK_DATA_FEED` can override that explicitly.
 
-Read-only endpoints:
+Broker endpoints include:
 
 - `GET /api/alpaca/paper/account`
 - `GET /api/alpaca/paper/positions`
 - `GET /api/alpaca/paper/orders?status=open&limit=50`
+- `POST /api/alpaca/paper/orders/market`
+- `POST /api/alpaca/paper/positions/close`
+- `POST /api/alpaca/paper/reconcile`
 
-The ChatGPT Alpaca Paper plugin and the local TradeAgent API credentials are separate connections. Connecting Alpaca inside ChatGPT does not copy credentials into this repository or local backend.
+The ChatGPT Alpaca Paper plugin and the local TradeAgent API credentials are separate connections. Connecting Alpaca inside ChatGPT does not copy credentials into this repository or local backend; the plugin is useful as an independent read-only/interactive account interface while TradeAgent owns its own durable broker identity, reconciliation, risk, and audit state.
 
 ### Manual startup
 
@@ -194,7 +197,7 @@ Verified locally on October 4, 2026:
 
 ## Current Constraints
 
-- autonomous execution supports local paper positions plus explicitly enabled cTrader execution on the selected authenticated Demo or Live account
+- autonomous execution supports local paper positions plus explicitly enabled cTrader execution on the selected authenticated Demo or Live account; Alpaca venue rows can use Alpaca market data for strategy analysis but remain broker-mutation shadow-only until the dedicated Paper runtime-routing item is verified
 - cTrader execution fails closed until the selected account is active, authorized, monetary account truth and symbol metadata are verified, and the configured safety gates permit trading
 - Demo accounts are strongly recommended for development/testing; Live execution carries real financial risk
 - broker connectivity and market data depend on the local cTrader/Open API environment
