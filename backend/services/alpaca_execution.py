@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from time import sleep
+from typing import Any
 from uuid import uuid4
 
 from backend.services.alpaca_paper import (
@@ -84,6 +85,37 @@ def _lookup_order_with_retry(client_order_id: str) -> dict[str, object] | None:
     return last
 
 
+def _close_fill_pnl_details(intent, order: dict[str, object]) -> dict[str, object]:
+    if intent.intent_type != "close" or str(order.get("status") or "").lower() != "filled":
+        return {}
+    details = intent.details if isinstance(intent.details, dict) else {}
+    position = details.get("position_before_close")
+    if not isinstance(position, dict):
+        return {}
+    try:
+        entry_price = float(position.get("avg_entry_price") or 0.0)
+        exit_price = float(order.get("filled_avg_price") or 0.0)
+        filled_qty = float(order.get("filled_qty") or 0.0)
+    except (TypeError, ValueError):
+        return {}
+    if entry_price <= 0 or exit_price <= 0 or filled_qty <= 0:
+        return {}
+
+    side = str(position.get("side") or "").lower()
+    direction = 1.0 if side == "long" else -1.0 if side == "short" else 0.0
+    if direction == 0.0:
+        return {}
+    realized = (exit_price - entry_price) * filled_qty * direction
+    return {
+        "realized_pnl_estimate": realized,
+        "realized_pnl_currency": "USD",
+        "realized_pnl_source": "alpaca_full_close_fill_estimate",
+        "position_entry_price": entry_price,
+        "close_fill_price": exit_price,
+        "close_filled_qty": filled_qty,
+    }
+
+
 def _audit_for_truth(intent, order: dict[str, object], *, source: str) -> None:
     broker_status = str(order.get("status") or "").lower()
     if broker_status == "filled":
@@ -115,6 +147,12 @@ def _audit_for_truth(intent, order: dict[str, object], *, source: str) -> None:
             "broker_environment": "paper",
             "broker_order": order,
             "reconciliation_source": source,
+            **(
+                {"runtime_execution": intent.details.get("runtime_execution")}
+                if isinstance(intent.details, dict) and intent.details.get("runtime_execution")
+                else {}
+            ),
+            **_close_fill_pnl_details(intent, order),
         },
     )
 
@@ -233,6 +271,11 @@ def submit_paper_market_order(
     timeframe: str,
     strategy: str,
     rationale: str,
+    confidence: float = 1.0,
+    entry_price: float | None = None,
+    stop_loss: float | None = None,
+    take_profit: float | None = None,
+    execution_details: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     normalized_symbol = str(symbol or "").strip().upper()
     normalized_side = str(side or "").strip().lower()
@@ -287,10 +330,10 @@ def submit_paper_market_order(
         direction=direction,
         intent_type="open",
         status="pending",
-        confidence=1.0,
-        entry_price=None,
-        stop_loss=None,
-        take_profit=None,
+        confidence=float(confidence),
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
         quantity=qty,
         rationale=rationale or "Manual Alpaca Paper market order.",
         details={
@@ -301,6 +344,7 @@ def submit_paper_market_order(
             "qty": qty,
             "notional": notional,
             "automatic_retry": False,
+            **(execution_details or {}),
         },
     )
     client_order_id = _new_client_order_id(intent.id)
@@ -327,6 +371,7 @@ def submit_paper_market_order(
             "side": normalized_side,
             "qty": qty,
             "notional": notional,
+            **(execution_details or {}),
         },
     )
 
@@ -410,6 +455,8 @@ def close_paper_position(
     timeframe: str,
     strategy: str,
     rationale: str,
+    confidence: float = 1.0,
+    execution_details: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     _execution_ready_account()
     position = get_open_position(symbol_or_asset_id)
@@ -450,7 +497,7 @@ def close_paper_position(
         direction="flat",
         intent_type="close",
         status="pending",
-        confidence=1.0,
+        confidence=float(confidence),
         entry_price=None,
         stop_loss=None,
         take_profit=None,
@@ -464,6 +511,7 @@ def close_paper_position(
             "position_before_close": position,
             "close_semantics": "full_position_to_flat",
             "automatic_retry": False,
+            **(execution_details or {}),
         },
     )
     intent = update_order_intent_status(
@@ -486,6 +534,7 @@ def close_paper_position(
             "symbol_or_asset_id": symbol_or_asset_id,
             "asset_id": position.get("asset_id"),
             "position_before_close": position,
+            **(execution_details or {}),
         },
     )
 

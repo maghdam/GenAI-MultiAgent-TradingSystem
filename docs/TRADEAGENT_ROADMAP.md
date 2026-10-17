@@ -2012,12 +2012,39 @@ This item is read-only with respect to Alpaca broker state. It may generate norm
 
 ### 10.12 Alpaca Paper trusted-runtime execution routing
 **Priority:** P1
-**Status:** ⏳ Planned
+**Status:** 🧪 Ready to test
 
 Connect existing trusted runtime strategies to the already-verified Phase 10.9 Alpaca Paper mutation/reconciliation adapter. Add explicit Alpaca quantity/notional sizing semantics rather than reusing cTrader lots, preserve the common lifecycle/risk/audit gates, map long/short/flat safely for supported asset classes, reconcile non-terminal orders, and remain Paper-only. This item is for existing trusted strategies; Strategy Studio generated-source runtime work remains separately governed by Phase 4.9/4.10.
+
+**Target behavior**
+- [x] Add explicit per-row Alpaca sizing mode (`qty` or `notional`) and positive size value; legacy shadow-only Alpaca rows can remain unsized until Paper auto-trade is explicitly enabled.
+- [x] Expose Alpaca Paper sizing plus an explicit per-row `Paper auto-trade` switch in Trade setup without reusing cTrader lot semantics or the cTrader global auto-trade toggle.
+- [x] Route enabled trusted-strategy Alpaca rows from Phase 10.11 market data into the existing Phase 10.9 durable Paper execution/reconciliation adapter.
+- [x] Use Alpaca Paper account currency/equity as the verified monetary basis while preserving shared lifecycle, kill-switch, session, confidence, market freshness, protective-level, daily-loss, trade-count, max-position, per-symbol, and cooldown gates.
+- [x] Build the shared risk portfolio snapshot from local/cTrader positions plus Alpaca broker position truth and Alpaca durable execution/audit evidence.
+- [x] Preserve durable client-order identity, ambiguous-submit handling, duplicate blocking, exact-order reconciliation, and no automatic resubmission from Phase 10.9.
+- [x] Reconcile non-terminal Alpaca Paper intents during normal engine cycles and again on engine startup/restart.
+- [x] Treat same-direction broker positions as hold/no add-on; an opposing trusted signal flattens the existing position only and never reverses in the same cycle.
+- [x] Map flat to explicit full-position close, long to buy, equity short to sell only with quantity sizing, and reject crypto short entry or notional short equity before broker submission.
+- [x] Carry trusted runtime risk/sizing/signal evidence into Alpaca order intents and immutable trade audit; estimate full-close realized P/L from broker entry truth plus filled close price for the shared Paper daily-loss ledger.
+- [x] Keep all runtime broker mutation restricted to Alpaca Paper; no Alpaca Live endpoint or credential path is introduced.
+- [x] Preserve cTrader execution behavior and keep generated Strategy Studio source outside this runtime route until Phase 4.9/4.10.
+
+**Acceptance**
+- [ ] Focused Alpaca trusted-runtime routing, sizing, common-risk, engine handoff, restart reconciliation, and P/L-audit tests pass locally.
+- [ ] Existing Phase 10.9 Alpaca execution/reconciliation and Phase 10.11 market-data suites remain green.
+- [ ] Existing Phase 10.10 venue-selection plus cTrader execution/safety regressions remain green.
+- [ ] Frontend production build passes with explicit Alpaca Paper size/enablement controls.
+- [ ] Full canonical validation passes locally with clean diff/worktree.
+- [ ] Controlled real Alpaca Paper field test uses one deliberately tiny trusted-strategy entry, exact intent/order reconciliation, then an explicit trusted-strategy flatten with final broker position truth flat and no duplicate/resubmission.
+- [ ] Restart/reconcile field observation confirms a non-terminal runtime-created Alpaca intent can be recovered without repeating the broker mutation.
+- [ ] GitHub CI passes on the exact implementation head.
+
+**Scope boundary**
+This item makes Alpaca a real second **Paper** execution venue for existing trusted runtime strategies only. Stop-loss/take-profit levels remain required/validated by the common strategy risk gate when configured, and are preserved in durable runtime evidence, but this item does not claim broker-native attached Alpaca protection orders. Alpaca Live remains unavailable; broker-native Alpaca protection/live-readiness is a separate future hardening step before any consideration of real-money Alpaca execution.
 
 ---
 
 ## 15. Next item
 
-**User-requested priority: merge/sync the now-verified Phase 10.11 Alpaca runtime market-data shadow after final docs-head CI, then continue to Phase 10.12 Alpaca Paper trusted-runtime execution routing. Only after the core Alpaca broker integration is complete should the roadmap resume Phase 4.9/4.10 generated Strategy Studio runtime work. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
+**User-requested priority: validate and complete Phase 10.12 Alpaca Paper trusted-runtime execution routing on the current PR head, including one deliberately tiny real Paper entry/reconcile/flatten cycle with restart-safe recovery and no duplicate mutation. After merge/sync, reassess whether any additional Alpaca Paper hardening is required before returning to Phase 4.9/4.10 generated Strategy Studio runtime work. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
