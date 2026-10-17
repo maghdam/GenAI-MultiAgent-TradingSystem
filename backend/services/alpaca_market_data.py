@@ -107,7 +107,7 @@ def _lookback_start(
     seconds_per_bar = _TIMEFRAME_SECONDS[timeframe_key]
     horizon_seconds = seconds_per_bar * max(1, int(num_bars))
     if asset_class == "us_equity":
-        multiplier = 4.0 if seconds_per_bar < 86_400 else 1.7
+        multiplier = 6.0 if seconds_per_bar < 86_400 else 1.7
         minimum_seconds = 7 * 86_400 if seconds_per_bar < 86_400 else 30 * 86_400
     else:
         multiplier = 1.5
@@ -154,9 +154,12 @@ def _bars_frame(rows: list[dict[str, object]], symbol: str, timeframe: str) -> p
                 f"Alpaca market-data bar for {symbol}:{timeframe} is missing a timestamp."
             )
         try:
+            parsed_time = pd.to_datetime(timestamp, utc=True)
+            if pd.isna(parsed_time):
+                raise ValueError("invalid timestamp")
             normalized.append(
                 {
-                    "time": pd.to_datetime(timestamp, utc=True),
+                    "time": parsed_time,
                     "open": float(item["o"]),
                     "high": float(item["h"]),
                     "low": float(item["l"]),
@@ -234,7 +237,13 @@ def get_bars(
 
     rows: list[dict[str, object]] = []
     page_token: str | None = None
+    page_count = 0
     while len(rows) < normalized_limit:
+        page_count += 1
+        if page_count > 100:
+            raise AlpacaMarketDataError(
+                f"Alpaca market-data pagination exceeded the safety limit for {normalized_symbol}."
+            )
         request_params = dict(params)
         request_params["limit"] = min(10_000, normalized_limit - len(rows))
         if page_token:
