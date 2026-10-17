@@ -15,6 +15,7 @@ from backend.storage.repositories import (
     list_incidents,
     list_order_intents,
     list_paper_positions,
+    list_recent_analyses,
     load_engine_config,
     save_engine_config,
 )
@@ -415,6 +416,12 @@ def test_engine_analyzes_alpaca_row_but_suppresses_broker_execution(monkeypatch)
     analyses = captured["analysis_kwargs"]
     assert isinstance(analyses, dict)
     assert analyses["symbol"] == "SPY"
+    saved = list_recent_analyses(5)
+    assert saved[0].symbol == "SPY"
+    assert saved[0].context["broker_venue"] == "alpaca"
+    assert saved[0].context["alpaca_asset_class"] == "us_equity"
+    assert saved[0].context["runtime_execution_state"] == "shadow_only"
+    assert saved[0].context["broker_mutation_suppressed"] is True
     assert list_order_intents(10) == []
 
     incidents = list_incidents(10)
