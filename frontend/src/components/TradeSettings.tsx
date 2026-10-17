@@ -26,6 +26,8 @@ const newWatchItem = (strategy: string, lotSize: number): V2WatchlistItem => ({
   trading_enabled: false,
   venue: 'ctrader',
   alpaca_asset_class: null,
+  alpaca_size_mode: null,
+  alpaca_size_value: null,
   lot_size: normalizeCTraderLotInput(lotSize),
   params: {},
 });
@@ -171,7 +173,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
 
               <div className="ta-settings-section">Watchlist</div>
               <div className="mi-muted" style={{ marginBottom: 10 }}>
-                Broker venue is explicit per row. Alpaca rows store their asset class now; automatic Alpaca orders remain blocked until the governed runtime adapter is verified.
+                Broker venue is explicit per row. Alpaca rows are Paper-only and require explicit quantity or notional sizing before auto-trade can be enabled.
               </div>
               <div
                 className={
@@ -208,7 +210,9 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                       updateWatchItem(index, {
                         venue,
                         alpaca_asset_class: venue === 'alpaca' ? (item.alpaca_asset_class ?? 'us_equity') : null,
-                        trading_enabled: venue === 'alpaca' ? false : item.trading_enabled,
+                        alpaca_size_mode: venue === 'alpaca' ? (item.alpaca_size_mode ?? 'notional') : null,
+                        alpaca_size_value: venue === 'alpaca' ? (item.alpaca_size_value ?? 10) : null,
+                        trading_enabled: false,
                       });
                     }}
                   >
@@ -229,15 +233,39 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                     </select>
                   )}
                   {item.venue === 'alpaca' && (
-                    <select
-                      className="ta-select ta-select--sm"
-                      value={item.alpaca_asset_class ?? 'us_equity'}
-                      aria-label={`Alpaca asset class for ${item.symbol}`}
-                      onChange={(event) => updateWatchItem(index, { alpaca_asset_class: event.target.value as 'us_equity' | 'crypto' })}
-                    >
-                      <option value="us_equity">US stock / ETF</option>
-                      <option value="crypto">Crypto</option>
-                    </select>
+                    <>
+                      <select
+                        className="ta-select ta-select--sm"
+                        value={item.alpaca_asset_class ?? 'us_equity'}
+                        aria-label={`Alpaca asset class for ${item.symbol}`}
+                        onChange={(event) => updateWatchItem(index, { alpaca_asset_class: event.target.value as 'us_equity' | 'crypto' })}
+                      >
+                        <option value="us_equity">US stock / ETF</option>
+                        <option value="crypto">Crypto</option>
+                      </select>
+                      <select
+                        className="ta-select ta-select--sm"
+                        value={item.alpaca_size_mode ?? 'notional'}
+                        aria-label={`Alpaca size mode for ${item.symbol}`}
+                        onChange={(event) => updateWatchItem(index, { alpaca_size_mode: event.target.value as 'qty' | 'notional' })}
+                      >
+                        <option value="notional">USD amount</option>
+                        <option value="qty">Quantity</option>
+                      </select>
+                      <input
+                        className="ta-input ta-input--mono ta-input--lot"
+                        type="number"
+                        min="0.000000001"
+                        step="any"
+                        value={item.alpaca_size_value ?? 10}
+                        aria-label={`Alpaca size value for ${item.symbol}`}
+                        title={item.alpaca_size_mode === 'qty' ? 'Shares or crypto quantity per entry.' : 'USD notional per long entry.'}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          updateWatchItem(index, { alpaca_size_value: Number.isFinite(value) && value > 0 ? value : null });
+                        }}
+                      />
+                    </>
                   )}
                   <select className="ta-select ta-select--sm" value={item.timeframe} onChange={(event) => updateWatchItem(index, { timeframe: event.target.value })}>
                     {TIMEFRAMES.map((timeframe) => <option key={timeframe} value={timeframe}>{timeframe}</option>)}
@@ -245,37 +273,35 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   <select className="ta-select ta-select--sm" value={item.strategy} onChange={(event) => updateWatchItem(index, { strategy: event.target.value })}>
                     {strategies.map((strategy) => <option key={strategy.key} value={strategy.key}>{strategy.label}</option>)}
                   </select>
-                  <input
-                    className="ta-input ta-input--mono ta-input--lot"
-                    type="number"
-                    min={CTRADER_LOT_INPUT_MIN}
-                    step={CTRADER_LOT_INPUT_STEP}
-                    title={item.venue === 'ctrader'
-                      ? 'Order size in lots (cTrader-style two-decimal entry; broker limits are validated at execution)'
-                      : 'cTrader lot size is retained but is not used for Alpaca venue rows.'}
-                    aria-label={`Lot size for ${item.symbol}`}
-                    disabled={item.venue === 'alpaca'}
-                    defaultValue={formatCTraderLotInput(item.lot_size ?? config.paper_trade_size)}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      if (Number.isFinite(value) && value >= CTRADER_LOT_INPUT_MIN) {
-                        updateWatchItem(index, { lot_size: value });
-                      }
-                    }}
-                  />
+                  {item.venue === 'ctrader' && (
+                    <input
+                      className="ta-input ta-input--mono ta-input--lot"
+                      type="number"
+                      min={CTRADER_LOT_INPUT_MIN}
+                      step={CTRADER_LOT_INPUT_STEP}
+                      title="Order size in lots (cTrader-style two-decimal entry; broker limits are validated at execution)"
+                      aria-label={`Lot size for ${item.symbol}`}
+                      defaultValue={formatCTraderLotInput(item.lot_size ?? config.paper_trade_size)}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isFinite(value) && value >= CTRADER_LOT_INPUT_MIN) {
+                          updateWatchItem(index, { lot_size: value });
+                        }
+                      }}
+                    />
+                  )}
                   <label
                     className="ta-watch-control"
                     title={item.venue === 'alpaca'
-                      ? 'Automatic Alpaca execution stays blocked until the governed runtime adapter is verified.'
+                      ? 'Permit trusted-strategy automatic orders on Alpaca Paper only.'
                       : 'Permit automatic cTrader order execution for this symbol'}
                   >
                     <input
                       type="checkbox"
                       checked={item.trading_enabled}
-                      disabled={item.venue === 'alpaca'}
                       onChange={(event) => updateWatchItem(index, { trading_enabled: event.target.checked })}
                     />
-                    <span>{item.venue === 'alpaca' ? 'Auto-trade pending' : 'Auto-trade'}</span>
+                    <span>{item.venue === 'alpaca' ? 'Paper auto-trade' : 'Auto-trade'}</span>
                   </label>
                   <button className="ta-btn ta-btn--danger ta-btn--sm ta-btn--icon" type="button" onClick={() => setConfig({ ...config, watchlist: config.watchlist.filter((_, itemIndex) => itemIndex !== index) })}>✕</button>
                 </div>
