@@ -1629,6 +1629,7 @@ Add one row after every completed task.
 | 2026-10-17 | Phase 10.10 explicit broker venue selection | Persist operator-selected cTrader/Alpaca routing identity per watchlist row, require explicit Alpaca asset class, expose compact Trade setup controls, and block wrong-broker fallback while autonomous Alpaca routing remains gated | ✅ 47/47 focused venue/model/persistence/risk/API/engine tests, 35/35 Alpaca 10.9 regression, 57/57 cTrader execution/recovery regression, full canonical validation, 707-module frontend build, clean diff/worktree, and CI #508 on `8aca54a` | PR #116 / `8aca54a` | Final docs-head CI, merge, sync main; then Phase 4.9 sandboxed Strategy Studio runtime adapter |
 | 2026-10-17 | Phase 10.11 Alpaca runtime market-data shadow | Add provider-specific Alpaca stock/ETF + crypto bars to trusted runtime strategy analysis while preserving explicit venue identity, separate cache boundaries, and zero autonomous broker mutation | ✅ 45/45 focused Phase 10.11 tests, 35/35 Alpaca 10.9 regression, 66/66 venue/cTrader safety regression, real read-only SPY + BTC/USD local adapter smoke (20 M5 bars each), full canonical validation, 707-module frontend build, clean diff/worktree, and CI #511 on `d279e41` | PR #117 / `d279e41` | Final docs-head CI, merge, sync main; then Phase 10.12 Alpaca Paper trusted-runtime execution routing |
 | 2026-10-18 | Phase 10.12 Alpaca Paper trusted-runtime execution routing | Add explicit per-row Alpaca qty/notional Paper routing through trusted strategies, shared risk gates, durable reconciliation, and same-direction hold/opposing-signal flatten without cTrader or Alpaca Live fallback | ✅ Implementation-head local focused 67/67 plus cTrader/venue 66/66, full canonical validation and 707-module frontend build, CI #514 on `acd29f0`; real Paper USD 10 SOL/USD M15 trusted entry intent 4741 and M5 trusted flatten intent 4742 both executed; final broker 0 positions/0 open orders; isolated broker-backed cloned-DB restart replay recovered both intents without any new submit/close (not a naturally pending order) | PR #118 / `acd29f0` | Final roadmap-only head local/CI checks, merge PR, sync main; reassess Alpaca Paper hardening before returning to Phase 4.9/4.10 |
+| 2026-10-18 | Phase 10.13 Alpaca Paper protection readiness / operator disclosure | Assess Paper market-order protection gap by asset class, warn in Trade setup only when an Alpaca row is configured, clarify documentation and require supervised Paper experiments | ✅ 2/2 focused UI source regression + complete backend/frontend canonical validation (707 modules) + clean worktree/diff on `b285087`; PR #119 CI #518 green; operator browser snapshots confirmed no warning for cTrader-only rows and legible Alpaca protection warning with Paper auto-trade unchecked | PR #119 / `b285087` | Verify final docs-only head/CI, merge and sync local main, then scope broker-side Paper protection implementation separately before unattended execution |
 
 ---
 
@@ -2051,8 +2052,45 @@ Connect existing trusted runtime strategies to the already-verified Phase 10.9 A
 **Scope boundary**
 This item makes Alpaca a real second **Paper** execution venue for existing trusted runtime strategies only. Stop-loss/take-profit levels remain required/validated by the common strategy risk gate when configured, and are preserved in durable runtime evidence, but this item does not claim broker-native attached Alpaca protection orders. Alpaca Live remains unavailable; broker-native Alpaca protection/live-readiness is a separate future hardening step before any consideration of real-money Alpaca execution.
 
+### 10.13 Alpaca Paper protection-readiness assessment and operator disclosure
+**Priority:** P0
+**Status:** ✅
+
+Reassess Phase 10.12's proven trusted-runtime Paper entry/flatten route before claiming unattended strategy safety. The current Alpaca adapter submits simple market entries without broker-native protective exits; storing strategy stop-loss/take-profit prices in durable evidence is not the same as a broker-side stop. This is a **readiness/disclosure checkpoint**, not an implementation of broker protection.
+
+**Architecture and provider evidence**
+- [x] The current `backend/services/alpaca_paper.py` `submit_market_order` sends `type=market` plus `qty` or `notional`, but no `order_class`, `take_profit`, or `stop_loss`; `alpaca_execution.py` preserves levels in the local order intent without attaching them at the broker.
+- [x] The Alpaca trusted runtime closes existing positions when a subsequent trusted signal opposes the broker position, but this is **not** continuous price-trigger protection. An engine outage, stale bars, missing signal, or failed close can leave a Paper position exposed.
+- [x] Alpaca's documented Trading API order classes allow `bracket`/`oto`/`oco` for US equity; crypto supports **simple** order class only, although crypto `stop_limit` orders exist. A crypto stop-limit is not a guaranteed stop-market exit and cannot be represented as an attached OCO bracket.
+- [x] Show a prominent, Alpaca-venue-specific warning in Trade setup and a supervised-experiment disclaimer alongside the `Paper auto-trade` control, without changing cTrader controls or existing Paper order semantics.
+- [x] Document the difference between strategy-level SL/TP evidence and actual broker-enforced exit orders for both asset classes.
+
+**Acceptance**
+- [x] Focused frontend disclosure regression passes, including conditional Alpaca-only rendering and the automatic-trading tooltip.
+- [x] Frontend TypeScript/Vite production build passes and the full canonical backend/frontend validation stays green.
+- [x] Local working tree and `git diff --check origin/main...HEAD` are clean; exact PR-head GitHub CI passes.
+- [x] Operator confirms Trade setup correctly warns on Alpaca rows and the normal cTrader Trade setup remains unchanged.
+
+**Follow-on protection decision**
+- **Protection hardening is required before calling Alpaca Paper unattended-ready.** Scope the next focused implementation around US-equity broker-native protective orders (validating quantity/fractional semantics, bracket leg truth, cancellation/close interplay, restart recovery, and absence of orphaned exits).
+- Handle crypto separately: broker order class is simple-only, so do not assert attached bracket/OCO protection. Evaluate a supervised stop-limit strategy and its fill/cancellation risks or keep unattended crypto Paper entries disarmed; reject any design that silently substitutes an unprotected market entry.
+- Do not introduce Alpaca Live or generated Strategy Studio runtime entry changes in this checkpoint. Continue toward Phase 4.9/4.10 only after the follow-on Paper safety boundary is explicitly settled.
+
+**Provider references**
+- Alpaca Trading API order-class matrix: https://docs.alpaca.markets/us/reference/postorder
+- Alpaca bracket/OTO/OCO behavior: https://docs.alpaca.markets/us/docs/orders-at-alpaca
+
+**Verification**
+- 2026-10-18 operator Windows PowerShell on implementation head `b2850876ac5617d5babd5bb36032fed16abbe7b6`: `node --experimental-strip-types --test frontend/tests/alpaca-protection-disclosure.test.ts` **2/2 passed**; `python scripts\\validate.py` passed canonical backend regression and TypeScript/Vite frontend production build (**707 modules**); `git status --short` and `git diff --check origin/main...HEAD` clean.
+- GitHub PR #119 implementation-head CI **#518 successful** on `b285087`.
+- Real browser visual acceptance: Trade setup with only cTrader watchlist rows displayed **no Alpaca protection warning**; changing one row's venue temporarily to Alpaca Paper immediately displayed the legible red **Alpaca Paper protection gap** warning above the watchlist. The warning accurately states that strategy SL/TP prices are risk evidence, **not broker-native protective orders**, and that Paper auto-trade requires supervision. The screenshot also showed `Paper auto-trade` **unchecked** and another cTrader row retaining its normal controls. The operator was instructed to select **Cancel**, not Save, because the temporary NAS100 label is a cTrader index rather than a valid Alpaca US equity symbol.
+- No broker orders, risk-gate changes, cTrader transport changes, or Alpaca Live support were introduced in this disclosure-only item. Broker-native order protection remains **not implemented** and requires a separate roadmap PR.
+
+**Scope boundary**
+This item changes only operator-facing disclosure and roadmap decisions. It adds no broker mutation, no order-type changes, and no claim of broker-native SL/TP enforcement. Paper experiments remain supervised and cTrader behavior unchanged.
+
 ---
 
 ## 15. Next item
 
-**Complete the Phase 10.12 PR #118 verification-docs commit gate: validate the documentation-only head locally, confirm GitHub CI on that exact head, then merge and return local `main` to a clean synchronized state. After merge, reassess whether Alpaca Paper requires additional hardening (especially broker-native protective orders) before resuming Phase 4.9/4.10 Strategy Studio generated-source runtime work. Phase 2.11 broker-account identity scoping remains deferred until the requested Alpaca + Strategy Studio integration path is complete.**
+**Complete Phase 10.13 PR #119 final documentation-only commit gate: verify local branch-head validation and exact GitHub CI, then merge and return local `main` to a clean synchronized state. After merge, scope the smallest separate Alpaca Paper broker-native protection-hardening item (equity bracket support and crypto simple-order limitations); do not treat currently unprotected Paper strategy orders as unattended-ready. Resume Phase 4.9/4.10 Strategy Studio generated-source runtime work only once its broker-safety boundary is explicitly settled. Phase 2.11 broker-account identity scoping remains deferred.**

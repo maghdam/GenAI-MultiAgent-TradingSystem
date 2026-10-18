@@ -175,6 +175,19 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
               <div className="mi-muted" style={{ marginBottom: 10 }}>
                 Broker venue is explicit per row. Alpaca rows are Paper-only and require explicit quantity or notional sizing before auto-trade can be enabled.
               </div>
+              {config.watchlist.some((row) => row.venue === 'alpaca') && (
+                <div
+                  role="alert"
+                  aria-label="Alpaca Paper protection warning"
+                  className="v2-banner v2-banner-bad"
+                  style={{ marginBottom: 12 }}
+                >
+                  <strong>Alpaca Paper protection gap:</strong> Strategy stop-loss and take-profit prices are
+                  recorded as risk evidence only; entries do not attach broker-native protective orders.
+                  Strategy exits depend on a running engine and fresh market data. Paper auto-trade is for
+                  supervised experiments, not unattended or broker-protected trading.
+                </div>
+              )}
               <div
                 className={
                   accountVerified && accountType === 'demo'
@@ -293,7 +306,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   <label
                     className="ta-watch-control"
                     title={item.venue === 'alpaca'
-                      ? 'Permit trusted-strategy automatic orders on Alpaca Paper only.'
+                      ? 'Supervised Alpaca Paper only: entries have no broker-native attached stop-loss/take-profit orders.'
                       : 'Permit automatic cTrader order execution for this symbol'}
                   >
                     <input
