@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.services import alpaca_bracket_reservation, alpaca_paper
+from backend.services import alpaca_bracket_reservation, alpaca_execution, alpaca_paper
 from backend.storage.db import init_db
 from backend.storage.repositories import (
     claim_reserved_alpaca_bracket_dispatch,
@@ -177,3 +177,29 @@ def test_reservation_is_not_an_automatic_entry_or_verified_protection(broker_tru
     assert "broker_order" not in intent.details
     assert "broker_native_protection_verified" not in intent.details
     assert result["broker_mutation_permitted"] is False
+
+
+@pytest.mark.parametrize("claimed", [False, True])
+def test_simple_order_reconciler_never_consumes_reserved_bracket_or_marks_parent_filled(
+    monkeypatch, broker_truth, claimed
+):
+    reserved = alpaca_bracket_reservation.reserve_paper_equity_bracket(**_request())
+    intent_id = reserved["intent_id"]
+    if claimed:
+        assert claim_reserved_alpaca_bracket_dispatch(intent_id) is not None
+    monkeypatch.setattr(alpaca_execution, "_execution_ready_account", _ready_account)
+    monkeypatch.setattr(alpaca_execution, "list_positions", lambda: [])
+    monkeypatch.setattr(
+        alpaca_execution, "get_order_by_client_order_id",
+        lambda *args, **kw: pytest.fail("simple-order reconcile must not inspect bracket parent"),
+    )
+    result = alpaca_execution.reconcile_paper_execution()
+    assert result["checked_intents"] == 1
+    assert result["unresolved"] == 1
+    assert result["results"][0]["status"] == "bracket_reconciliation_deferred"
+    stored = get_order_intent_by_id(intent_id)
+    assert stored.status == "accepted"
+    assert stored.details["outcome_state"] == (
+        "bracket_dispatch_claimed_submission_unknown" if claimed
+        else "bracket_reserved_not_submitted"
+    )

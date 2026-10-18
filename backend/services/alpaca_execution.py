@@ -664,6 +664,26 @@ def reconcile_paper_execution(*, limit: int = 200) -> dict[str, object]:
         ):
             continue
 
+        # Bracket reservations/parent fills must NEVER be classified by the
+        # simple-order reconciler. In particular, a filled parent alone does
+        # not establish active protective exit legs. Phase 10.17 has no
+        # bracket sender; the dedicated lifecycle must own future truth.
+        if details.get("protection_mode") == "equity_bracket":
+            checked += 1
+            unresolved += 1
+            results.append(
+                {
+                    "intent_id": intent.id,
+                    "status": "bracket_reconciliation_deferred",
+                    "summary": (
+                        "Protected bracket intent is excluded from simple-order "
+                        "reconciliation; no broker mutation or order-status "
+                        "transition was performed."
+                    ),
+                }
+            )
+            continue
+
         checked += 1
         broker_order = details.get("broker_order") if isinstance(details.get("broker_order"), dict) else {}
         client_order_id = str(

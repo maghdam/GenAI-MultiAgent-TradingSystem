@@ -2208,9 +2208,10 @@ The next smallest coherent part of the **equity bracket order-submission lifecyc
 - [x] Reserve under one immediate SQLite transaction with a same-symbol outstanding Alpaca Paper intent check, append its initial status transition and audit atomically, without any broker mutation.
 - [x] Provide a separate, **single-use, durable transactionally claimed** dispatch token. Claims record a distinct nonterminal/unknown state; duplicate claims, wrong-provenance intents, and restart replays fail closed and cannot cause a second claim. There is **no sender** attached yet.
 - [x] Preserve Phase 10.14's autonomous-entry lockout, cTrader/Live gates, and Phase 10.16's read-only historical bracket observations.
+- [x] Exclude accepted bracket reservations from legacy simple-order reconciliation, so engine startup/cycles cannot misclassify an unsent reservation or a filled parent as an executed/protected order.
 
 **Acceptance**
-- [ ] Focused reservation/claim tests, Phase 10.14–10.16 protective-order truth regressions pass locally.
+- [ ] Focused reservation/claim and simple-reconciler exclusion tests, Phase 10.14–10.16 protective-order truth regressions pass locally.
 - [ ] Alpaca Paper execution/reconciliation and cTrader safety regressions remain green.
 - [ ] Full backend tests and frontend build pass; git worktree clean and diff whitespace valid.
 - [ ] GitHub CI passes on exact implementation head before roadmap verification and merge.
