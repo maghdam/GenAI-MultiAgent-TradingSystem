@@ -7,7 +7,7 @@ import pytest
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services import risk_engine
 from backend.services.financial_units import MonetaryBasis
-from backend.services.risk_engine import evaluate_risk
+from backend.services.risk_engine import RiskPortfolioSnapshot, evaluate_risk
 
 
 def _config(**overrides) -> EngineConfig:
@@ -319,27 +319,71 @@ def test_alpaca_venue_requires_explicit_asset_class() -> None:
         )
 
 
-def test_alpaca_venue_is_not_silently_routed_to_ctrader_autotrade() -> None:
+def test_alpaca_venue_uses_its_own_auto_trade_permission_not_ctrader_flags() -> None:
     decision = _evaluate(
-        config=_config(paper_autotrade=False, ctrader_autotrade=True),
+        config=_config(paper_autotrade=False, ctrader_autotrade=False),
         watch=_watch(
             symbol="SPY",
             venue="alpaca",
             alpaca_asset_class="us_equity",
+            alpaca_size_mode="notional",
+            alpaca_size_value=25.0,
             trading_enabled=True,
+        ),
+        analysis=_analysis(symbol="SPY"),
+    )
+
+    assert decision.accepted is True
+    assert decision.intent_type == "open"
+    assert decision.details["broker_venue"] == "alpaca"
+    assert decision.details["alpaca_asset_class"] == "us_equity"
+    assert decision.details["execution_environment"] == "alpaca_paper"
+
+
+def test_alpaca_auto_trade_requires_explicit_runtime_sizing() -> None:
+    with pytest.raises(ValueError, match="explicit alpaca_size_mode"):
+        _watch(
+            symbol="SPY",
+            venue="alpaca",
+            alpaca_asset_class="us_equity",
+            trading_enabled=True,
+        )
+
+
+def test_external_portfolio_snapshot_drives_common_position_limit() -> None:
+    decision = evaluate_risk(
+        config=_config(max_open_positions=1),
+        watch_item=_watch(
+            symbol="SPY",
+            venue="alpaca",
+            alpaca_asset_class="us_equity",
+            alpaca_size_mode="notional",
+            alpaca_size_value=25.0,
+            trading_enabled=True,
+        ),
+        analysis=_analysis(symbol="SPY"),
+        existing_position=None,
+        mark_price=100.0,
+        bar_timestamp=datetime.now(UTC).replace(tzinfo=None),
+        bar_snapshot={"open": 99.8, "high": 100.3, "low": 99.5, "close": 100.0},
+        monetary_basis=MonetaryBasis(
+            currency="USD",
+            equity_amount=100_000.0,
+            source="alpaca_paper",
+            verified=True,
+        ),
+        portfolio_snapshot=RiskPortfolioSnapshot(
+            open_positions_count=1,
+            same_symbol_positions_count=0,
+            daily_realized_pnl_amount=0.0,
+            daily_trade_count_value=0,
+            source="test_external",
         ),
     )
 
     assert decision.accepted is False
-    assert decision.details["broker_venue"] == "alpaca"
-    assert decision.details["alpaca_asset_class"] == "us_equity"
-    assert decision.reasons == [
-        (
-            "Alpaca Paper venue is selected, but autonomous Alpaca execution "
-            "remains fail-closed until the governed runtime broker adapter is "
-            "acceptance-tested."
-        )
-    ]
+    assert decision.reasons == ["Max open positions reached."]
+    assert decision.details["open_positions"] == 1
 
 
 def test_alpaca_venue_does_not_fall_back_to_local_paper_autotrade() -> None:

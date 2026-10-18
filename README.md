@@ -132,7 +132,7 @@ The access token supplies the authorized account directory, and TradeAgent disco
 
 ### Alpaca Paper setup
 
-TradeAgent has a Paper-only Alpaca boundary for US equities/ETFs and crypto. It reads authoritative account/position/order truth, supports explicit operator-triggered Paper market orders/full-position closes with durable reconciliation, and can now use Alpaca Market Data for read-only strategy analysis on rows whose venue is set to Alpaca. Autonomous watchlist-to-Alpaca broker mutation remains disabled until the dedicated Paper runtime-routing item is acceptance-tested. No Alpaca Live route is exposed.
+TradeAgent has a Paper-only Alpaca boundary for US equities/ETFs and crypto. It reads authoritative account/position/order truth, supports explicit operator-triggered Paper market orders/full-position closes with durable reconciliation, uses Alpaca Market Data for venue-scoped strategy analysis, and can route explicitly enabled **trusted runtime strategies** to Alpaca Paper using per-row quantity or notional sizing. Generated Strategy Studio source is still excluded from this route. No Alpaca Live route is exposed.
 
 On Windows, store the Alpaca Paper key pair in Windows Credential Manager:
 
@@ -142,6 +142,10 @@ python scripts/manage_alpaca_credentials.py status
 ```
 
 The CLI never prints credential values. Non-Windows/CI environments can use `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` environment variables instead. Trading defaults to `https://paper-api.alpaca.markets`; market data defaults to `https://data.alpaca.markets`. Stock/ETF runtime data defaults to the IEX feed so Paper/free entitlements fail less often; `ALPACA_STOCK_DATA_FEED` can override that explicitly.
+
+Trusted runtime rows configured with venue `Alpaca Paper` require an explicit asset class and explicit `qty` or `notional` size before `Paper auto-trade` can be enabled. The common kill switch, lifecycle, session, confidence, market-freshness, protective-level, daily-loss, trade-count, max-position and cooldown gates still apply. Same-direction positions are held without add-on orders; opposing signals flatten first and do not reverse in the same cycle. Crypto short entries and notional short-equity entries fail closed.
+
+Alpaca runtime execution is **Paper only**. Strategy stop-loss/take-profit levels are validated and preserved in durable runtime evidence, but Phase 10.12 does not claim broker-native attached Alpaca protection orders. That protection layer is required before any future consideration of Alpaca Live execution.
 
 Broker endpoints include:
 
@@ -197,7 +201,7 @@ Verified locally on October 4, 2026:
 
 ## Current Constraints
 
-- autonomous execution supports local paper positions plus explicitly enabled cTrader execution on the selected authenticated Demo or Live account; Alpaca venue rows can use Alpaca market data for strategy analysis but remain broker-mutation shadow-only until the dedicated Paper runtime-routing item is verified
+- autonomous execution supports local paper positions, explicitly enabled cTrader execution on the selected authenticated Demo or Live account, and explicitly enabled trusted-strategy execution on Alpaca Paper; Alpaca Live and generated Strategy Studio runtime execution remain unavailable
 - cTrader execution fails closed until the selected account is active, authorized, monetary account truth and symbol metadata are verified, and the configured safety gates permit trading
 - Demo accounts are strongly recommended for development/testing; Live execution carries real financial risk
 - broker connectivity and market data depend on the local cTrader/Open API environment

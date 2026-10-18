@@ -196,6 +196,8 @@ export default function DashboardPage() {
         trading_enabled: previous?.trading_enabled ?? false,
         venue: previous?.venue ?? 'ctrader',
         alpaca_asset_class: previous?.alpaca_asset_class ?? null,
+        alpaca_size_mode: previous?.alpaca_size_mode ?? null,
+        alpaca_size_value: previous?.alpaca_size_value ?? null,
         lot_size: lotSize,
         params: previous?.params ?? {},
       };
