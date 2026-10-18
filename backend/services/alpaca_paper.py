@@ -151,25 +151,35 @@ def _request_mutation_json(
 
 
 def _normalize_order(item: dict[str, object]) -> dict[str, object]:
-    return {
-        "id": item.get("id"),
-        "client_order_id": item.get("client_order_id"),
-        "symbol": item.get("symbol"),
-        "asset_class": item.get("asset_class"),
-        "side": item.get("side"),
-        "type": item.get("type"),
-        "time_in_force": item.get("time_in_force"),
-        "qty": item.get("qty"),
-        "notional": item.get("notional"),
-        "status": item.get("status"),
-        "filled_qty": item.get("filled_qty"),
-        "filled_avg_price": item.get("filled_avg_price"),
-        "submitted_at": item.get("submitted_at"),
-        "filled_at": item.get("filled_at"),
-        "canceled_at": item.get("canceled_at"),
-        "expired_at": item.get("expired_at"),
-        "failed_at": item.get("failed_at"),
-    }
+    """Preserve broker-side parent/child identity without trusting it as protection.
+
+    Alpaca returns nested bracket legs only when requested. A missing or
+    malformed legs collection cannot be silently interpreted as protected.
+    """
+    fields = (
+        "id", "client_order_id", "symbol", "asset_class", "side", "type",
+        "time_in_force", "qty", "notional", "status", "filled_qty",
+        "filled_avg_price", "submitted_at", "filled_at", "canceled_at",
+        "expired_at", "failed_at", "order_class", "group_id",
+        "group_role", "limit_price", "stop_price", "replaces",
+        "replaced_by", "replaced_at",
+    )
+    normalized = {field: item.get(field) for field in fields}
+    raw_legs = item.get("legs")
+    if raw_legs is None:
+        normalized["legs"] = None
+    elif isinstance(raw_legs, list):
+        children: list[dict[str, object]] = []
+        for leg in raw_legs:
+            if not isinstance(leg, dict) or leg.get("legs") not in (None, []):
+                raise AlpacaPaperError("Alpaca Paper bracket legs had an unexpected shape.")
+            children.append({field: leg.get(field) for field in fields})
+            # Alpaca order legs are at most one level deep.
+            children[-1]["legs"] = None
+        normalized["legs"] = children
+    else:
+        raise AlpacaPaperError("Alpaca Paper bracket legs had an unexpected shape.")
+    return normalized
 
 
 def _normalize_position(item: dict[str, object]) -> dict[str, object]:
@@ -253,13 +263,18 @@ def list_orders(*, status: str = "open", limit: int = 50) -> list[dict[str, obje
     return rows
 
 
-def get_order_by_client_order_id(client_order_id: str) -> dict[str, object] | None:
+def get_order_by_client_order_id(
+    client_order_id: str, *, nested: bool = False,
+) -> dict[str, object] | None:
     normalized = str(client_order_id or "").strip()
     if not normalized:
         raise ValueError("Alpaca client_order_id must not be empty.")
+    params: dict[str, object] = {"client_order_id": normalized}
+    if nested:
+        params["nested"] = True
     payload = _request_optional_json(
         "/v2/orders:by_client_order_id",
-        params={"client_order_id": normalized},
+        params=params,
     )
     if payload is None:
         return None
@@ -268,11 +283,14 @@ def get_order_by_client_order_id(client_order_id: str) -> dict[str, object] | No
     return _normalize_order(payload)
 
 
-def get_order_by_id(order_id: str) -> dict[str, object] | None:
+def get_order_by_id(order_id: str, *, nested: bool = False) -> dict[str, object] | None:
     normalized = str(order_id or "").strip()
     if not normalized:
         raise ValueError("Alpaca order_id must not be empty.")
-    payload = _request_optional_json(f"/v2/orders/{quote(normalized, safe='')}")
+    payload = _request_optional_json(
+        f"/v2/orders/{quote(normalized, safe='')}",
+        params={"nested": True} if nested else None,
+    )
     if payload is None:
         return None
     if not isinstance(payload, dict):
