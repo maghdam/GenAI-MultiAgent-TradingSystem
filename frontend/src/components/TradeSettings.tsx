@@ -186,6 +186,8 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   recorded as risk evidence only; entries do not attach broker-native protective orders.
                   Strategy exits depend on a running engine and fresh market data. Paper auto-trade is for
                   supervised experiments, not unattended or broker-protected trading.
+                  Automatic Alpaca Paper entries are temporarily blocked until broker-native protection
+                  and bracket-order reconciliation are verified. Existing strategy closes remain eligible.
                 </div>
               )}
               <div
@@ -306,7 +308,7 @@ export default function TradeSettings({ isOpen, onClose }: { isOpen: boolean; on
                   <label
                     className="ta-watch-control"
                     title={item.venue === 'alpaca'
-                      ? 'Supervised Alpaca Paper only: entries have no broker-native attached stop-loss/take-profit orders.'
+                      ? 'Automatic Alpaca Paper entries are blocked pending native protection and bracket reconciliation; simple manual Paper orders require supervision.'
                       : 'Permit automatic cTrader order execution for this symbol'}
                   >
                     <input

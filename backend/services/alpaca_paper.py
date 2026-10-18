@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import quote
 
@@ -287,6 +288,84 @@ def get_open_position(symbol_or_asset_id: str) -> dict[str, object] | None:
     if not isinstance(payload, dict):
         raise AlpacaPaperError("Alpaca Paper position lookup response had an unexpected shape.")
     return _normalize_position(payload)
+
+
+def build_equity_bracket_market_order(
+    *,
+    symbol: str,
+    side: str,
+    client_order_id: str,
+    qty: float,
+    reference_price: float,
+    stop_loss: float,
+    take_profit: float,
+) -> dict[str, object]:
+    """Build, but do NOT submit, a broker-native US-equity bracket request.
+
+    Phase 10.14 is a fail-closed prerequisite. This pure validator must not
+    be wired into runtime execution until durable parent/leg reconciliation
+    and protected-position exit semantics are implemented and tested.
+    """
+
+    normalized_symbol = str(symbol or "").strip().upper()
+    normalized_side = str(side or "").strip().lower()
+    client_id = str(client_order_id or "").strip()
+    if (
+        not normalized_symbol
+        or "/" in normalized_symbol
+        or not normalized_symbol.isascii()
+        or not normalized_symbol.replace(".", "").replace("-", "").isalnum()
+    ):
+        raise ValueError("A US-equity symbol is required for bracket protection.")
+    if normalized_side not in {"buy", "sell"}:
+        raise ValueError("Equity bracket side must be buy or sell.")
+    if not client_id or len(client_id) > 48:
+        raise ValueError("Equity bracket requires a durable client_order_id (maximum 48 characters).")
+
+    def positive_decimal(field: str, raw: object) -> Decimal:
+        if isinstance(raw, bool):
+            raise ValueError(f"{field} must be a positive finite number.")
+        try:
+            value = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be a positive finite number.") from exc
+        if not value.is_finite() or value <= 0:
+            raise ValueError(f"{field} must be a positive finite number.")
+        return value
+
+    quantity = positive_decimal("qty", qty)
+    if quantity != quantity.to_integral_value():
+        raise ValueError("Protected US-equity bracket entries require whole-share qty; notional/fractional entries are unsupported.")
+    reference = positive_decimal("reference_price", reference_price)
+    stop = positive_decimal("stop_loss", stop_loss)
+    target = positive_decimal("take_profit", take_profit)
+
+    for name, price in (("stop_loss", stop), ("take_profit", target)):
+        # Alpaca's US-equity price increments are cents above $1 and
+        # at most four decimal places below $1. Reject instead of rounding
+        # silently, which could change the intended risk.
+        places = 2 if price >= 1 else 4
+        if price * (Decimal(10) ** places) != (price * (Decimal(10) ** places)).to_integral_value():
+            raise ValueError(f"{name} has unsupported US-equity price precision.")
+
+    if normalized_side == "buy" and not (stop < reference < target):
+        raise ValueError("Buy bracket requires stop_loss < reference_price < take_profit.")
+    if normalized_side == "sell" and not (target < reference < stop):
+        raise ValueError("Sell bracket requires take_profit < reference_price < stop_loss.")
+
+    return {
+        "symbol": normalized_symbol,
+        "side": normalized_side,
+        "type": "market",
+        "time_in_force": "gtc",
+        "order_class": "bracket",
+        "client_order_id": client_id,
+        "qty": format(quantity, "f"),
+        "take_profit": {"limit_price": format(target, "f")},
+        # Stop MARKET, not stop-limit: protects against gaps better but
+        # still has fill-price/slippage risk and is not a guaranteed price.
+        "stop_loss": {"stop_price": format(stop, "f")},
+    }
 
 
 def submit_market_order(
