@@ -2163,8 +2163,34 @@ The first coherent slice of the Phase 10.15 native-protection lifecycle. Before 
 **Scope boundary**
 This item neither submits nor cancels broker orders. It does **not** claim completed native broker protection or unattended trading readiness.
 
+### 10.16 Alpaca Paper durable bracket protection observations (read-only)
+**Priority:** P0
+**Status:** 🧪 Ready to test
+
+After Phase 10.15's exact nested broker-truth validator, persist **append-only evidence** of independently observed US-equity bracket parent/stop/target and open-position truth against an explicitly reserved Alpaca Paper bracket intent. Historical evidence can never be treated as current protection or permission to trade; **automatic Alpaca entries remain blocked**.
+
+**Target behavior**
+- [x] Add a SQLite `alpaca_bracket_observations` table with append-only, indexed intent-scoped snapshots, exact broker parent/stop/target IDs only on proven observations, and explicit observation timestamp / reason.
+- [x] Add a narrowly scoped read-only service for intents with `broker_provider=alpaca`, `broker_environment=paper`, `protection_mode=equity_bracket`, `asset_class=us_equity`, and a pre-reserved client order ID. Reject cross-venue, crypto, manual simple-order, or unreserved intents before broker reads.
+- [x] Request exact nested client-order truth and separate position truth, reuse Phase 10.15's strict proof and append observation + audit evidence. A missing/ambiguous broker lookup or lost protection is unverified, **never assumed absent or retried as an order**.
+- [x] Keep already recorded verified evidence **historical only**: reading a snapshot explicitly returns `current_protection_verified=False`; repeat observations append new records, and failed observations never inherit old exit IDs.
+- [x] Preserve all existing Alpaca/cTrader order mutation semantics, Phase 10.14's automatic entry lockout, and Alpaca Live prohibition. No bracket submission/close/cancel or automatic calls into this service.
+
+**Acceptance**
+- [ ] Focused durable observer + prior Phase 10.15/10.14 protections tests pass locally.
+- [ ] Alpaca Paper execution/reconciliation and cTrader safety regression remain green.
+- [ ] Full canonical backend/frontend validation, clean worktree and whitespace checks pass locally.
+- [ ] Exact PR implementation-head GitHub CI passes; no broker mutation is needed to test this item.
+
+**Next governed slice**
+- Integrate broker-native bracket POST only behind durable reserved parent identity with explicit submission-ambiguity safeguards, actual fill+child-leg broker reconciliation, and safe exit cancellation/flatten/restart recovery. An old successful observation must never imply current protection or authorize a new trade.
+- Alpaca Paper crypto automatic entries remain fail-closed, and Alpaca Live / generated Strategy Studio execution remain excluded.
+
+**Scope boundary**
+This item only appends auditable broker-observation evidence. It does **not** submit protective orders, alter live broker positions, or claim unattended trading readiness.
+
 ---
 
 ## 15. Next item
 
-**Complete the Phase 10.15 PR #121 final verification-docs commit gate: validate the documentation-only PR head locally, confirm GitHub CI on that exact commit, then merge and synchronize local `main` cleanly. After merge, the next separately governed Alpaca Paper equity-bracket implementation slice must safely integrate durable bracket parent/stop/target identity, confirmed protective leg truth, restart/ambiguous-submit reconciliation, and safe close/cancel/cleanup before automatic entries may resume. Crypto automatic entries remain blocked, Alpaca Live and generated Strategy Studio source runtime remain out of scope, and Phase 2.11 remains deferred.**
+**Current item: Phase 10.16 append-only broker-native US-equity bracket observations. Validate durable parent/stop/target and position evidence against exact reserved Paper client IDs, keeping historical proof distinct from current broker protection. Finish focused/full local tests and exact PR-head CI before marking verified, updating the work log, merging, and syncing local main. Next, separately implement durable bracket submission/reconciliation and safe close/cancel/restart recovery before unblocking automatic Alpaca Paper entries. Crypto automatic entries remain blocked; Alpaca Live / generated Strategy Studio execution and Phase 2.11 remain deferred.**

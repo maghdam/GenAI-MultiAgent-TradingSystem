@@ -559,6 +559,95 @@ def get_order_intent_by_id(intent_id: int) -> OrderIntentRecord:
     )
 
 
+def record_alpaca_bracket_observation(
+    *,
+    intent_id: int,
+    client_order_id: str,
+    verified_at_observation: bool,
+    reason: str,
+    parent_order_id: str | None = None,
+    stop_order_id: str | None = None,
+    take_profit_order_id: str | None = None,
+    broker_parent: dict[str, Any] | None = None,
+    broker_position: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Append a historical bracket-truth snapshot; do not alter order intent status.
+
+    A previously verified snapshot is NOT proof that protection is still live.
+    Only a new broker lookup and proof assessment may establish current truth.
+    """
+    if not str(client_order_id or "").strip():
+        raise ValueError("A reserved bracket client_order_id is required.")
+    if verified_at_observation and not all(
+        (parent_order_id, stop_order_id, take_profit_order_id)
+    ):
+        raise ValueError("Verified bracket observations require exact parent and both exit IDs.")
+    if not verified_at_observation and any(
+        (parent_order_id, stop_order_id, take_profit_order_id)
+    ):
+        raise ValueError("Unverified bracket observations must not carry proof order IDs.")
+    payload = {"broker_parent": broker_parent, "broker_position": broker_position}
+    observed_at = _utcnow().isoformat()
+    with get_db() as db:
+        cur = db.execute(
+            """
+            INSERT INTO alpaca_bracket_observations(
+                intent_id, observed_at, client_order_id, verified_at_observation,
+                reason, parent_order_id, stop_order_id, take_profit_order_id, broker_snapshot_json
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(intent_id), observed_at, client_order_id, int(verified_at_observation),
+                str(reason), parent_order_id, stop_order_id, take_profit_order_id,
+                json.dumps(payload, ensure_ascii=False),
+            ),
+        )
+        observation_id = int(cur.lastrowid)
+        db.commit()
+    return get_alpaca_bracket_observation(observation_id)
+
+
+def get_alpaca_bracket_observation(observation_id: int) -> dict[str, Any]:
+    with get_db() as db:
+        row = db.execute(
+            """
+            SELECT id, intent_id, observed_at, client_order_id, verified_at_observation,
+                   reason, parent_order_id, stop_order_id, take_profit_order_id, broker_snapshot_json
+            FROM alpaca_bracket_observations WHERE id = ?
+            """,
+            (int(observation_id),),
+        ).fetchone()
+    if row is None:
+        raise KeyError(f"Unknown Alpaca bracket observation {observation_id}")
+    snapshot = json.loads(row["broker_snapshot_json"])
+    return {
+        "id": int(row["id"]),
+        "intent_id": int(row["intent_id"]),
+        "observed_at": row["observed_at"],
+        "client_order_id": row["client_order_id"],
+        "verified_at_observation": bool(row["verified_at_observation"]),
+        "reason": row["reason"],
+        "parent_order_id": row["parent_order_id"],
+        "stop_order_id": row["stop_order_id"],
+        "take_profit_order_id": row["take_profit_order_id"],
+        "broker_snapshot": snapshot,
+        # This is persisted HISTORY. Never promote it to a current-risk gate.
+        "current_protection_verified": False,
+    }
+
+
+def latest_alpaca_bracket_observation(intent_id: int) -> dict[str, Any] | None:
+    with get_db() as db:
+        row = db.execute(
+            """
+            SELECT id FROM alpaca_bracket_observations
+            WHERE intent_id = ? ORDER BY id DESC LIMIT 1
+            """,
+            (int(intent_id),),
+        ).fetchone()
+    return get_alpaca_bracket_observation(int(row["id"])) if row is not None else None
+
+
 def list_order_intents(limit: int = 20) -> List[OrderIntentRecord]:
     with get_db() as db:
         rows = db.execute(
