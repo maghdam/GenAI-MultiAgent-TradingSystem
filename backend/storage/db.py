@@ -260,6 +260,29 @@ def init_db() -> None:
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alpaca_bracket_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                intent_id INTEGER NOT NULL,
+                observed_at TEXT NOT NULL,
+                client_order_id TEXT NOT NULL,
+                verified_at_observation INTEGER NOT NULL CHECK(verified_at_observation IN (0, 1)),
+                reason TEXT NOT NULL,
+                parent_order_id TEXT,
+                stop_order_id TEXT,
+                take_profit_order_id TEXT,
+                broker_snapshot_json TEXT NOT NULL,
+                FOREIGN KEY(intent_id) REFERENCES order_intents(id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alpaca_bracket_observations_intent
+            ON alpaca_bracket_observations(intent_id, id DESC)
+            """
+        )
         existing_intent_columns = {row[1] for row in cur.execute("PRAGMA table_info(order_intents)").fetchall()}
         if "decision_id" not in existing_intent_columns:
             cur.execute("ALTER TABLE order_intents ADD COLUMN decision_id INTEGER")
