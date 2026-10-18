@@ -1630,6 +1630,7 @@ Add one row after every completed task.
 | 2026-10-17 | Phase 10.11 Alpaca runtime market-data shadow | Add provider-specific Alpaca stock/ETF + crypto bars to trusted runtime strategy analysis while preserving explicit venue identity, separate cache boundaries, and zero autonomous broker mutation | ✅ 45/45 focused Phase 10.11 tests, 35/35 Alpaca 10.9 regression, 66/66 venue/cTrader safety regression, real read-only SPY + BTC/USD local adapter smoke (20 M5 bars each), full canonical validation, 707-module frontend build, clean diff/worktree, and CI #511 on `d279e41` | PR #117 / `d279e41` | Final docs-head CI, merge, sync main; then Phase 10.12 Alpaca Paper trusted-runtime execution routing |
 | 2026-10-18 | Phase 10.12 Alpaca Paper trusted-runtime execution routing | Add explicit per-row Alpaca qty/notional Paper routing through trusted strategies, shared risk gates, durable reconciliation, and same-direction hold/opposing-signal flatten without cTrader or Alpaca Live fallback | ✅ Implementation-head local focused 67/67 plus cTrader/venue 66/66, full canonical validation and 707-module frontend build, CI #514 on `acd29f0`; real Paper USD 10 SOL/USD M15 trusted entry intent 4741 and M5 trusted flatten intent 4742 both executed; final broker 0 positions/0 open orders; isolated broker-backed cloned-DB restart replay recovered both intents without any new submit/close (not a naturally pending order) | PR #118 / `acd29f0` | Final roadmap-only head local/CI checks, merge PR, sync main; reassess Alpaca Paper hardening before returning to Phase 4.9/4.10 |
 | 2026-10-18 | Phase 10.13 Alpaca Paper protection readiness / operator disclosure | Assess Paper market-order protection gap by asset class, warn in Trade setup only when an Alpaca row is configured, clarify documentation and require supervised Paper experiments | ✅ 2/2 focused UI source regression + complete backend/frontend canonical validation (707 modules) + clean worktree/diff on `b285087`; PR #119 CI #518 green; operator browser snapshots confirmed no warning for cTrader-only rows and legible Alpaca protection warning with Paper auto-trade unchecked | PR #119 / `b285087` | Verify final docs-only head/CI, merge and sync local main, then scope broker-side Paper protection implementation separately before unattended execution |
+| 2026-10-18 | Phase 10.14 Alpaca Paper protected-entry fail-closed foundation | Block new unprotected autonomous Alpaca Paper entries after shared risk checks; preserve trusted exits and operator Paper APIs; introduce a non-submitting, strictly validated US-equity bracket request builder, plus explicit UI/README warning | ✅ Local focused 27/27 and broker/cTrader safety 49/49; frontend disclosure 2/2; canonical backend and 707-module frontend build passed; clean git/diff; GitHub Actions #521 passed on `e78bc84` | PR #120 / `e78bc84` | Final docs-only head local/CI review; merge and sync main; then implement separate broker-backed equity bracket parent/legs, recovery and safe flatten lifecycle; crypto auto entries remain blocked |
 
 ---
 
@@ -2091,7 +2092,7 @@ This item changes only operator-facing disclosure and roadmap decisions. It adds
 
 ### 10.14 Alpaca Paper protected-entry prerequisite (fail-closed foundation)
 **Priority:** P0
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 The first coherent safety gate following the Phase 10.13 assessment: **stop creating new automatically managed, unprotected Alpaca Paper positions**, while preparing a strictly validated native US-equity bracket request for later end-to-end durable execution. A bracket payload is **not protection** until its parent fill and stop/target leg truth are broker-confirmed. Activation and automatic bracket-aware closing require a separate item, and crypto cannot use equity brackets.
 
@@ -2103,14 +2104,17 @@ The first coherent safety gate following the Phase 10.13 assessment: **stop crea
 - [x] Expose the temporary automatic entry pause accurately in Trade setup and README without altering cTrader routing, execution permissions, or Live-arm controls.
 
 **Acceptance**
-- [ ] Focused bracket request-builder and runtime fail-closed/close-preservation tests pass locally.
-- [ ] Phase 10.9 Alpaca operator-order reconciliation and Phase 10.11 venue/market-data, cTrader execution/safety regressions remain green.
-- [ ] Focused frontend warning tests plus frontend production build pass.
-- [ ] Full canonical `python scripts\\validate.py` and clean branch/whitespace checks pass locally.
-- [ ] GitHub PR CI passes on the exact implementation head.
+- [x] Focused bracket request-builder and runtime fail-closed/close-preservation tests pass locally.
+- [x] Phase 10.9 Alpaca operator-order reconciliation and Phase 10.11 venue/market-data, cTrader execution/safety regressions remain green.
+- [x] Focused frontend warning tests plus frontend production build pass.
+- [x] Full canonical `python scripts\validate.py` and clean branch/whitespace checks pass locally.
+- [x] GitHub PR CI passes on the exact implementation head.
 
 **Verification**
-Pending operator local validation. No Alpaca Paper broker orders are needed for this safety prerequisite; all bracket-body checks use a pure validator and mocked tests.
+- 2026-10-18 operator Windows PowerShell on implementation head `e78bc84a8ea5b7dc25624450204c2e05decc7eef`: **27/27** focused bracket request-builder and trusted Alpaca runtime tests passed; **49/49** Phase 10.9 Paper execution, cTrader Demo execution, and common safety regressions passed; **2/2** frontend Alpaca protection disclosure tests passed.
+- The exact-head canonical `python scripts\\validate.py` reported **all backend tests green** and the frontend TypeScript/Vite production build passed (**707 modules**). Clean `git status --short` and `git diff --check origin/main...HEAD` were recorded.
+- GitHub Actions **#521 successful** on the exact implementation SHA `e78bc84`; no unresolved PR review threads observed.
+- **Boundary:** all validation was local/mock or CI: the new US-equity bracket request builder is **pure and non-submitting**. There was **no real Alpaca Paper protective order** placed or independently verified; all automatic new Alpaca Paper entries are paused while trusted holds and risk-reducing closes remain eligible. Phase 10.9 operator-only Paper APIs and cTrader execution semantics are unchanged.
 
 **Next governed implementation**
 - Wire the equity bracket order into the **durable Paper order-intent adapter** only after exact parent+stop+take-profit broker identity, active leg truth, restart reconciliation, and bracket-safe close/cleanup are tested. Treat ambiguous submission and any missing leg as a **protection incident**, not a successful protected entry.
@@ -2124,4 +2128,4 @@ This PR is deliberately a **fail-closed prerequisite**, not production bracket e
 
 ## 15. Next item
 
-**Current item: Phase 10.14 protected-entry prerequisite / fail-closed foundation. Validate the native US-equity bracket request contract and block all new unprotected automatic Alpaca Paper entries, while keeping existing Paper exits and cTrader behavior unchanged. After focused and full local validation plus PR CI, verify and merge the item, then synchronize local `main`. Next, wire truly broker-enforced equity bracket parent/legs into the durable execution, verified protection, restart-recovery and close/cleanup path as a separate roadmap item; crypto auto entry remains disabled until an explicitly safe non-bracket design is accepted. Alpaca Live and generated Strategy Studio runtime remain out of scope; Phase 2.11 stays deferred.**
+**Complete Phase 10.14 PR #120 final verification-docs commit gate: validate the documentation-only head locally, confirm GitHub CI on that exact head, then merge and return local `main` to a clean synchronized state. The next governed implementation is a separately scoped **Alpaca Paper US-equity broker-native bracket protection lifecycle** (durable parent and stop/target leg tracking, broker-truth verification, ambiguous-submit restart recovery, cancellation and safe flatten/cleanup). Crypto auto-entry stays fail-closed because bracket order class is unsupported; Alpaca Live and generated Strategy Studio execution stay out of scope, and Phase 2.11 account scoping remains deferred.**
