@@ -2196,8 +2196,30 @@ After Phase 10.15's exact nested broker-truth validator, persist **append-only e
 **Scope boundary**
 This item only appends auditable broker-observation evidence. It does **not** submit protective orders, alter live broker positions, or claim unattended trading readiness.
 
+### 10.17 Alpaca Paper durable bracket reservation and single-use dispatch claim
+**Priority:** P0
+**Status:** 🧪 Ready to test
+
+The next smallest coherent part of the **equity bracket order-submission lifecycle** is safely reserving exact broker parent identity **before any POST**. This PR adds the durable, single-use identity/claim protocol with no broker mutation. Existing intent reconciliation and automatic Alpaca entries remain unchanged and fail-closed; an unclaimed reservation is **not an order**.
+
+**Target behavior**
+- [x] Prevalidate a US-equity whole-share bracket request with Phase 10.14's strict stop/target builder, generating one globally unique, Alpaca-length-compliant client order ID and storing the full proposed payload.
+- [x] Require ACTIVE, unblocked Alpaca **Paper** account plus read-only open broker position/order checks; reject same-symbol open broker positions/orders, shorts without account permission, crypto, invalid sizing/SL/TP, and broker-unavailable states.
+- [x] Reserve under one immediate SQLite transaction with a same-symbol outstanding Alpaca Paper intent check, append its initial status transition and audit atomically, without any broker mutation.
+- [x] Provide a separate, **single-use, durable transactionally claimed** dispatch token. Claims record a distinct nonterminal/unknown state; duplicate claims, wrong-provenance intents, and restart replays fail closed and cannot cause a second claim. There is **no sender** attached yet.
+- [x] Preserve Phase 10.14's autonomous-entry lockout, cTrader/Live gates, and Phase 10.16's read-only historical bracket observations.
+
+**Acceptance**
+- [ ] Focused reservation/claim tests, Phase 10.14–10.16 protective-order truth regressions pass locally.
+- [ ] Alpaca Paper execution/reconciliation and cTrader safety regressions remain green.
+- [ ] Full backend tests and frontend build pass; git worktree clean and diff whitespace valid.
+- [ ] GitHub CI passes on exact implementation head before roadmap verification and merge.
+
+**Safety boundary**
+The reservation records a **proposal**, not a broker order or verified protective stop. The single-use claim records an intent to dispatch **but never transmits an order**. No HTTP POST, live/Paper order mutation or automatic engine routing is introduced. A future separately governed PR must gate actual bracket broker POST behind this durable claim, recover ambiguous POST outcomes by exact ID **without repeating submission**, validate live protective legs/position and handle cancellation/flattening before enabling unattended execution. Crypto Paper auto entries remain disabled; Alpaca Live and generated Studio source runtime are out of scope.
+
 ---
 
 ## 15. Next item
 
-**Complete Phase 10.16 PR #122 final verification-documentation gate: validate the docs-only head locally, confirm GitHub CI on the exact updated commit, then merge and synchronize local `main`. After merge, the next separately governed Alpaca Paper equity-bracket implementation must reserve durable parent/stop/target identity before broker mutation, reconcile actual active protective leg truth, recover ambiguous submissions and restarts without duplicate orders, and safely cancel/flatten without orphans before automatic entries can resume. Crypto automatic entries remain blocked; Alpaca Live, generated Strategy Studio runtime, and Phase 2.11 remain deferred.**
+**Current item: Phase 10.17 durable Paper equity-bracket reservation and one-shot dispatch claim. Validate the proposed broker-native stop/target request, reserve immutable client identity with transactionally checked duplicate prevention, and prove restart-safe single-use claim semantics with zero broker mutations. After user local tests and exact-head GitHub CI, update the roadmap/work log, merge and sync local `main`. Next governed slice: wire a strictly supervised broker-native bracket POST to this durable claim, classify ambiguous submissions fail-closed, reconcile confirmed parent and live exit legs, then separately implement safe close/cancel/restart cleanup before any automatic Alpaca entries can resume. Crypto auto entry, Alpaca Live, generated Studio source runtime and Phase 2.11 remain deferred.**
