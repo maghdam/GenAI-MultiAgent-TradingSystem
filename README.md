@@ -145,7 +145,7 @@ The CLI never prints credential values. Non-Windows/CI environments can use `ALP
 
 Trusted runtime rows configured with venue `Alpaca Paper` require an explicit asset class and explicit `qty` or `notional` size before `Paper auto-trade` can be enabled. The common kill switch, lifecycle, session, confidence, market-freshness, protective-level, daily-loss, trade-count, max-position and cooldown gates still apply. Same-direction positions are held without add-on orders; opposing signals flatten first and do not reverse in the same cycle. Crypto short entries and notional short-equity entries fail closed.
 
-Alpaca runtime execution is **Paper only**. Strategy stop-loss/take-profit levels are validated and preserved in durable runtime evidence, but Phase 10.12 does not claim broker-native attached Alpaca protection orders. That protection layer is required before any future consideration of Alpaca Live execution.
+Alpaca runtime execution is **Paper only**. Strategy stop-loss/take-profit levels are validated and preserved in durable runtime evidence, but Phase 10.12 does not claim broker-native attached Alpaca protection orders. That protection layer is required before any future consideration of Alpaca Live execution. Trade setup now displays a prominent warning for Alpaca rows: current Paper auto-trade is for **supervised experiments**, not unattended execution. The existing runtime does not continuously enforce those price levels when the engine is stopped or market data is stale.
 
 Broker endpoints include:
 
