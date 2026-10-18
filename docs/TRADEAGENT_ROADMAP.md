@@ -1631,6 +1631,7 @@ Add one row after every completed task.
 | 2026-10-18 | Phase 10.12 Alpaca Paper trusted-runtime execution routing | Add explicit per-row Alpaca qty/notional Paper routing through trusted strategies, shared risk gates, durable reconciliation, and same-direction hold/opposing-signal flatten without cTrader or Alpaca Live fallback | ✅ Implementation-head local focused 67/67 plus cTrader/venue 66/66, full canonical validation and 707-module frontend build, CI #514 on `acd29f0`; real Paper USD 10 SOL/USD M15 trusted entry intent 4741 and M5 trusted flatten intent 4742 both executed; final broker 0 positions/0 open orders; isolated broker-backed cloned-DB restart replay recovered both intents without any new submit/close (not a naturally pending order) | PR #118 / `acd29f0` | Final roadmap-only head local/CI checks, merge PR, sync main; reassess Alpaca Paper hardening before returning to Phase 4.9/4.10 |
 | 2026-10-18 | Phase 10.13 Alpaca Paper protection readiness / operator disclosure | Assess Paper market-order protection gap by asset class, warn in Trade setup only when an Alpaca row is configured, clarify documentation and require supervised Paper experiments | ✅ 2/2 focused UI source regression + complete backend/frontend canonical validation (707 modules) + clean worktree/diff on `b285087`; PR #119 CI #518 green; operator browser snapshots confirmed no warning for cTrader-only rows and legible Alpaca protection warning with Paper auto-trade unchecked | PR #119 / `b285087` | Verify final docs-only head/CI, merge and sync local main, then scope broker-side Paper protection implementation separately before unattended execution |
 | 2026-10-18 | Phase 10.14 Alpaca Paper protected-entry fail-closed foundation | Block new unprotected autonomous Alpaca Paper entries after shared risk checks; preserve trusted exits and operator Paper APIs; introduce a non-submitting, strictly validated US-equity bracket request builder, plus explicit UI/README warning | ✅ Local focused 27/27 and broker/cTrader safety 49/49; frontend disclosure 2/2; canonical backend and 707-module frontend build passed; clean git/diff; GitHub Actions #521 passed on `e78bc84` | PR #120 / `e78bc84` | Final docs-only head local/CI review; merge and sync main; then implement separate broker-backed equity bracket parent/legs, recovery and safe flatten lifecycle; crypto auto entries remain blocked |
+| 2026-10-18 | Phase 10.15 Alpaca Paper read-only bracket parent/leg broker truth | Preserve exact Alpaca broker parent/leg identifiers, order classes, exit price and optional grouping/replacement metadata; add explicit nested lookups and strict fail-closed proof requiring independently verified open equity position | ✅ 52/52 focused bracket/protected-entry tests + 57/57 Alpaca/cTrader safety regressions; full canonical backend and frontend (707 modules), clean git/diff; PR #121 implementation-head CI #524 green on `94b9fcc`; mocked provider payloads only | PR #121 / `94b9fcc` | Final docs-head local/CI validation, merge and main sync; next separately governed durable bracket submission, leg lifecycle, restart and safe flatten; crypto auto entry stays blocked |
 
 ---
 
@@ -2126,7 +2127,7 @@ This PR is deliberately a **fail-closed prerequisite**, not production bracket e
 
 ### 10.15 Alpaca Paper equity bracket lifecycle — read-only parent/leg broker-truth groundwork
 **Priority:** P0
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 The first coherent slice of the Phase 10.15 native-protection lifecycle. Before wiring broker-side bracket submission, retain and verify the **real nested broker order identities**: one filled parent, two active and unfilled protective legs, and an independently matching open position. This item is read-only; protected automatic entry remains blocked.
 
@@ -2138,16 +2139,22 @@ The first coherent slice of the Phase 10.15 native-protection lifecycle. Before 
 - [x] Preserve Phase 10.14's automatic Alpaca Paper entry block, manual Paper APIs, trusted risk-reducing closes, and every cTrader safety gate. No new broker mutation is introduced.
 
 **Acceptance**
-- [ ] Focused nested-order normalization, opt-in broker read, protection-truth fail-closed and legacy lookup regression tests pass locally.
-- [ ] Alpaca Paper execution/reconciliation, Phase 10.14 automatic entry block, and cTrader execution/safety regression tests pass locally.
-- [ ] Full canonical backend/frontend validation passes, working tree is clean, and branch diff has no whitespace errors.
-- [ ] Exact implementation-head GitHub CI passes; read-only bracket protection remains isolated from runtime execution.
+- [x] Focused nested-order normalization, opt-in broker read, protection-truth fail-closed and legacy lookup regression tests pass locally.
+- [x] Alpaca Paper execution/reconciliation, Phase 10.14 automatic entry block, and cTrader execution/safety regression tests pass locally.
+- [x] Full canonical backend/frontend validation passes, working tree is clean, and branch diff has no whitespace errors.
+- [x] Exact implementation-head GitHub CI passes; read-only bracket protection remains isolated from runtime execution.
 
 **Provider evidence**
 - Alpaca Trading API `GET /v2/orders/{order_id}` supports `nested=true` for bracket parent legs.
 - Alpaca nested bracket legs activate only after the entry is **completely filled**. A filled parent alone does not prove that both broker-side exits are live.
 - Optional Alpaca `group_id` and `group_role` fields were introduced on 2026-10-08; never depend exclusively on their presence.
 - References: https://docs.alpaca.markets/us/reference/getorderbyorderid-1 ; https://docs.alpaca.markets/us/docs/orders-at-alpaca ; https://docs.alpaca.markets/us/changelog/2026-10-08-order-group-db02af7
+
+**Verification**
+- 2026-10-18 operator local PowerShell on PR #121 exact implementation head `94b9fcc0b77a1c1f4a75a24887b478be1f6e483d`: **52/52** focused read-only bracket-truth and Phase 10.14 protected-entry prerequisite tests passed, **57/57** Alpaca Paper execution/runtime and cTrader Demo/safety regression tests passed.
+- `python scripts\\validate.py` passed the complete backend suite and TypeScript/Vite production build (**707 modules**); `git status --short` was clean and `git diff --check origin/main...HEAD` reported no errors.
+- GitHub Actions PR #121 CI **#524 completed successfully** on `94b9fcc`, with zero unresolved PR review threads at the evidence check.
+- **Qualification:** tests exercise mock broker responses and a pure validator; there was **no real Alpaca Paper nested-bracket broker-truth field test** and **no actual bracket submission, cancellation, or protective-order verification**. This checkpoint preserves read-only order identity and fail-closed checking only. New Alpaca automatic entries remain blocked; Alpaca Live and cTrader execution remain unchanged.
 
 **Next governed slice**
 - Implement durable protected-order **parent/stop/target** intent/reservation and verified nested broker-truth reconciliation before permitting any bracket entry. Handle ambiguous POST, nonterminal legs, broker-side cancellation/replacement, restart recovery and flattening safely; never mark a parent `filled` as an automatically protected entry without verified active exits.
@@ -2160,4 +2167,4 @@ This item neither submits nor cancels broker orders. It does **not** claim compl
 
 ## 15. Next item
 
-**Current item: Phase 10.15 read-only bracket parent/leg broker-truth groundwork. Validate exact Alpaca nested-order normalization, opt-in read by immutable order/client ID, and conservative pure protection assessment using verified open position truth; keep automatic Alpaca Paper entries blocked until broker-side protection is durably implemented. After operator focused/full local tests and exact-head CI, mark verified, update work log, merge the PR, and synchronize local `main`. The next slice will safely integrate durable equity bracket parent+stop+target submission/reconciliation, restart and close/cleanup; crypto auto entry stays disabled, Alpaca Live and generated Strategy Studio remain out of scope, and Phase 2.11 scoping stays deferred.**
+**Complete the Phase 10.15 PR #121 final verification-docs commit gate: validate the documentation-only PR head locally, confirm GitHub CI on that exact commit, then merge and synchronize local `main` cleanly. After merge, the next separately governed Alpaca Paper equity-bracket implementation slice must safely integrate durable bracket parent/stop/target identity, confirmed protective leg truth, restart/ambiguous-submit reconciliation, and safe close/cancel/cleanup before automatic entries may resume. Crypto automatic entries remain blocked, Alpaca Live and generated Strategy Studio source runtime remain out of scope, and Phase 2.11 remains deferred.**
