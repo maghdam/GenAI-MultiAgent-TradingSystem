@@ -430,6 +430,31 @@ def execute_alpaca_runtime_signal(
             mode="alpaca_paper",
         )
 
+    summary = (
+        "Automatic Alpaca Paper entry is blocked until broker-native protective-order "
+        "submission and parent/leg reconciliation are implemented. Existing positions "
+        "can still receive trusted close signals; operator-only simple Paper orders "
+        "remain a separate supervised workflow."
+    )
+    _audit_runtime_block(
+        analysis=analysis,
+        summary=summary,
+        details={
+            **execution_details,
+            "automatic_entry_protection_required": True,
+            "broker_native_protection_verified": False,
+            "risk_accepted": True,
+            "risk_intent_type": "open",
+        },
+    )
+    return ExecutionResult(
+        action_taken=False,
+        intent_id=None,
+        status="rejected",
+        summary=summary,
+        mode="alpaca_paper",
+    )
+
     qty = (
         float(watch_item.alpaca_size_value)
         if watch_item.alpaca_size_mode == "qty"

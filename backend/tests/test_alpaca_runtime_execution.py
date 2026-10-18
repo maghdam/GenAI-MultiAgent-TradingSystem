@@ -118,8 +118,7 @@ def _run(watch: WatchlistItem, analysis: StrategyAnalysis):
     )
 
 
-def test_runtime_long_notional_routes_once_to_phase_10_9_adapter(monkeypatch, broker_truth) -> None:
-    captured: dict[str, object] = {}
+def test_runtime_long_notional_fails_closed_until_broker_native_protection(monkeypatch, broker_truth) -> None:
     monkeypatch.setattr(
         alpaca_runtime,
         "evaluate_risk",
@@ -130,46 +129,23 @@ def test_runtime_long_notional_routes_once_to_phase_10_9_adapter(monkeypatch, br
             intent_type="open",
         ),
     )
-
-    def _submit(**kwargs):
-        captured.update(kwargs)
-        return {
-            "action_taken": True,
-            "intent_id": 44,
-            "status": "accepted",
-            "summary": "acknowledged",
-            "broker_order": {"id": "order-44", "status": "pending_new"},
-        }
-
-    monkeypatch.setattr(alpaca_runtime, "submit_paper_market_order", _submit)
     monkeypatch.setattr(
         alpaca_runtime,
-        "close_paper_position",
-        lambda **kwargs: pytest.fail("entry signal must not close"),
+        "submit_paper_market_order",
+        lambda **kwargs: pytest.fail("unprotected trusted Alpaca entry must not reach the broker adapter"),
     )
-
     result = _run(_watch(), _analysis())
-
-    assert result.action_taken is True
-    assert result.intent_id == 44
-    assert result.status == "accepted"
-    assert result.mode == "alpaca_paper"
-    assert captured["symbol"] == "SPY"
-    assert captured["asset_class"] == "us_equity"
-    assert captured["side"] == "buy"
-    assert captured["qty"] is None
-    assert captured["notional"] == 25.0
-    assert captured["confidence"] == pytest.approx(0.82)
-    assert captured["stop_loss"] == 99.0
-    assert captured["take_profit"] == 102.0
-    runtime = captured["execution_details"]["runtime_execution"]
-    assert runtime["source"] == "trusted_strategy_auto_loop"
-    assert runtime["size_mode"] == "notional"
-    assert runtime["automatic_resubmission"] is False
+    assert result.action_taken is False
+    assert result.intent_id is None
+    assert result.status == "rejected"
+    assert "broker-native protective-order" in result.summary
+    audits = list_trade_audits(10)
+    assert audits[0].event_type == "alpaca_runtime_signal_blocked"
+    assert audits[0].details["automatic_entry_protection_required"] is True
+    assert audits[0].details["broker_native_protection_verified"] is False
 
 
-def test_runtime_quantity_short_equity_uses_sell_without_ctrader_lots(monkeypatch, broker_truth) -> None:
-    captured: dict[str, object] = {}
+def test_runtime_quantity_short_equity_also_fails_closed_until_protected(monkeypatch, broker_truth) -> None:
     monkeypatch.setattr(
         alpaca_runtime,
         "evaluate_risk",
@@ -183,27 +159,38 @@ def test_runtime_quantity_short_equity_uses_sell_without_ctrader_lots(monkeypatc
     monkeypatch.setattr(
         alpaca_runtime,
         "submit_paper_market_order",
-        lambda **kwargs: captured.update(kwargs) or {
-            "action_taken": True,
-            "intent_id": 45,
-            "status": "executed",
-            "summary": "filled",
-        },
+        lambda **kwargs: pytest.fail("a short equity signal must not create an unprotected order"),
     )
-
     result = _run(
-        _watch(alpaca_size_mode="qty", alpaca_size_value=0.25),
-        _analysis(
-            signal="short",
-            stop_loss=101.0,
-            take_profit=98.0,
+        _watch(alpaca_size_mode="qty", alpaca_size_value=1.0),
+        _analysis(signal="short", stop_loss=101.0, take_profit=98.0),
+    )
+    assert result.action_taken is False
+    assert result.intent_id is None
+    assert result.status == "rejected"
+    assert "broker-native protective-order" in result.summary
+
+
+def test_runtime_crypto_long_fails_closed_until_supported_protection(monkeypatch, broker_truth) -> None:
+    monkeypatch.setattr(
+        alpaca_runtime,
+        "evaluate_risk",
+        lambda **kwargs: RiskDecision(
+            accepted=True, reasons=["Signal passed risk checks."], details={}, intent_type="open"
         ),
     )
-
-    assert result.status == "executed"
-    assert captured["side"] == "sell"
-    assert captured["qty"] == 0.25
-    assert captured["notional"] is None
+    monkeypatch.setattr(
+        alpaca_runtime,
+        "submit_paper_market_order",
+        lambda **kwargs: pytest.fail("crypto has no native bracket order class"),
+    )
+    result = _run(
+        _watch(symbol="BTC/USD", alpaca_asset_class="crypto", alpaca_size_mode="notional", alpaca_size_value=10.0),
+        _analysis(symbol="BTC/USD"),
+    )
+    assert result.status == "rejected"
+    assert result.action_taken is False
+    assert "broker-native protective-order" in result.summary
 
 
 def test_runtime_conflicting_position_closes_only_and_never_same_cycle_reverses(monkeypatch, broker_truth) -> None:

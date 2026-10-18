@@ -16,6 +16,8 @@ test('Alpaca Paper rows display the missing broker-protection warning', () => {
 });
 
 test('Alpaca Paper enablement tooltip does not imply attached stop-loss orders', () => {
-  assert.match(tradeSetup, /Supervised Alpaca Paper only: entries have no broker-native attached stop-loss\/take-profit orders/);
+  assert.match(tradeSetup, /Automatic Alpaca Paper entries are blocked pending native protection and bracket reconciliation/);
   assert.match(tradeSetup, /Paper auto-trade/);
+  assert.match(tradeSetup, /Automatic Alpaca Paper entries are temporarily blocked until broker-native protection/);
+  assert.match(tradeSetup, /Existing strategy closes remain eligible/);
 });
