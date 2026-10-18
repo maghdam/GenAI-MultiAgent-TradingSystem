@@ -84,13 +84,20 @@ def assess_equity_bracket_truth(
         return no("US-equity bracket parent is not an exact fully filled entry.")
 
     direction = "long" if normalized_side == "buy" else "short"
+    entry_price = _decimal(position.get("avg_entry_price"))
     if (
         str(position.get("symbol") or "").upper() != normalized_symbol
         or str(position.get("side") or "").lower() != direction
         or str(position.get("asset_class") or "").lower() != "us_equity"
         or _decimal(position.get("qty")) != qty
+        or entry_price is None or entry_price <= 0
     ):
         return no("The open broker position does not match the filled bracket parent.")
+    if (
+        (normalized_side == "buy" and not stop < entry_price < target)
+        or (normalized_side == "sell" and not target < entry_price < stop)
+    ):
+        return no("Stop/target prices do not protect the actual broker entry-price direction.")
 
     legs = parent.get("legs")
     if not isinstance(legs, list) or len(legs) != 2 or any(not isinstance(x, dict) for x in legs):
@@ -106,6 +113,7 @@ def assess_equity_bracket_truth(
         ids.add(leg_id)
         if (
             str(leg.get("symbol") or "").upper() != normalized_symbol
+            or str(leg.get("asset_class") or "").lower() != "us_equity"
             or str(leg.get("side") or "").lower() != exit_side
             or str(leg.get("status") or "").lower() != "new"
             or _decimal(leg.get("qty")) != qty

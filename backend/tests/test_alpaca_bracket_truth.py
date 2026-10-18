@@ -17,13 +17,13 @@ def _bracket():
         "qty": "2", "filled_qty": "2", "status": "filled",
         "legs": [
             {
-                "id": "tp-1", "symbol": "SPY", "side": "sell", "type": "limit",
+                "id": "tp-1", "symbol": "SPY", "asset_class": "us_equity", "side": "sell", "type": "limit",
                 "group_id": "group-1", "group_role": "take_profit",
                 "qty": "2", "filled_qty": "0", "status": "new", "limit_price": "104",
                 "legs": None,
             },
             {
-                "id": "sl-1", "symbol": "SPY", "side": "sell", "type": "stop",
+                "id": "sl-1", "symbol": "SPY", "asset_class": "us_equity", "side": "sell", "type": "stop",
                 "group_id": "group-1", "group_role": "stop_loss",
                 "qty": "2", "filled_qty": "0", "status": "new", "stop_price": "99",
                 "legs": None,
@@ -33,7 +33,7 @@ def _bracket():
 
 
 def _position():
-    return {"symbol": "SPY", "asset_class": "us_equity", "side": "long", "qty": "2"}
+    return {"symbol": "SPY", "asset_class": "us_equity", "side": "long", "qty": "2", "avg_entry_price": "101"}
 
 
 def _assess(parent=None, position=None, **kw):
@@ -125,6 +125,7 @@ def test_complete_broker_parent_legs_and_position_truth_are_verifiable():
     lambda p: p["legs"][1].update(stop_price="97"),
     lambda p: p["legs"][0].update(qty="1"),
     lambda p: p["legs"][1].update(side="buy"),
+    lambda p: p["legs"][1].update(asset_class="crypto"),
     lambda p: p["legs"][1].update(replaced_by="new-leg-id"),
 ])
 def test_unconfirmed_or_mismatched_bracket_never_counts_as_protected(change):
@@ -137,9 +138,11 @@ def test_unconfirmed_or_mismatched_bracket_never_counts_as_protected(change):
 
 
 @pytest.mark.parametrize("position", [
-    {}, {"symbol": "QQQ", "side": "long", "asset_class": "us_equity", "qty": "2"},
-    {"symbol": "SPY", "side": "short", "asset_class": "us_equity", "qty": "2"},
-    {"symbol": "SPY", "side": "long", "asset_class": "us_equity", "qty": "1"},
+    {},
+    {"symbol": "QQQ", "side": "long", "asset_class": "us_equity", "qty": "2", "avg_entry_price": "101"},
+    {"symbol": "SPY", "side": "short", "asset_class": "us_equity", "qty": "2", "avg_entry_price": "101"},
+    {"symbol": "SPY", "side": "long", "asset_class": "us_equity", "qty": "1", "avg_entry_price": "101"},
+    {"symbol": "SPY", "side": "long", "asset_class": "us_equity", "qty": "2", "avg_entry_price": "105"},
 ])
 def test_missing_or_mismatched_open_position_cannot_prove_protection(position):
     assert not _assess(position=position).verified
