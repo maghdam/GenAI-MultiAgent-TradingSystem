@@ -232,5 +232,5 @@ def test_no_automatic_runtime_entry_or_manual_simple_reconciler_claim(monkeypatc
     # The new module has no API route and cannot override runtime lockout.
     from backend.services import alpaca_runtime
     assert "submit_supervised_paper_equity_bracket" not in (
-        alpaca_runtime.run_paper_cycle.__code__.co_names
+        alpaca_runtime.execute_alpaca_runtime_signal.__code__.co_names
     )
