@@ -2226,8 +2226,30 @@ The next smallest coherent part of the **equity bracket order-submission lifecyc
 **Safety boundary**
 The reservation records a **proposal**, not a broker order or verified protective stop. The single-use claim records an intent to dispatch **but never transmits an order**. No HTTP POST, live/Paper order mutation or automatic engine routing is introduced. A future separately governed PR must gate actual bracket broker POST behind this durable claim, recover ambiguous POST outcomes by exact ID **without repeating submission**, validate live protective legs/position and handle cancellation/flattening before enabling unattended execution. Crypto Paper auto entries remain disabled; Alpaca Live and generated Studio source runtime are out of scope.
 
+### 10.18 Alpaca Paper supervised one-shot bracket POST and fail-closed acknowledgement
+**Priority:** P0
+**Status:** 🧪 Ready to test
+
+Consume Phase 10.17's durable reservation exactly once to send a **supervised-only** broker-native US-equity bracket parent. A POST acknowledgement is not protective-order activation. Every filled/pending/ambiguous/negative response remains unresolved until independent broker position and both SL/TP leg truth are verified. Automatic entry stays disabled.
+
+**Target behavior**
+- [x] Provide a strictly scoped native Alpaca **Paper HTTPS** US-equity bracket mutation adapter that independently reconstructs and checks stop/TP payload and rejects malformed/mismatched broker acknowledgement as ambiguous.
+- [x] Add a private supervised dispatcher requiring exact operator confirmation, matching reserved client order ID, operator reason, kill switch OFF, ACTIVE Paper account, short permission as appropriate, current position/open-order preflight, and immutable proposed payload before consuming one durable claim.
+- [x] AFTER the single-use durable claim commits, perform exact nested client-ID lookup, then send at most one `POST /v2/orders` if no existing order appears; never retry POST on any outcome, including lookup error, 404 after ambiguous POST, process restart, or explicit 4xx rejection.
+- [x] Persist bracket outcome/audit as accepted and reconciliation-required with `broker_native_protection_verified=False` even if the parent fills. Acknowledged parent triggers an independent read-only historical bracket/position observation; any apparent protection remains historical, not a runtime authorization.
+- [x] No API/dashboard/engine/scheduler route to new dispatcher. Phase 10.14 Alpaca Paper auto-entry remains blocked; cTrader, Alpaca Live and legacy operator simple-order APIs are unchanged.
+
+**Acceptance**
+- [ ] Focused native Paper bracket payload, one-shot supervised dispatch, ambiguous/dropped-ack/restart, Paper-only/kill-switch and prior protection regressions pass locally.
+- [ ] Existing Alpaca/cTrader broker safety tests remain green with no actual broker mutations.
+- [ ] Canonical full backend/frontend tests and clean-worktree/whitespace validation pass.
+- [ ] Exact implementation-head CI is green before marking verified and merging.
+
+**Scope boundary**
+This phase introduces a **callable internal supervised Paper POST**, not a UI or automated trading feature. It does not guarantee live stop-loss protection, synchronize active legs continuously, automatically close positions, or cancel orphaned orders. Remaining supervised lifecycle work must reconcile full fills/active stop/TP legs and handle restarts, cancellation, OCO expiry, partial fills and safe flattening before automatic entries may be considered. Crypto Paper auto entries and Alpaca Live remain disabled.
+
 ---
 
 ## 15. Next item
 
-**Complete Phase 10.17 PR #123 final verification-documentation gate: locally validate the docs-only PR head, confirm exact-head GitHub CI, merge and synchronize local `main`. The next separately governed Alpaca Paper US-equity bracket slice must wire a strictly supervised, single-use native bracket POST to the durable claim, refuse automatic resubmission on ambiguous outcome, and reconcile exact broker parent plus independently active protective legs. Safe close/cancel/orphan cleanup and restart recovery require validated lifecycle work before any automatic Alpaca Paper entries may resume. Crypto auto entries stay blocked; Alpaca Live, generated Studio source runtime and Phase 2.11 remain deferred.**
+**Current Phase 10.18: validate the supervised-only native Alpaca Paper bracket POST after a single-use durable claim, ensure ambiguous POST outcomes are never retried, and keep parent acknowledgements unresolved and broker protection unverified. Require focused/full local regression and exact GitHub CI before roadmap verification, work-log update, merge, and clean local `main` synchronization. Next governed slices must reconcile actual live SL/TP legs and position fills, safely handle restart/cancel/orphan/partial-fill/flattening semantics, and only then consider automatic Paper entry enablement. Crypto Paper auto entry, Alpaca Live, generated Strategy Studio source runtime and Phase 2.11 stay deferred.**

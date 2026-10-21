@@ -1,0 +1,200 @@
+"""Explicitly supervised, one-shot Alpaca Paper US-equity bracket dispatch.
+
+No API, engine, scheduler, or automatic-entry caller is wired to this module.
+The durable dispatch claim is consumed BEFORE a single broker POST. Ambiguous
+outcomes are never retried as another POST. A parent acknowledgement NEVER
+marks broker-native SL/TP protection as currently verified.
+"""
+
+from __future__ import annotations
+
+from backend.domain.models import EngineConfig
+from backend.services.alpaca_bracket_observations import observe_paper_equity_bracket
+from backend.services.alpaca_execution import _execution_ready_account
+from backend.services.alpaca_paper import (
+    AlpacaPaperError,
+    build_equity_bracket_market_order,
+    get_open_position,
+    get_order_by_client_order_id,
+    list_orders,
+    submit_equity_bracket_order,
+)
+from backend.storage.repositories import (
+    add_trade_audit,
+    claim_reserved_alpaca_bracket_dispatch,
+    get_order_intent_by_id,
+    load_engine_config,
+    update_order_intent_status,
+)
+
+
+def _record_post_outcome(intent, *, outcome: str, summary: str,
+                         broker_order: dict[str, object] | None = None,
+                         broker_status_code: int | None = None) -> dict[str, object]:
+    """Keep every claimed bracket unresolved, even if its parent is filled."""
+    updates: dict[str, object] = {
+        "outcome_state": outcome,
+        "reconciliation_resolved": False,
+        "automatic_retry": False,
+        "broker_mutation_permitted": False,
+        "broker_native_protection_verified": False,
+    }
+    if broker_order is not None:
+        updates["broker_parent_order"] = broker_order
+    if broker_status_code is not None:
+        updates["broker_status_code"] = broker_status_code
+    updated = update_order_intent_status(
+        intent.id, "accepted", updates,
+        reason="alpaca_paper_bracket_" + outcome,
+    )
+    add_trade_audit(
+        event_type="alpaca_paper_bracket_" + outcome,
+        symbol=intent.symbol, timeframe=intent.timeframe,
+        strategy=intent.strategy, intent_id=intent.id,
+        summary=summary,
+        details={
+            "client_order_id": updated.details["client_order_id"],
+            "broker_order_id": broker_order.get("id") if broker_order else None,
+            "broker_status_code": broker_status_code,
+            "automatic_retry": False,
+            "broker_native_protection_verified": False,
+        },
+    )
+    return {
+        "intent_id": updated.id,
+        "status": "reconciliation_required",
+        "outcome_state": outcome,
+        "summary": summary,
+        "broker_order": broker_order,
+        "broker_native_protection_verified": False,
+        "automatic_retry": False,
+    }
+
+
+def _read_after_claim(intent, *, source: str) -> dict[str, object] | None:
+    """Read exact client identity. Missing lookup is NEVER a retry license."""
+    client_id = intent.details["client_order_id"]
+    try:
+        parent = get_order_by_client_order_id(client_id, nested=True)
+    except AlpacaPaperError:
+        return _record_post_outcome(
+            intent, outcome="submission_unknown_broker_lookup_unavailable",
+            summary="Exact Alpaca Paper bracket lookup unavailable; no POST attempted or retried.",
+        )
+    if parent is None:
+        return None
+    return _record_post_outcome(
+        intent, outcome="existing_broker_order_reconciliation_required",
+        summary="Broker already has the reserved client order ID; a second POST is forbidden.",
+        broker_order=parent,
+    )
+
+
+def submit_supervised_paper_equity_bracket(
+    *,
+    intent_id: int,
+    expected_client_order_id: str,
+    operator_confirmation: str,
+    operator_reason: str,
+) -> dict[str, object]:
+    """One explicit operator-confirmed dispatch attempt for a durable reservation.
+
+    A claim cannot be consumed twice, including after a restart or a POST
+    timeout. This never routes autonomous strategies to Alpaca. Existing
+    broker positions/open orders or unavailable preflight truth prevent POST.
+    """
+    if operator_confirmation != f"SUBMIT PAPER BRACKET {int(intent_id)}":
+        raise ValueError("Explicit confirmation of the Paper bracket intent ID is required.")
+    if len(str(operator_reason or "").strip()) < 8:
+        raise ValueError("A meaningful operator reason is required.")
+    intent = get_order_intent_by_id(intent_id)
+    details = intent.details if isinstance(intent.details, dict) else {}
+    cid = str(details.get("client_order_id") or "")
+    if (
+        intent.status != "accepted" or intent.intent_type != "open"
+        or details.get("broker_provider") != "alpaca"
+        or details.get("broker_environment") != "paper"
+        or details.get("asset_class") != "us_equity"
+        or details.get("protection_mode") != "equity_bracket"
+        or details.get("outcome_state") != "bracket_reserved_not_submitted"
+        or not cid or expected_client_order_id != cid
+    ):
+        raise ValueError("No matching, unclaimed, reserved Alpaca Paper equity bracket exists.")
+    side = "buy" if intent.direction == "long" else "sell" if intent.direction == "short" else ""
+    prospective = build_equity_bracket_market_order(
+        symbol=intent.symbol, side=side, qty=intent.quantity,
+        reference_price=intent.entry_price, stop_loss=intent.stop_loss,
+        take_profit=intent.take_profit, client_order_id=cid,
+    )
+    if details.get("bracket_order_request") != prospective:
+        raise ValueError("Durable bracket request differs from the strictly validated order payload.")
+    if load_engine_config(EngineConfig()).kill_switch:
+        raise AlpacaPaperError("Kill switch must be OFF for a supervised new Paper bracket entry.")
+    account = _execution_ready_account()
+    if side == "sell" and not account.get("shorting_enabled"):
+        raise AlpacaPaperError("Alpaca Paper account does not allow short US-equity entries.")
+    if get_open_position(intent.symbol) is not None:
+        return {"status": "blocked", "intent_id": intent.id,
+                "summary": "An open Alpaca position blocks new bracket dispatch.",
+                "broker_native_protection_verified": False}
+    if any(
+        str(x.get("symbol") or "").upper() == intent.symbol.upper()
+        for x in list_orders(status="open", limit=500)
+    ):
+        return {"status": "blocked", "intent_id": intent.id,
+                "summary": "An open Alpaca order blocks new bracket dispatch.",
+                "broker_native_protection_verified": False}
+
+    # The durable single-use claim is committed before any broker POST.
+    claimed = claim_reserved_alpaca_bracket_dispatch(intent.id)
+    if claimed is None:
+        return {"status": "blocked", "intent_id": intent.id,
+                "summary": "Bracket dispatch was already claimed or is no longer eligible.",
+                "broker_native_protection_verified": False}
+    add_trade_audit(
+        event_type="alpaca_paper_bracket_supervised_dispatch_authorized",
+        symbol=intent.symbol, timeframe=intent.timeframe,
+        strategy=intent.strategy, intent_id=intent.id,
+        summary="One supervised Paper bracket dispatch claimed after preflight.",
+        details={"client_order_id": cid,
+                 "operator_reason": operator_reason.strip(),
+                 "automatic_retry": False},
+    )
+
+    already = _read_after_claim(claimed, source="pre_post_read")
+    if already is not None:
+        return already
+    try:
+        acknowledged = submit_equity_bracket_order(
+            symbol=intent.symbol, side=side, qty=intent.quantity,
+            reference_price=intent.entry_price, stop_loss=intent.stop_loss,
+            take_profit=intent.take_profit, client_order_id=cid,
+        )
+    except AlpacaPaperError as exc:
+        if exc.ambiguous:
+            # Ambiguous POST: lookup by SAME id, never POST again.
+            found = _read_after_claim(claimed, source="ambiguous_post_lookup")
+            if found is not None:
+                return found
+            return _record_post_outcome(
+                claimed, outcome="ambiguous_post_submission_unknown",
+                summary="Paper bracket POST outcome unknown; exact lookup found no order, but this is NOT proof of absence. Never resubmit automatically.",
+                broker_status_code=exc.status_code,
+            )
+        return _record_post_outcome(
+            claimed, outcome="broker_rejected_no_retry",
+            summary="Alpaca rejected the bracket attempt; the consumed claim cannot be retried.",
+            broker_status_code=exc.status_code,
+        )
+
+    outcome = _record_post_outcome(
+        claimed, outcome="parent_acknowledged_protection_unverified",
+        summary="Alpaca acknowledged an equity bracket parent; active broker exit legs and position are NOT yet established.",
+        broker_order=acknowledged,
+    )
+    # A new read-only observation is historical evidence only. Its result
+    # never changes intent to executed or authorizes unattended entry.
+    observation = observe_paper_equity_bracket(intent_id=intent.id)
+    outcome["observation_id"] = observation["id"]
+    outcome["observed_legs_at_snapshot"] = observation["verified_at_observation"]
+    return outcome
