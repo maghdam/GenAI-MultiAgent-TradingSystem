@@ -48,6 +48,7 @@ def assess_lifecycle(*, parent, position, client_order_id, symbol, side,
                 or parent.get("order_class") != "bracket"
                 or parent.get("symbol") != symbol or parent.get("side") != side
                 or parent.get("asset_class") != "us_equity"
+                or parent.get("group_role") not in (None, "", "entry")
                 or number(parent.get("qty")) != qty):
             raise ValueError("Parent differs from reserved bracket")
         legs = parent.get("legs")
@@ -65,6 +66,7 @@ def assess_lifecycle(*, parent, position, client_order_id, symbol, side,
                     or leg.get("side") != ("sell" if side == "buy" else "buy")
                     or number(leg.get(price_key)) != number(expected_price)
                     or number(expected_price) <= 0
+                    or leg.get("group_role") not in (None, "", "stop_loss" if role == "stop" else "take_profit")
                     or leg.get("group_id") != parent.get("group_id")):
                 raise ValueError("Protective leg identity or price differs")
             roles[role] = leg

@@ -2291,6 +2291,38 @@ Even a successful proof is only *verified at observation*, not a continuous posi
 
 ---
 
+### 10.20 Alpaca Paper supervised cancel/exit recovery and partial-fill accounting
+**Priority:** P0
+**Status:** 🟨 In progress — local implementation, not verified or approved for automation
+
+Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confirmed synchronized on 2026-10-21. Its completed read-only reconciliation is retained.
+
+**Implemented for local validation**
+- Pure cumulative entry/stop/target/close fill accounting against independently read signed broker position quantities. Partial entries remain unprotected; partial take-profit protection is recognized only when both remaining exit quantities actually match. Replaced/missing/unknown orders, overfills and unexpected external position changes fail closed.
+- Private, explicitly confirmed cancel-and-flatten steps for exact dispatched Paper equity brackets. Each call performs at most one mutation, commits a durable claim first, and requires fresh broker reads on the next call. Cancellation acknowledgement is never terminal-order proof.
+- Native group cancellation and orphan cleanup use exact owned order IDs. A separate quantity-limited market exit is eligible only after the parent and both legs are terminal, inventory is complete, and position quantity matches cumulative fills. It uses its own durable client ID for recovery; no blind POST retries.
+- SQLite exit sessions pin account, parent/SL/TP identities and request values. Close IDs are pinned on observation. Crashed/ambiguous claims remain consumed across restart, and partial closes remain unresolved until exact order/position truth agrees.
+- Supervised entry dispatch enforces configured position capacity, same-symbol exclusion, kill switch and mandatory bracket stops. Pending claims consume capacity under the same SQLite transaction as dispatch. The legacy duplicate guard no longer loses old unresolved intents behind a 200-row display limit.
+- Runtime audit includes a non-overridable readiness report. No UI, API, scheduler or engine route invokes the new exit mutation service. Paper automatic entries, crypto automatic entries and Alpaca Live remain disabled.
+
+**Acceptance gates (not yet verified)**
+- [ ] Final focused mock lifecycle/risk/restart/concurrency tests and existing broker regressions.
+- [ ] Full canonical backend regression and frontend production build on final implementation.
+- [ ] Required GitHub CI on exact head, review and explicit user approval before verification/merge.
+- [ ] Separately authorized broker field evidence; no actual Paper or Live order was placed for this implementation.
+
+**Remaining dependencies before automatic readiness**
+- [ ] Continuous observation/restart monitoring with bounded response and operator escalation when protection disappears. The current callable inspector does not run in the background.
+- [ ] A separately governed recovery procedure for missing/replaced legs, rejected closes, or consumed claims whose broker outcome remains unknown. Do not synthesize replacement orders or reset claims automatically.
+- [ ] Validate native partial-fill/SL resizing and OCO/cancel timing with authorized Paper observations. Local tests do not prove actual provider behavior.
+- [ ] Establish exclusive account control and an approved response to failure during cancellation-to-close. Cancellation can leave a position unprotected; the new workflow does not promise atomic flattening or uninterrupted protection. Equity exit POSTs are not broker-enforced reduce-only orders.
+- [ ] Journal realized-fill accounting and explicit lifecycle completion policy before releasing unresolved entry reservations for reuse. Snapshot-flat evidence deliberately does not mark an opening intent executed/resolved.
+- [ ] Explicit user approval of a separately reviewed activation change, after all prerequisites pass. No configuration flag or historical snapshot can activate this implementation.
+
+**Provider basis:** [Alpaca order lifecycle documentation](https://docs.alpaca.markets/us/docs/orders-at-alpaca), consulted 2026-10-21. Bracket exits activate only after complete entry fill; group cancellation and OCO cancellation are asynchronous; both exits can fill during a fast-market race; native take-profit partial fills adjust the stop quantity. These behaviors are checked conservatively, not assumed successful.
+
+**Other existing roadmap items remain untouched:** Phase 2.2 calibration evidence; Phase 2.6 natural-position chart field observation; Phase 2.11 account-scoped Journal history; Phase 4.9/4.10 generated-strategy runtime; Phase 5.3 evidence-dependent threshold research; Phase 7 protected-position disconnect field observation; the overall protection acceptance criterion.
+
 ## 15. Next item
 
-**Complete Phase 10.19 PR #125 final verification-documentation gate: validate the docs-only final PR head locally, confirm GitHub CI on that exact commit, then merge and synchronize local `main` cleanly. After merge, the next separately governed Alpaca Paper bracket lifecycle slice must safely observe/cancel/close broker-native protective/OCO orders, handle partial exits, restart and orphan cleanup without accidental duplicate orders or naked positions. Automatic Alpaca Paper equity and crypto entries stay blocked pending complete lifecycle validation; Alpaca Live, generated Strategy Studio execution and Phase 2.11 remain deferred.**
+**Finish Phase 10.20 local and exact-head CI validation, review the supervised cancellation exposure window and recovery limitations, and obtain user approval before verification or merge. Then address the explicitly listed monitoring, recovery, accounting and field-evidence dependencies before any automatic activation proposal. Phase 10.19 synchronization is complete and must not be repeated as unfinished development.**

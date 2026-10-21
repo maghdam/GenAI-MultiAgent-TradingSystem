@@ -19,6 +19,7 @@ from backend.services.alpaca_paper import (
     get_open_position,
     get_order_by_client_order_id,
     list_orders,
+    list_positions,
     submit_equity_bracket_order,
 )
 from backend.storage.repositories import (
@@ -26,6 +27,7 @@ from backend.storage.repositories import (
     claim_reserved_alpaca_bracket_dispatch,
     get_order_intent_by_id,
     load_engine_config,
+    list_paper_positions,
     update_order_intent_status,
 )
 
@@ -159,8 +161,11 @@ def submit_supervised_paper_equity_bracket(
         ) from exc
     if prospective != stored or not match_numeric_intent:
         raise ValueError("Durable bracket request differs from the strictly validated order payload.")
-    if load_engine_config(EngineConfig()).kill_switch:
+    config = load_engine_config(EngineConfig())
+    if config.kill_switch:
         raise AlpacaPaperError("Kill switch must be OFF for a supervised new Paper bracket entry.")
+    if config.max_open_positions <= 0 or config.max_positions_per_symbol <= 0:
+        raise AlpacaPaperError("Configured position limits prohibit new bracket entries.")
     account = _execution_ready_account()
     if side == "sell" and not account.get("shorting_enabled"):
         raise AlpacaPaperError("Alpaca Paper account does not allow short US-equity entries.")
@@ -168,16 +173,31 @@ def submit_supervised_paper_equity_bracket(
         return {"status": "blocked", "intent_id": intent.id,
                 "summary": "An open Alpaca position blocks new bracket dispatch.",
                 "broker_native_protection_verified": False}
+    open_orders = list_orders(status="open", limit=500)
+    if len(open_orders) >= 500 or any(not item.get("symbol") for item in open_orders):
+        raise AlpacaPaperError("Incomplete broker open-order inventory blocks bracket dispatch.")
     if any(
         str(x.get("symbol") or "").upper() == intent.symbol.upper()
-        for x in list_orders(status="open", limit=500)
+        for x in open_orders
     ):
         return {"status": "blocked", "intent_id": intent.id,
                 "summary": "An open Alpaca order blocks new bracket dispatch.",
                 "broker_native_protection_verified": False}
 
     # The durable single-use claim is committed before any broker POST.
-    claimed = claim_reserved_alpaca_bracket_dispatch(intent.id)
+    positions = list_positions()
+    if any(not p.get("symbol") for p in positions):
+        raise AlpacaPaperError("Incomplete broker position inventory blocks bracket dispatch.")
+    local_positions = list_paper_positions("open")
+    if any(p.symbol.upper() == intent.symbol.upper() for p in local_positions):
+        return {"status": "blocked", "intent_id": intent.id,
+                "summary": "A local position already occupies this symbol.",
+                "broker_native_protection_verified": False}
+    occupied = {str(p["symbol"]).upper() for p in [*positions, *open_orders]}
+    claimed = claim_reserved_alpaca_bracket_dispatch(
+        intent.id, max_open_positions=config.max_open_positions,
+        occupied_symbols=occupied, local_open_count=len(local_positions),
+    )
     if claimed is None:
         return {"status": "blocked", "intent_id": intent.id,
                 "summary": "Bracket dispatch was already claimed or is no longer eligible.",
