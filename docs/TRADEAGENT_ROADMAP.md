@@ -1634,6 +1634,7 @@ Add one row after every completed task.
 | 2026-10-18 | Phase 10.15 Alpaca Paper read-only bracket parent/leg broker truth | Preserve exact Alpaca broker parent/leg identifiers, order classes, exit price and optional grouping/replacement metadata; add explicit nested lookups and strict fail-closed proof requiring independently verified open equity position | ✅ 52/52 focused bracket/protected-entry tests + 57/57 Alpaca/cTrader safety regressions; full canonical backend and frontend (707 modules), clean git/diff; PR #121 implementation-head CI #524 green on `94b9fcc`; mocked provider payloads only | PR #121 / `94b9fcc` | Final docs-head local/CI validation, merge and main sync; next separately governed durable bracket submission, leg lifecycle, restart and safe flatten; crypto auto entry stays blocked |
 | 2026-10-18 | Phase 10.16 Alpaca Paper durable read-only bracket observations | Add append-only intent-scoped historical snapshots for independently checked Alpaca Paper US-equity bracket parent, stop and target legs; fail closed on unavailable broker truth, never treat old proof as current, and preserve auto-entry lockout | ✅ Local focused 66/66, Alpaca/cTrader safety 57/57, full canonical backend+707-module frontend build twice, clean git/diff; PR #122 exact implementation-head CI #527 green on `9f0c52e`; mocked broker reads, no order mutation | PR #122 / `9f0c52e` | Validate final docs-only PR head local/CI, merge, synchronize main, then separately implement durable protected bracket submission/reconciliation plus safe exit/cancel/restart lifecycle |
 | 2026-10-18 | Phase 10.17 Alpaca Paper bracket reservation and one-shot claim | Store validated native US-equity bracket request and globally unique client identity atomically before any mutation; reject same-symbol reservations, mark one-shot claim durably, exclude bracket intents from simple-order reconciliation | ✅ 84/84 focused and 57/57 Alpaca/cTrader safety tests; full backend plus frontend 707-module build; clean git/diff; exact implementation-head CI #530 successful on `a1e6f34`; mock-only, no broker mutations | PR #123 / `a1e6f34` | Final docs-head validation, merge and clean main sync, then separately govern supervised native bracket POST, ambiguous recovery, live leg verification and safe cancel/flatten |
+| 2026-10-21 | Phase 10.18 supervised single-use Alpaca Paper equity bracket POST | Add private operator-confirmed Paper-only native bracket POST guarded by durable single-use dispatch, ambiguous-submission no-retry recovery, request-preserving SQLite numeric validation and read-only historic broker proof; no automatic entry integration | ✅ Corrected implementation `08c9c73`: local focused 109/109 + Alpaca/cTrader 57/57, canonical full backend tests and 707-module frontend build, clean git/diff; exact-head GitHub CI #534 passed. Earlier mismatch on `9ceb0ab` caused ten failures / CI #533 failed and was corrected. Mock broker tests, zero live/Paper orders | PR #124 / `08c9c73` | Final docs-only head validation and CI; merge, clean sync main; next separately reconcile actual active parent/SL/TP broker protection and safe close/cancel/restart/partial fills before any automatic Paper entry |
 
 ---
 
@@ -2228,7 +2229,7 @@ The reservation records a **proposal**, not a broker order or verified protectiv
 
 ### 10.18 Alpaca Paper supervised one-shot bracket POST and fail-closed acknowledgement
 **Priority:** P0
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 Consume Phase 10.17's durable reservation exactly once to send a **supervised-only** broker-native US-equity bracket parent. A POST acknowledgement is not protective-order activation. Every filled/pending/ambiguous/negative response remains unresolved until independent broker position and both SL/TP leg truth are verified. Automatic entry stays disabled.
 
@@ -2243,10 +2244,17 @@ Consume Phase 10.17's durable reservation exactly once to send a **supervised-on
 **Local validation blocker (2026-10-21, implementation head `9ceb0ab`):** The operator's first Phase 10.18 tests exposed 10 failures due to comparing reserved integer-form price/qty strings directly with SQLite float-form strings (e.g. `99` versus `99.0`). GitHub CI #533 also failed. Corrected on the implementation branch; focused, canonical and exact new-head CI must be repeated before verification. The existing 57 broker/cTrader safety regression tests passed. No order mutations occurred during testing.
 
 **Acceptance**
-- [ ] Focused native Paper bracket payload, one-shot supervised dispatch, ambiguous/dropped-ack/restart, Paper-only/kill-switch and prior protection regressions pass locally.
-- [ ] Existing Alpaca/cTrader broker safety tests remain green with no actual broker mutations.
-- [ ] Canonical full backend/frontend tests and clean-worktree/whitespace validation pass.
-- [ ] Exact implementation-head CI is green before marking verified and merging.
+- [x] Focused native Paper bracket payload, one-shot supervised dispatch, ambiguous/dropped-ack/restart, Paper-only/kill-switch and prior protection regressions pass locally.
+- [x] Existing Alpaca/cTrader broker safety tests remain green with no actual broker mutations.
+- [x] Canonical full backend/frontend tests and clean-worktree/whitespace validation pass.
+- [x] Exact implementation-head CI is green before marking verified and merging.
+
+**Verification (2026-10-21)**
+- User ran Windows PowerShell tests on corrected PR #124 exact implementation SHA `08c9c73084107a54a3ac63fc1e6a0143aefee904`: **109/109** focused supervised bracket, durable reservation, observation, broker-truth and safety prerequisite tests passed; **57/57** Alpaca Paper execution/runtime and cTrader Demo/safety regressions passed.
+- `python scripts/validate.py` passed the complete backend test suite and TypeScript/Vite frontend production build (**707 modules**); `git status --short` and `git diff --check origin/main...HEAD` were clean.
+- GitHub Actions **#534** succeeded on exact corrected implementation commit `08c9c73`, with zero unresolved PR review threads.
+- The initial numeric-string mismatch caused 10 failures on `9ceb0ab` (CI #533 failed); the corrected code preserved the exact reserved request and validated numerical equivalence without weakening identity/safety checks. Independent local and CI tests confirmed the repair.
+- **Safety qualification:** broker POSTs and Paper account responses were mocked in tests. The new supervised dispatcher is internal-only and capable of a real **Paper** POST only when deliberately called; it has **no** UI, API, engine or scheduler connection. A broker parent acknowledgement never establishes live protective legs. Alpaca Paper autonomous entries remain blocked and Alpaca Live is still disabled.
 
 **Scope boundary**
 This phase introduces a **callable internal supervised Paper POST**, not a UI or automated trading feature. It does not guarantee live stop-loss protection, synchronize active legs continuously, automatically close positions, or cancel orphaned orders. Remaining supervised lifecycle work must reconcile full fills/active stop/TP legs and handle restarts, cancellation, OCO expiry, partial fills and safe flattening before automatic entries may be considered. Crypto Paper auto entries and Alpaca Live remain disabled.
@@ -2255,4 +2263,4 @@ This phase introduces a **callable internal supervised Paper POST**, not a UI or
 
 ## 15. Next item
 
-**Current Phase 10.18: validate the supervised-only native Alpaca Paper bracket POST after a single-use durable claim, ensure ambiguous POST outcomes are never retried, and keep parent acknowledgements unresolved and broker protection unverified. Require focused/full local regression and exact GitHub CI before roadmap verification, work-log update, merge, and clean local `main` synchronization. Next governed slices must reconcile actual live SL/TP legs and position fills, safely handle restart/cancel/orphan/partial-fill/flattening semantics, and only then consider automatic Paper entry enablement. Crypto Paper auto entry, Alpaca Live, generated Strategy Studio source runtime and Phase 2.11 stay deferred.**
+**Complete Phase 10.18 PR #124 final verification-documentation gate: validate the docs-only final head locally, confirm exact-head GitHub CI, merge and synchronize local `main`. After merge, the next separately governed Alpaca Paper US-equity bracket lifecycle slice must reconcile actual filled parent plus active stop-loss/take-profit broker legs and position truth, fail closed on unknown/partial fill or missing/changed legs, and preserve restart/ambiguous-submission safety. Then separately implement safe close/cancel/orphan cleanup before any autonomous Alpaca Paper entries can resume. Crypto Paper auto entry, Alpaca Live, generated Strategy Studio source runtime and Phase 2.11 remain deferred.**
