@@ -2235,9 +2235,12 @@ Consume Phase 10.17's durable reservation exactly once to send a **supervised-on
 **Target behavior**
 - [x] Provide a strictly scoped native Alpaca **Paper HTTPS** US-equity bracket mutation adapter that independently reconstructs and checks stop/TP payload and rejects malformed/mismatched broker acknowledgement as ambiguous.
 - [x] Add a private supervised dispatcher requiring exact operator confirmation, matching reserved client order ID, operator reason, kill switch OFF, ACTIVE Paper account, short permission as appropriate, current position/open-order preflight, and immutable proposed payload before consuming one durable claim.
+- [x] Preserve exact reserved bracket payload across SQLite numeric serialization (`99` versus `99.0`) while independently validating quantity/stop/target numeric equality to the stored intent; reject altered payload keys, price, sizing, client identity or order structure before any claim/POST.
 - [x] AFTER the single-use durable claim commits, perform exact nested client-ID lookup, then send at most one `POST /v2/orders` if no existing order appears; never retry POST on any outcome, including lookup error, 404 after ambiguous POST, process restart, or explicit 4xx rejection.
 - [x] Persist bracket outcome/audit as accepted and reconciliation-required with `broker_native_protection_verified=False` even if the parent fills. Acknowledged parent triggers an independent read-only historical bracket/position observation; any apparent protection remains historical, not a runtime authorization.
 - [x] No API/dashboard/engine/scheduler route to new dispatcher. Phase 10.14 Alpaca Paper auto-entry remains blocked; cTrader, Alpaca Live and legacy operator simple-order APIs are unchanged.
+
+**Local validation blocker (2026-10-21, implementation head `9ceb0ab`):** The operator's first Phase 10.18 tests exposed 10 failures due to comparing reserved integer-form price/qty strings directly with SQLite float-form strings (e.g. `99` versus `99.0`). GitHub CI #533 also failed. Corrected on the implementation branch; focused, canonical and exact new-head CI must be repeated before verification. The existing 57 broker/cTrader safety regression tests passed. No order mutations occurred during testing.
 
 **Acceptance**
 - [ ] Focused native Paper bracket payload, one-shot supervised dispatch, ambiguous/dropped-ack/restart, Paper-only/kill-switch and prior protection regressions pass locally.

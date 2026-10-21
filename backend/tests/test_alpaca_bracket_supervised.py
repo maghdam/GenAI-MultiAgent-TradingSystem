@@ -79,6 +79,9 @@ def test_supervised_bracket_posts_exactly_once_and_records_unprotected_parent(mo
     outcome = alpaca_bracket_supervised.submit_supervised_paper_equity_bracket(**_args(reserved))
     assert len(transmitted) == 1
     assert transmitted[0]["client_order_id"] == reserved["client_order_id"]
+    stored = get_order_intent_by_id(reserved["intent_id"]).details["bracket_order_request"]
+    sent_payload = alpaca_paper.build_equity_bracket_market_order(**transmitted[0])
+    assert sent_payload == stored  # exact durable request, including price strings
     assert outcome["status"] == "reconciliation_required"
     assert outcome["broker_native_protection_verified"] is False
     assert outcome["observed_legs_at_snapshot"] is False
@@ -234,3 +237,85 @@ def test_no_automatic_runtime_entry_or_manual_simple_reconciler_claim(monkeypatc
     assert "submit_supervised_paper_equity_bracket" not in (
         alpaca_runtime.execute_alpaca_runtime_signal.__code__.co_names
     )
+
+
+@pytest.mark.parametrize("numeric_inputs", [
+    {"reference_price": 101, "stop_loss": 99, "take_profit": 104, "qty": 2},
+    {"reference_price": 101.0, "stop_loss": 99.0, "take_profit": 104.0, "qty": 2},
+])
+def test_valid_reserved_numeric_representation_survives_sqlite_roundtrip(
+    monkeypatch, numeric_inputs
+):
+    monkeypatch.setattr(alpaca_bracket_reservation, "_execution_ready_account", _account)
+    monkeypatch.setattr(alpaca_bracket_reservation, "get_open_position", lambda symbol: None)
+    monkeypatch.setattr(alpaca_bracket_reservation, "list_orders", lambda **kwargs: [])
+    reserved = alpaca_bracket_reservation.reserve_paper_equity_bracket(
+        symbol="SPY", side="buy", timeframe="M5", strategy="manual",
+        rationale="serialized-order-numeric-equivalence", **numeric_inputs,
+    )
+    init_db()  # simulate roundtrip / restart between reserve and dispatch
+    monkeypatch.setattr(
+        alpaca_bracket_supervised, "load_engine_config",
+        lambda defaults: EngineConfig(kill_switch=False),
+    )
+    monkeypatch.setattr(alpaca_bracket_supervised, "_execution_ready_account", _account)
+    monkeypatch.setattr(alpaca_bracket_supervised, "get_open_position", lambda symbol: None)
+    monkeypatch.setattr(alpaca_bracket_supervised, "list_orders", lambda **kwargs: [])
+    monkeypatch.setattr(
+        alpaca_bracket_supervised, "get_order_by_client_order_id",
+        lambda cid, *, nested: None,
+    )
+    transmitted = []
+    def fake_submit(**kwargs):
+        transmitted.append(alpaca_paper.build_equity_bracket_market_order(**kwargs))
+        return _parent(kwargs["client_order_id"])
+    monkeypatch.setattr(alpaca_bracket_supervised, "submit_equity_bracket_order", fake_submit)
+    monkeypatch.setattr(
+        alpaca_bracket_supervised, "observe_paper_equity_bracket",
+        lambda *, intent_id: {"id": 31, "verified_at_observation": False},
+    )
+    result = alpaca_bracket_supervised.submit_supervised_paper_equity_bracket(
+        **_args(reserved)
+    )
+    assert result["status"] == "reconciliation_required"
+    assert len(transmitted) == 1
+    assert transmitted[0] == get_order_intent_by_id(
+        reserved["intent_id"]
+    ).details["bracket_order_request"]
+
+
+@pytest.mark.parametrize("tamper", [
+    "stop_loss",
+    "quantity",
+    "client_order_id",
+    "extra_field",
+])
+def test_mutated_persisted_request_fails_closed_before_dispatch_claim(
+    monkeypatch, tamper
+):
+    from backend.storage.repositories import update_order_intent_status
+    reserved = _setup(monkeypatch)
+    intent = get_order_intent_by_id(reserved["intent_id"])
+    request = deepcopy(intent.details["bracket_order_request"])
+    if tamper == "stop_loss":
+        request["stop_loss"]["stop_price"] = "98"
+    elif tamper == "quantity":
+        request["qty"] = "3"
+    elif tamper == "client_order_id":
+        request["client_order_id"] = "altered-id"
+    else:
+        request["unexpected"] = "forbidden"
+    update_order_intent_status(
+        reserved["intent_id"], "accepted", {"bracket_order_request": request},
+        reason="test_tampered_prospective_bracket",
+    )
+    monkeypatch.setattr(
+        alpaca_bracket_supervised, "submit_equity_bracket_order",
+        lambda **kw: pytest.fail("tampered request must never POST"),
+    )
+    with pytest.raises(ValueError, match="Durable bracket request differs"):
+        alpaca_bracket_supervised.submit_supervised_paper_equity_bracket(
+            **_args(reserved)
+        )
+    observed = get_order_intent_by_id(reserved["intent_id"])
+    assert observed.details["outcome_state"] == "bracket_reserved_not_submitted"

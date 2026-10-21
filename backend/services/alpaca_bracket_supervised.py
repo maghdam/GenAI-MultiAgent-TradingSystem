@@ -8,6 +8,8 @@ marks broker-native SL/TP protection as currently verified.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 from backend.domain.models import EngineConfig
 from backend.services.alpaca_bracket_observations import observe_paper_equity_bracket
 from backend.services.alpaca_execution import _execution_ready_account
@@ -121,12 +123,41 @@ def submit_supervised_paper_equity_bracket(
     ):
         raise ValueError("No matching, unclaimed, reserved Alpaca Paper equity bracket exists.")
     side = "buy" if intent.direction == "long" else "sell" if intent.direction == "short" else ""
-    prospective = build_equity_bracket_market_order(
-        symbol=intent.symbol, side=side, qty=intent.quantity,
-        reference_price=intent.entry_price, stop_loss=intent.stop_loss,
-        take_profit=intent.take_profit, client_order_id=cid,
-    )
-    if details.get("bracket_order_request") != prospective:
+    stored = details.get("bracket_order_request")
+    if not isinstance(stored, dict):
+        raise ValueError("Durable bracket request differs from the strictly validated order payload.")
+    stored_stop = stored.get("stop_loss")
+    stored_target = stored.get("take_profit")
+    if not isinstance(stored_stop, dict) or not isinstance(stored_target, dict):
+        raise ValueError("Durable bracket request differs from the strictly validated order payload.")
+    # The original order payload may contain "2", "99", "104" while SQLite
+    # stores numeric intent columns as 2.0, 99.0, 104.0. Rebuilding from
+    # SQLite float representations changes *strings*, not economic values.
+    # Rebuild instead from the exact reserved request, then independently
+    # compare all economic values to the durable numeric intent columns.
+    # Never relax symbol, class, side, order type, TIF, client ID, or keys.
+    try:
+        prospective = build_equity_bracket_market_order(
+            symbol=intent.symbol, side=side, qty=stored.get("qty"),
+            reference_price=intent.entry_price,
+            stop_loss=stored_stop.get("stop_price"),
+            take_profit=stored_target.get("limit_price"),
+            client_order_id=cid,
+        )
+        match_numeric_intent = all(
+            Decimal(str(persisted)).is_finite()
+            and Decimal(str(persisted)) == Decimal(str(requested))
+            for persisted, requested in (
+                (intent.quantity, prospective["qty"]),
+                (intent.stop_loss, prospective["stop_loss"]["stop_price"]),
+                (intent.take_profit, prospective["take_profit"]["limit_price"]),
+            )
+        )
+    except (TypeError, ValueError, InvalidOperation, KeyError) as exc:
+        raise ValueError(
+            "Durable bracket request differs from the strictly validated order payload."
+        ) from exc
+    if prospective != stored or not match_numeric_intent:
         raise ValueError("Durable bracket request differs from the strictly validated order payload.")
     if load_engine_config(EngineConfig()).kill_switch:
         raise AlpacaPaperError("Kill switch must be OFF for a supervised new Paper bracket entry.")
@@ -166,9 +197,11 @@ def submit_supervised_paper_equity_bracket(
         return already
     try:
         acknowledged = submit_equity_bracket_order(
-            symbol=intent.symbol, side=side, qty=intent.quantity,
-            reference_price=intent.entry_price, stop_loss=intent.stop_loss,
-            take_profit=intent.take_profit, client_order_id=cid,
+            symbol=intent.symbol, side=side, qty=prospective["qty"],
+            reference_price=intent.entry_price,
+            stop_loss=prospective["stop_loss"]["stop_price"],
+            take_profit=prospective["take_profit"]["limit_price"],
+            client_order_id=cid,
         )
     except AlpacaPaperError as exc:
         if exc.ambiguous:
