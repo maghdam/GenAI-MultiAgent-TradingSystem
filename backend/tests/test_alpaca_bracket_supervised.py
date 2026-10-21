@@ -287,6 +287,9 @@ def test_valid_reserved_numeric_representation_survives_sqlite_roundtrip(
     monkeypatch.setattr(alpaca_bracket_supervised, "_execution_ready_account", _account)
     monkeypatch.setattr(alpaca_bracket_supervised, "get_open_position", lambda symbol: None)
     monkeypatch.setattr(alpaca_bracket_supervised, "list_orders", lambda **kwargs: [])
+    # Never contact a real broker from the SQLite numeric-roundtrip test.
+    # Phase 10.20 adds a full-account capacity read to supervised dispatch.
+    monkeypatch.setattr(alpaca_bracket_supervised, "list_positions", lambda: [])
     monkeypatch.setattr(
         alpaca_bracket_supervised, "get_order_by_client_order_id",
         lambda cid, *, nested: None,
