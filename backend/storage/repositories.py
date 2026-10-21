@@ -648,6 +648,179 @@ def latest_alpaca_bracket_observation(intent_id: int) -> dict[str, Any] | None:
     return get_alpaca_bracket_observation(int(row["id"])) if row is not None else None
 
 
+
+def reserve_alpaca_bracket_order_intent(
+    *,
+    symbol: str,
+    timeframe: str,
+    strategy: str,
+    direction: str,
+    quantity: int,
+    entry_price: float,
+    stop_loss: float,
+    take_profit: float,
+    rationale: str,
+    client_order_id: str,
+    broker_request: dict[str, Any],
+) -> OrderIntentRecord | None:
+    """Atomically reserve one Paper bracket identity, without broker mutation.
+
+    An existing accepted Alpaca Paper intent on this symbol wins: this returns
+    None and does not create a second reservation. The transaction guards
+    concurrent local workers; it cannot replace a broker-account-scoping gate.
+    """
+    if direction not in {"long", "short"}:
+        raise ValueError("Protected bracket direction must be long or short.")
+    if not symbol or not client_order_id or not broker_request:
+        raise ValueError("Protected bracket requires a symbol, client ID and request.")
+    now = _utcnow().isoformat()
+    details = {
+        "broker_provider": "alpaca",
+        "broker_environment": "paper",
+        "asset_class": "us_equity",
+        "protection_mode": "equity_bracket",
+        "client_order_id": client_order_id,
+        "bracket_order_request": broker_request,
+        "outcome_state": "bracket_reserved_not_submitted",
+        "reconciliation_resolved": False,
+        "automatic_retry": False,
+        "broker_mutation_permitted": False,
+    }
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            existing = db.execute(
+                """
+                SELECT id FROM order_intents
+                WHERE symbol = ? AND status = 'accepted'
+                  AND json_extract(details_json, '$.broker_provider') = 'alpaca'
+                  AND json_extract(details_json, '$.broker_environment') = 'paper'
+                LIMIT 1
+                """,
+                (symbol.upper(),),
+            ).fetchone()
+            if existing is not None:
+                db.rollback()
+                return None
+            cur = db.execute(
+                """
+                INSERT INTO order_intents(
+                    created_at, symbol, timeframe, strategy, direction, intent_type,
+                    status, confidence, entry_price, stop_loss, take_profit,
+                    quantity, rationale, details_json, decision_id
+                ) VALUES(?, ?, ?, ?, ?, 'open', 'accepted', 1.0, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (
+                    now, symbol.upper(), timeframe.upper(), strategy, direction,
+                    float(entry_price), float(stop_loss), float(take_profit),
+                    int(quantity), rationale, json.dumps(details, ensure_ascii=False),
+                ),
+            )
+            intent_id = int(cur.lastrowid)
+            db.execute(
+                """
+                INSERT INTO order_intent_transitions(
+                    intent_id, created_at, from_status, to_status, reason, details_json
+                ) VALUES(?, ?, NULL, 'accepted', 'alpaca_bracket_reserved_without_submission', ?)
+                """,
+                (intent_id, now, json.dumps(details, ensure_ascii=False)),
+            )
+            db.execute(
+                """
+                INSERT INTO trade_audit(
+                    created_at, event_type, symbol, timeframe, strategy,
+                    position_id, intent_id, summary, details_json
+                ) VALUES(?, 'alpaca_paper_bracket_reserved', ?, ?, ?, NULL, ?, ?, ?)
+                """,
+                (
+                    now, symbol.upper(), timeframe.upper(), strategy, intent_id,
+                    "Durable Alpaca Paper equity bracket identity reserved; no order was submitted.",
+                    json.dumps({
+                        "client_order_id": client_order_id,
+                        "broker_mutation_permitted": False,
+                        "automatic_retry": False,
+                    }, ensure_ascii=False),
+                ),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+    return get_order_intent_by_id(intent_id)
+
+
+def claim_reserved_alpaca_bracket_dispatch(intent_id: int) -> OrderIntentRecord | None:
+    """One-shot durable dispatch claim for a FUTURE separately gated sender.
+
+    No HTTP calls occur here. A crashed/ambiguous claim cannot be claimed a
+    second time automatically; exact broker reconciliation must come first.
+    """
+    now = _utcnow().isoformat()
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            row = db.execute(
+                "SELECT symbol, timeframe, strategy, status, intent_type, details_json "
+                "FROM order_intents WHERE id = ?",
+                (int(intent_id),),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown order intent {intent_id}")
+            details = json.loads(row["details_json"] or "{}")
+            if (
+                row["status"] != "accepted"
+                or row["intent_type"] != "open"
+                or not isinstance(details, dict)
+                or details.get("broker_provider") != "alpaca"
+                or details.get("broker_environment") != "paper"
+                or details.get("asset_class") != "us_equity"
+                or details.get("protection_mode") != "equity_bracket"
+                or details.get("outcome_state") != "bracket_reserved_not_submitted"
+                or not details.get("client_order_id")
+                or not isinstance(details.get("bracket_order_request"), dict)
+            ):
+                db.rollback()
+                return None
+            details["outcome_state"] = "bracket_dispatch_claimed_submission_unknown"
+            details["automatic_retry"] = False
+            details["reconciliation_resolved"] = False
+            details["broker_mutation_permitted"] = False
+            db.execute(
+                "UPDATE order_intents SET details_json = ? WHERE id = ?",
+                (json.dumps(details, ensure_ascii=False), int(intent_id)),
+            )
+            db.execute(
+                """
+                INSERT INTO order_intent_transitions(
+                    intent_id, created_at, from_status, to_status, reason, details_json
+                ) VALUES(?, ?, 'accepted', 'accepted', 'alpaca_bracket_one_shot_dispatch_claim', ?)
+                """,
+                (int(intent_id), now, json.dumps({
+                    "outcome_state": details["outcome_state"],
+                    "automatic_retry": False,
+                    "broker_mutation_permitted": False,
+                })),
+            )
+            db.execute(
+                """
+                INSERT INTO trade_audit(
+                    created_at, event_type, symbol, timeframe, strategy,
+                    position_id, intent_id, summary, details_json
+                ) VALUES(?, 'alpaca_paper_bracket_dispatch_claimed', ?, ?, ?, NULL, ?, ?, ?)
+                """,
+                (
+                    now, row["symbol"], row["timeframe"], row["strategy"], int(intent_id),
+                    "One-shot bracket dispatch claim recorded; this function did not submit an order.",
+                    json.dumps({"client_order_id": details["client_order_id"], "automatic_retry": False}),
+                ),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+    return get_order_intent_by_id(int(intent_id))
+
+
 def list_order_intents(limit: int = 20) -> List[OrderIntentRecord]:
     with get_db() as db:
         rows = db.execute(
