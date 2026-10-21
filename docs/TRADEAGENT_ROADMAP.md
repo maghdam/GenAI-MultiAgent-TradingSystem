@@ -1635,6 +1635,7 @@ Add one row after every completed task.
 | 2026-10-18 | Phase 10.16 Alpaca Paper durable read-only bracket observations | Add append-only intent-scoped historical snapshots for independently checked Alpaca Paper US-equity bracket parent, stop and target legs; fail closed on unavailable broker truth, never treat old proof as current, and preserve auto-entry lockout | ✅ Local focused 66/66, Alpaca/cTrader safety 57/57, full canonical backend+707-module frontend build twice, clean git/diff; PR #122 exact implementation-head CI #527 green on `9f0c52e`; mocked broker reads, no order mutation | PR #122 / `9f0c52e` | Validate final docs-only PR head local/CI, merge, synchronize main, then separately implement durable protected bracket submission/reconciliation plus safe exit/cancel/restart lifecycle |
 | 2026-10-18 | Phase 10.17 Alpaca Paper bracket reservation and one-shot claim | Store validated native US-equity bracket request and globally unique client identity atomically before any mutation; reject same-symbol reservations, mark one-shot claim durably, exclude bracket intents from simple-order reconciliation | ✅ 84/84 focused and 57/57 Alpaca/cTrader safety tests; full backend plus frontend 707-module build; clean git/diff; exact implementation-head CI #530 successful on `a1e6f34`; mock-only, no broker mutations | PR #123 / `a1e6f34` | Final docs-head validation, merge and clean main sync, then separately govern supervised native bracket POST, ambiguous recovery, live leg verification and safe cancel/flatten |
 | 2026-10-21 | Phase 10.18 supervised single-use Alpaca Paper equity bracket POST | Add private operator-confirmed Paper-only native bracket POST guarded by durable single-use dispatch, ambiguous-submission no-retry recovery, request-preserving SQLite numeric validation and read-only historic broker proof; no automatic entry integration | ✅ Corrected implementation `08c9c73`: local focused 109/109 + Alpaca/cTrader 57/57, canonical full backend tests and 707-module frontend build, clean git/diff; exact-head GitHub CI #534 passed. Earlier mismatch on `9ceb0ab` caused ten failures / CI #533 failed and was corrected. Mock broker tests, zero live/Paper orders | PR #124 / `08c9c73` | Final docs-only head validation and CI; merge, clean sync main; next separately reconcile actual active parent/SL/TP broker protection and safe close/cancel/restart/partial fills before any automatic Paper entry |
+| 2026-10-21 | Phase 10.19 Alpaca Paper read-only bracket lifecycle reconciliation and leg ID continuity | Add on-demand exact nested parent/stop/target + separate position truth, classify unknown/partial/missing exits as unresolved and prevent silently accepting changed broker protective-leg identities after restart | ✅ Local focused 135/135 twice and Alpaca/cTrader safety 57/57; full canonical backend and frontend 707-module build, clean git/diff; exact implementation-head CI #537 successful on `a947cd2`; mocked reads, zero broker mutation | PR #125 / `a947cd2` | Validate docs-only final PR head local/CI, merge and clean main sync, then separately govern exit/cancel/OCO, partial-fill and safe flatten/orphan handling prior to automatic Paper entries |
 
 ---
 
@@ -2261,7 +2262,7 @@ This phase introduces a **callable internal supervised Paper POST**, not a UI or
 
 ### 10.19 Alpaca Paper dispatched-bracket read-only lifecycle reconciliation and ID continuity
 **Priority:** P0
-**Status:** 🧪 Ready to test
+**Status:** ✅
 
 Following Phase 10.18's explicitly supervised one-shot Paper bracket POST, independently re-read the **exact dispatched US-equity bracket parent and nested stop/target legs plus separate broker position** on each operator-triggered reconciliation. Store a new historical observation, classify incomplete/partial/terminal states fail-closed, and reject unexplained parent or exit-leg identity drift after a previous verified observation. This is not an automatic trading risk gate.
 
@@ -2274,10 +2275,16 @@ Following Phase 10.18's explicitly supervised one-shot Paper bracket POST, indep
 - [x] Preserve historical-only proof, durable single-use POST lockout, `automatic_retry=False`, no backend/UI/engine auto routing, Alpaca Live/crypto automatic entry prohibitions, and cTrader safety. No broker POST/cancel/flatten is introduced.
 
 **Acceptance**
-- [ ] Focused dispatched-bracket reconciliation, continuity/restart, partial/unknown states, prior reservation/POST and broker-truth tests pass on Windows.
-- [ ] Alpaca Paper runtime and cTrader broker safety regressions pass locally with zero actual broker mutations.
-- [ ] Full canonical backend suite and frontend build, clean worktree, git diff whitespace checks pass.
-- [ ] Exact implementation-head GitHub CI succeeds before verification/merge.
+- [x] Focused dispatched-bracket reconciliation, continuity/restart, partial/unknown states, prior reservation/POST and broker-truth tests pass on Windows.
+- [x] Alpaca Paper runtime and cTrader broker safety regressions pass locally with zero actual broker mutations.
+- [x] Full canonical backend suite and frontend build, clean worktree, git diff whitespace checks pass.
+- [x] Exact implementation-head GitHub CI succeeds before verification/merge.
+
+**Verification (2026-10-21)**
+- Operator Windows PowerShell on PR #125 exact implementation SHA `a947cd24e470291709ce1c1406859cead377ba06`: **135/135** focused bracket read-only reconciliation, durable reservation, supervised POST, broker observations, and protective prerequisite tests passed **twice**; **57/57** Alpaca Paper runtime/execution and cTrader Demo/safety regression tests passed.
+- `python scripts/validate.py` passed the complete backend test suite and TypeScript/Vite production frontend build (**707 modules**); `git status --short` empty and `git diff --check origin/main...HEAD` clean.
+- GitHub Actions **#537** completed successfully on exact implementation head `a947cd2`; zero unresolved PR review threads.
+- **Safety qualification:** tests use mocked broker reads and isolated databases, with no actual broker mutation. Complete parent/SL/TP/position identity is **verified only at observation**, not continuous protection. Old observation IDs cannot authorize autonomous trading; Paper auto entries stay blocked.
 
 **Safety boundary**
 Even a successful proof is only *verified at observation*, not a continuous position-protection guarantee or an order-entry enablement signal. The implemented reconciler is a private, explicit read-only function. **Remaining lifecycle work:** authenticated broker-side exit/cancel and OCO reconciliation, actual partial-fill sizing management, safe flatten/orphan cleanup and restart monitoring before considering autonomous Alpaca Paper entries. Crypto Paper auto entry, Alpaca Live, generated Studio source execution and Phase 2.11 remain deferred.
@@ -2286,4 +2293,4 @@ Even a successful proof is only *verified at observation*, not a continuous posi
 
 ## 15. Next item
 
-**Current Phase 10.19: validate read-only post-dispatch Alpaca Paper US-equity bracket reconciliation, first-verified parent/SL/TP identity continuity, fresh nested broker order and position evidence, and fail-closed classifications for partial/unknown/changed legs. Require local focused/full regression and exact GitHub CI before roadmap verification, work-log update, merge, and clean synchronized `main`. Next independently govern broker exit/cancel/OCO, partial fills, safe flatten/orphan cleanup and restart monitoring before any automatic Alpaca Paper entries may resume. Crypto Paper auto entry, Alpaca Live, generated Studio execution and Phase 2.11 remain deferred.**
+**Complete Phase 10.19 PR #125 final verification-documentation gate: validate the docs-only final PR head locally, confirm GitHub CI on that exact commit, then merge and synchronize local `main` cleanly. After merge, the next separately governed Alpaca Paper bracket lifecycle slice must safely observe/cancel/close broker-native protective/OCO orders, handle partial exits, restart and orphan cleanup without accidental duplicate orders or naked positions. Automatic Alpaca Paper equity and crypto entries stay blocked pending complete lifecycle validation; Alpaca Live, generated Strategy Studio execution and Phase 2.11 remain deferred.**
