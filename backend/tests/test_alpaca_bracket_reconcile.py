@@ -122,7 +122,7 @@ def test_filled_parent_and_independent_active_legs_snapshot_stays_unresolved(bro
     ("stop_partially_filled", "filled_parent_exits_or_position_unverified"),
     ("rejected", "parent_terminal_unverified"),
     ("parent_lookup_error", "broker_parent_unknown_unverified"),
-    ("position_lookup_error", "broker_parent_unknown_unverified"),
+    ("position_lookup_error", "filled_parent_exits_or_position_unverified"),
 ])
 def test_unconfirmed_or_ambiguous_broker_state_never_claims_protection(
     broker, change, classification
