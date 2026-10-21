@@ -16,6 +16,7 @@ from backend.services.alpaca_protection import assess_equity_bracket_truth
 from backend.storage.repositories import (
     add_trade_audit,
     get_order_intent_by_id,
+    first_verified_alpaca_bracket_observation,
     record_alpaca_bracket_observation,
 )
 
@@ -62,6 +63,23 @@ def observe_paper_equity_bracket(*, intent_id: int) -> dict[str, object]:
         parent_id = assessment.parent_order_id
         stop_id = assessment.stop_order_id
         target_id = assessment.take_profit_order_id
+        # A newly returned, internally consistent parent/leg collection is
+        # not enough to silently replace an already proven set of broker IDs.
+        # Changed parent/stop/target identities require a separate supervised
+        # replacement lifecycle; we cannot infer that replaced legs are safe.
+        baseline = first_verified_alpaca_bracket_observation(intent.id)
+        if verified and baseline is not None and (
+            baseline["client_order_id"] != client_id
+            or baseline["parent_order_id"] != parent_id
+            or baseline["stop_order_id"] != stop_id
+            or baseline["take_profit_order_id"] != target_id
+        ):
+            verified = False
+            reason = (
+                "Broker bracket parent or protective-leg identity changed "
+                "since the first verified observation; manual reconciliation required."
+            )
+            parent_id = stop_id = target_id = None
     except AlpacaPaperError:
         # Lookup timeouts, malformed broker data, and absent truth are all
         # UNVERIFIED; an ambiguous lookup never means the order was absent.

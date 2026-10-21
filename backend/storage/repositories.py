@@ -636,6 +636,23 @@ def get_alpaca_bracket_observation(observation_id: int) -> dict[str, Any]:
     }
 
 
+def first_verified_alpaca_bracket_observation(intent_id: int) -> dict[str, Any] | None:
+    """Oldest verified *historical* bracket identity for continuity checks only.
+
+    Never use a previously verified observation to authorize entry or exit.
+    """
+    with get_db() as db:
+        row = db.execute(
+            """
+            SELECT id FROM alpaca_bracket_observations
+            WHERE intent_id = ? AND verified_at_observation = 1
+            ORDER BY id ASC LIMIT 1
+            """,
+            (int(intent_id),),
+        ).fetchone()
+    return get_alpaca_bracket_observation(int(row["id"])) if row is not None else None
+
+
 def latest_alpaca_bracket_observation(intent_id: int) -> dict[str, Any] | None:
     with get_db() as db:
         row = db.execute(

@@ -2259,8 +2259,31 @@ Consume Phase 10.17's durable reservation exactly once to send a **supervised-on
 **Scope boundary**
 This phase introduces a **callable internal supervised Paper POST**, not a UI or automated trading feature. It does not guarantee live stop-loss protection, synchronize active legs continuously, automatically close positions, or cancel orphaned orders. Remaining supervised lifecycle work must reconcile full fills/active stop/TP legs and handle restarts, cancellation, OCO expiry, partial fills and safe flattening before automatic entries may be considered. Crypto Paper auto entries and Alpaca Live remain disabled.
 
+### 10.19 Alpaca Paper dispatched-bracket read-only lifecycle reconciliation and ID continuity
+**Priority:** P0
+**Status:** 🧪 Ready to test
+
+Following Phase 10.18's explicitly supervised one-shot Paper bracket POST, independently re-read the **exact dispatched US-equity bracket parent and nested stop/target legs plus separate broker position** on each operator-triggered reconciliation. Store a new historical observation, classify incomplete/partial/terminal states fail-closed, and reject unexplained parent or exit-leg identity drift after a previous verified observation. This is not an automatic trading risk gate.
+
+**Target behavior**
+- [x] Require an accepted, **already claimed/dispatched** Alpaca **Paper US-equity** bracket intent with exact client order ID; never interpret `bracket_reserved_not_submitted` or an unrelated intent as broker exposure. Reject wrong provider, environment, asset, protection mode, or unknown outcome states before broker reads.
+- [x] Pin new reconciliation reads to the official HTTPS Paper endpoint, never Live or a different configured host.
+- [x] Fetch fresh nested parent/leg and independently fetched position truth via the Phase 10.16 observer and strict Phase 10.15 proof, storing each observation and audit. Report `complete_bracket_verified_at_observation_only` only for a fully filled parent with two correctly sized active unfired exits and matching actual position.
+- [x] Maintain the first verified **historical broker parent/stop/target identities** as a continuity baseline; if a later broker snapshot changes any ID, record the new observation as **unverified** (no accepted IDs) until a separately supervised replacement lifecycle exists. Changed IDs cannot silently become an accepted new baseline after restart.
+- [x] Classify unavailable/missing parent, partial fill, filled parent with unavailable/mismatched exits or position, rejected/terminal parent, and pending/unknown parent as unresolved; never convert accepted intents into executed or assert `current_protection_verified=True`.
+- [x] Preserve historical-only proof, durable single-use POST lockout, `automatic_retry=False`, no backend/UI/engine auto routing, Alpaca Live/crypto automatic entry prohibitions, and cTrader safety. No broker POST/cancel/flatten is introduced.
+
+**Acceptance**
+- [ ] Focused dispatched-bracket reconciliation, continuity/restart, partial/unknown states, prior reservation/POST and broker-truth tests pass on Windows.
+- [ ] Alpaca Paper runtime and cTrader broker safety regressions pass locally with zero actual broker mutations.
+- [ ] Full canonical backend suite and frontend build, clean worktree, git diff whitespace checks pass.
+- [ ] Exact implementation-head GitHub CI succeeds before verification/merge.
+
+**Safety boundary**
+Even a successful proof is only *verified at observation*, not a continuous position-protection guarantee or an order-entry enablement signal. The implemented reconciler is a private, explicit read-only function. **Remaining lifecycle work:** authenticated broker-side exit/cancel and OCO reconciliation, actual partial-fill sizing management, safe flatten/orphan cleanup and restart monitoring before considering autonomous Alpaca Paper entries. Crypto Paper auto entry, Alpaca Live, generated Studio source execution and Phase 2.11 remain deferred.
+
 ---
 
 ## 15. Next item
 
-**Complete Phase 10.18 PR #124 final verification-documentation gate: validate the docs-only final head locally, confirm exact-head GitHub CI, merge and synchronize local `main`. After merge, the next separately governed Alpaca Paper US-equity bracket lifecycle slice must reconcile actual filled parent plus active stop-loss/take-profit broker legs and position truth, fail closed on unknown/partial fill or missing/changed legs, and preserve restart/ambiguous-submission safety. Then separately implement safe close/cancel/orphan cleanup before any autonomous Alpaca Paper entries can resume. Crypto Paper auto entry, Alpaca Live, generated Strategy Studio source runtime and Phase 2.11 remain deferred.**
+**Current Phase 10.19: validate read-only post-dispatch Alpaca Paper US-equity bracket reconciliation, first-verified parent/SL/TP identity continuity, fresh nested broker order and position evidence, and fail-closed classifications for partial/unknown/changed legs. Require local focused/full regression and exact GitHub CI before roadmap verification, work-log update, merge, and clean synchronized `main`. Next independently govern broker exit/cancel/OCO, partial fills, safe flatten/orphan cleanup and restart monitoring before any automatic Alpaca Paper entries may resume. Crypto Paper auto entry, Alpaca Live, generated Studio execution and Phase 2.11 remain deferred.**
