@@ -386,6 +386,55 @@ def build_equity_bracket_market_order(
     }
 
 
+def submit_equity_bracket_order(
+    *,
+    symbol: str,
+    side: str,
+    qty: int,
+    reference_price: float,
+    stop_loss: float,
+    take_profit: float,
+    client_order_id: str,
+) -> dict[str, object]:
+    """Submit ONE validated native US-equity bracket to official Alpaca Paper.
+
+    This low-level function never retries ambiguous POST outcomes. Callers
+    must FIRST persist and consume a single-use durable dispatch claim.
+    """
+    from urllib.parse import urlparse
+
+    endpoint = urlparse(_base_url())
+    if endpoint.scheme != "https" or endpoint.netloc != "paper-api.alpaca.markets":
+        raise AlpacaPaperError(
+            "Protected bracket submission requires the official HTTPS Alpaca Paper endpoint."
+        )
+    body = build_equity_bracket_market_order(
+        symbol=symbol, side=side, qty=qty, reference_price=reference_price,
+        stop_loss=stop_loss, take_profit=take_profit,
+        client_order_id=client_order_id,
+    )
+    payload = _request_mutation_json("POST", "/v2/orders", body=body)
+    if not isinstance(payload, dict):
+        raise AlpacaPaperError(
+            "Alpaca Paper bracket submission returned malformed acknowledgement.",
+            ambiguous=True,
+        )
+    order = _normalize_order(payload)
+    if (
+        not order.get("id")
+        or order.get("client_order_id") != body["client_order_id"]
+        or order.get("order_class") != "bracket"
+        or order.get("asset_class") != "us_equity"
+        or order.get("symbol") != body["symbol"]
+        or order.get("side") != body["side"]
+    ):
+        raise AlpacaPaperError(
+            "Alpaca Paper bracket submission acknowledgement is incomplete or mismatched.",
+            ambiguous=True,
+        )
+    return order
+
+
 def submit_market_order(
     *,
     symbol: str,
