@@ -1636,6 +1636,7 @@ Add one row after every completed task.
 | 2026-10-18 | Phase 10.17 Alpaca Paper bracket reservation and one-shot claim | Store validated native US-equity bracket request and globally unique client identity atomically before any mutation; reject same-symbol reservations, mark one-shot claim durably, exclude bracket intents from simple-order reconciliation | ✅ 84/84 focused and 57/57 Alpaca/cTrader safety tests; full backend plus frontend 707-module build; clean git/diff; exact implementation-head CI #530 successful on `a1e6f34`; mock-only, no broker mutations | PR #123 / `a1e6f34` | Final docs-head validation, merge and clean main sync, then separately govern supervised native bracket POST, ambiguous recovery, live leg verification and safe cancel/flatten |
 | 2026-10-21 | Phase 10.18 supervised single-use Alpaca Paper equity bracket POST | Add private operator-confirmed Paper-only native bracket POST guarded by durable single-use dispatch, ambiguous-submission no-retry recovery, request-preserving SQLite numeric validation and read-only historic broker proof; no automatic entry integration | ✅ Corrected implementation `08c9c73`: local focused 109/109 + Alpaca/cTrader 57/57, canonical full backend tests and 707-module frontend build, clean git/diff; exact-head GitHub CI #534 passed. Earlier mismatch on `9ceb0ab` caused ten failures / CI #533 failed and was corrected. Mock broker tests, zero live/Paper orders | PR #124 / `08c9c73` | Final docs-only head validation and CI; merge, clean sync main; next separately reconcile actual active parent/SL/TP broker protection and safe close/cancel/restart/partial fills before any automatic Paper entry |
 | 2026-10-21 | Phase 10.19 Alpaca Paper read-only bracket lifecycle reconciliation and leg ID continuity | Add on-demand exact nested parent/stop/target + separate position truth, classify unknown/partial/missing exits as unresolved and prevent silently accepting changed broker protective-leg identities after restart | ✅ Local focused 135/135 twice and Alpaca/cTrader safety 57/57; full canonical backend and frontend 707-module build, clean git/diff; exact implementation-head CI #537 successful on `a947cd2`; mocked reads, zero broker mutation | PR #125 / `a947cd2` | Validate docs-only final PR head local/CI, merge and clean main sync, then separately govern exit/cancel/OCO, partial-fill and safe flatten/orphan handling prior to automatic Paper entries |
+| 2026-10-22 | Phase 10.20 supervised Alpaca Paper bracket cancel/exit Codex handoff (WIP) | Preserve local Codex implementation with one-shot durable cancellation/close claims, pure partial-fill/OCO accounting, inventory/capacity guards and operator runbook; fix CI test isolation | 🧪 Local 188/188 focused, 57/57 broker safety, full backend + 707-module frontend build and clean diff; corrected implementation CI #541 green at `a68f044`; initial #540 failed two missing broker inventory mocks. Mock-only with **no broker mutations** | Draft PR #126 / `a68f044` | Safety review and **explicit merge approval** outstanding; Paper field observations separately unauthorized; cancellation-to-close can expose a position; do not mark phase verified or enable automation |
 
 ---
 
@@ -2293,7 +2294,7 @@ Even a successful proof is only *verified at observation*, not a continuous posi
 
 ### 10.20 Alpaca Paper supervised cancel/exit recovery and partial-fill accounting
 **Priority:** P0
-**Status:** 🟨 In progress — local implementation, not verified or approved for automation
+**Status:** 🟨 Mock tests and implementation-head CI passed; operator approval, field validation and verification still pending
 
 Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confirmed synchronized on 2026-10-21. Its completed read-only reconciliation is retained.
 
@@ -2306,10 +2307,17 @@ Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confi
 - Runtime audit includes a non-overridable readiness report. No UI, API, scheduler or engine route invokes the new exit mutation service. Paper automatic entries, crypto automatic entries and Alpaca Live remain disabled.
 
 **Acceptance gates (not yet verified)**
-- [ ] Final focused mock lifecycle/risk/restart/concurrency tests and existing broker regressions.
-- [ ] Full canonical backend regression and frontend production build on final implementation.
-- [ ] Required GitHub CI on exact head, review and explicit user approval before verification/merge.
+- [x] Final focused mock lifecycle/risk/restart/concurrency tests and existing broker regressions.
+- [x] Full canonical backend regression and frontend production build on final implementation.
+- [ ] Required GitHub CI on exact head (**CI #541 succeeded at implementation head `a68f044`**), security/lifecycle review and **explicit user approval** before verification/merge.
 - [ ] Separately authorized broker field evidence; no actual Paper or Live order was placed for this implementation.
+
+**Local and CI checkpoint (2026-10-22; not an authorization to merge or trade):**
+- Exact branch commit `a68f0440c3008b45b8b52dab93f6f767bfa05d7c`, Windows `tradeagent-v2`: **188/188** focused bracket lifecycle, supervised dispatch, cancellation/close, restart/concurrency/reconciliation/protection tests passed; **57/57** Alpaca and cTrader broker safety regressions passed.
+- `python scripts/validate.py`: full backend suite passed; TypeScript/Vite frontend production build successful (**707 modules**). `git status --short` blank and `git diff --check origin/main...HEAD` clean.
+- CI **#540** on initial handoff SHA `0f8ce39` failed two old supervised tests because the new full-position preflight wasn't mocked. CI **#541** on corrected `a68f044` passed **both backend and frontend jobs**; the fix was a test-isolation-only change.
+- Reviewed cancellation-to-market-close vulnerability: cancelling protective exits can create an **unprotected exposure window**; the exit POST is **not reduce-only**. Durable claims prevent blind resubmission but are **not** unattended-safe recovery. No actual broker orders were placed during the local tests.
+- **Still pending:** operator review/approval to merge this supervised-only internal capability, separately authorized Paper broker field evidence, monitoring/escalation, orphan and consumed-claim recovery, completion accounting. No auto Paper/crypto entry or Alpaca Live activation.
 
 **Remaining dependencies before automatic readiness**
 - [ ] Continuous observation/restart monitoring with bounded response and operator escalation when protection disappears. The current callable inspector does not run in the background.
