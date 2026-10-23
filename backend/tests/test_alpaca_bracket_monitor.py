@@ -128,6 +128,24 @@ def test_scope_overflow_fails_without_skipping_old_orders(monkeypatch, no_broker
     assert _alerts()[0].details["intent_id"] == 0
 
 
+
+def test_scope_recovery_rearms_future_critical_incident(monkeypatch, no_broker_mutations):
+    _intent()
+    _intent()
+    monkeypatch.setattr(monitor, "inspect_paper_bracket_exit",
+                        lambda **kw: pytest.fail("Scope overflow never reads a partial set"))
+    assert monitor.poll_paper_bracket_protection_once(max_intents=1)["status"] == "scope_exceeded_unverified"
+    assert len(_alerts()) == 1
+    with get_db() as db:
+        db.execute("UPDATE order_intents SET status = 'failed'")
+        db.commit()
+    assert monitor.poll_paper_bracket_protection_once(max_intents=1)["status"] == "unverified_no_dispatched_brackets"
+    with get_db() as db:
+        db.execute("UPDATE order_intents SET status = 'accepted'")
+        db.commit()
+    assert monitor.poll_paper_bracket_protection_once(max_intents=1)["status"] == "scope_exceeded_unverified"
+    assert len(_alerts()) == 2  # separate operator incident for renewed overflow
+
 def test_monitor_heartbeat_survives_restart_and_detects_gap():
     now = datetime(2026, 10, 23, 11, 0, tzinfo=timezone.utc)
     assert finish_monitor_cycle(completed_at=now, status="idle", gap_seconds=120)
