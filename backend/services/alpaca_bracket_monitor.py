@@ -99,6 +99,12 @@ def poll_paper_bracket_protection_once(
                         "classification": classification, "severity": severity,
                         "incident_created": created, "snapshot_only": True})
 
+    # Re-arm the scope-cap alert after the accepted set comes back within
+    # bounds. An earlier capacity incident remains in System history.
+    record_monitor_observation(
+        intent_id=0, classification="scope_within_limit_snapshot_only",
+        severity="info", observed_at=datetime.now(timezone.utc),
+    )
     status = ("attention_required" if counts["attention"] else
               "unverified_no_dispatched_brackets" if counts["observed"] == 0 else
               "snapshots_recorded_not_continuous_protection")
