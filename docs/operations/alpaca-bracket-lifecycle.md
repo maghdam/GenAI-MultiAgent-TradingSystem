@@ -35,3 +35,20 @@ Do not delete/reset claims to retry orders. The same database must survive resta
 - No actual broker orders, no automatic activation, no merge, no claim of field verification.
 
 Provider reference: [Alpaca orders documentation](https://docs.alpaca.markets/us/docs/orders-at-alpaca).
+
+## Phase 10.21 — operator-started read-only protection monitor (not yet validated)
+
+The monitored scope is accepted Alpaca **Paper US-equity native bracket** intents; unsubmitted reservations never become assumed broker exposure. Each explicitly started poll uses the Phase 10.20 fresh account/order/leg/position inspector and existing durable account/leg identity binding. It classifies protection only *at the observed instant*. Unknown/missing/changed broker state, partial-entry exposure, unprotected remaining positions, slow reads and excessive monitoring scope require operator attention. A snapshot of an apparently protected or flat position does **not** clear a prior incident, close an order intent or authorize a new trade.
+
+Durable alpaca_bracket_monitor_states records the last classification to deduplicate identical incidents across restart. The existing System incidents list receives a new critical/warning event on changes to an unsafe classification and a separate warning when a previously unsafe snapshot later looks better; **only an operator** can review the original incident. A monitor heartbeat records completed sweeps and raises a restart/missed-poll warning when a later sweep detects a gap. It cannot detect its own failure or alert while the process is stopped.
+
+**No broker field queries are authorized by mock test validation.** After separately authorizing READ-ONLY Alpaca Paper queries, the operator may explicitly start the CLI with:
+
+~~~powershell
+python -m scripts.monitor_alpaca_paper_brackets --once --acknowledge-paper-reads
+python -m scripts.monitor_alpaca_paper_brackets --continuous --interval 30 --acknowledge-paper-reads
+~~~
+
+Start manually after system restart and stop with Ctrl+C. This CLI is **not** started on import, backend boot, engine start or scheduled trades; there is no webhook, push notification, guaranteed unattended watchdog or automatic restoration after a restart. HTTP calls use the existing bounded per-request client timeout; a late aggregate sweep is flagged but cannot forcibly interrupt a hung network client. Full-account orphan exposure outside accepted local intents is **not** yet surveyed. More than the configured intent cap fails closed with a durable critical incident, rather than checking just the most recent 200 intents.
+
+The code never sends an order POST, DELETE, replace, flatten, recovery or broker retry and cannot enable Alpaca Paper/crypto automatic entries or Alpaca Live. Keep the existing Phase 10.20 cancellation-to-close exposure and non-reduce-only limitations open. Until operational liveness, authorized provider field testing, account-wide reconciliation, response escalation and completion accounting are separately proven, the monitor is **not a production trading safety layer**.
