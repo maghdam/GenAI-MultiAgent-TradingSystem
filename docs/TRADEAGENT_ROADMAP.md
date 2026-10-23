@@ -1637,6 +1637,7 @@ Add one row after every completed task.
 | 2026-10-21 | Phase 10.18 supervised single-use Alpaca Paper equity bracket POST | Add private operator-confirmed Paper-only native bracket POST guarded by durable single-use dispatch, ambiguous-submission no-retry recovery, request-preserving SQLite numeric validation and read-only historic broker proof; no automatic entry integration | ✅ Corrected implementation `08c9c73`: local focused 109/109 + Alpaca/cTrader 57/57, canonical full backend tests and 707-module frontend build, clean git/diff; exact-head GitHub CI #534 passed. Earlier mismatch on `9ceb0ab` caused ten failures / CI #533 failed and was corrected. Mock broker tests, zero live/Paper orders | PR #124 / `08c9c73` | Final docs-only head validation and CI; merge, clean sync main; next separately reconcile actual active parent/SL/TP broker protection and safe close/cancel/restart/partial fills before any automatic Paper entry |
 | 2026-10-21 | Phase 10.19 Alpaca Paper read-only bracket lifecycle reconciliation and leg ID continuity | Add on-demand exact nested parent/stop/target + separate position truth, classify unknown/partial/missing exits as unresolved and prevent silently accepting changed broker protective-leg identities after restart | ✅ Local focused 135/135 twice and Alpaca/cTrader safety 57/57; full canonical backend and frontend 707-module build, clean git/diff; exact implementation-head CI #537 successful on `a947cd2`; mocked reads, zero broker mutation | PR #125 / `a947cd2` | Validate docs-only final PR head local/CI, merge and clean main sync, then separately govern exit/cancel/OCO, partial-fill and safe flatten/orphan handling prior to automatic Paper entries |
 | 2026-10-22 | Phase 10.20 supervised Alpaca Paper bracket cancel/exit Codex handoff (WIP) | Preserve local Codex implementation with one-shot durable cancellation/close claims, pure partial-fill/OCO accounting, inventory/capacity guards and operator runbook; fix CI test isolation | 🧪 Local 188/188 focused, 57/57 broker safety, full backend + 707-module frontend build and clean diff; corrected implementation CI #541 green at `a68f044`; initial #540 failed two missing broker inventory mocks. Mock-only with **no broker mutations** | Draft PR #126 / `a68f044` | Safety review and **explicit merge approval** outstanding; Paper field observations separately unauthorized; cancellation-to-close can expose a position; do not mark phase verified or enable automation |
+| 2026-10-23 | Phase 10.20 supervised-only bracket lifecycle merge approval (no broker authorization) | Operator approved proceeding with internal supervised-only code after exact-head local/CI validation; cancellation-to-close exposure, non-reduce-only close, field evidence and unattended readiness explicitly deferred | ✅ Mock local focused 188/188; full backend + frontend 707 modules; clean worktree/diff at `be880c9`; CI #541 and #543 successful. No live/Paper order transmissions during validation | Draft PR #126 / `be880c9` | Docs-only head local + exact CI, merge and synchronize main; later monitoring/escalation, broker field validation and recovery remain separately gated |
 
 ---
 
@@ -2294,7 +2295,7 @@ Even a successful proof is only *verified at observation*, not a continuous posi
 
 ### 10.20 Alpaca Paper supervised cancel/exit recovery and partial-fill accounting
 **Priority:** P0
-**Status:** 🟨 Mock tests and implementation-head CI passed; operator approval, field validation and verification still pending
+**Status:** ✅ Supervised-only implementation locally/CI validated and merge-approved; **NOT broker field-verified or automatic-trading ready**
 
 Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confirmed synchronized on 2026-10-21. Its completed read-only reconciliation is retained.
 
@@ -2306,18 +2307,23 @@ Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confi
 - Supervised entry dispatch enforces configured position capacity, same-symbol exclusion, kill switch and mandatory bracket stops. Pending claims consume capacity under the same SQLite transaction as dispatch. The legacy duplicate guard no longer loses old unresolved intents behind a 200-row display limit.
 - Runtime audit includes a non-overridable readiness report. No UI, API, scheduler or engine route invokes the new exit mutation service. Paper automatic entries, crypto automatic entries and Alpaca Live remain disabled.
 
-**Acceptance gates (not yet verified)**
+**Supervised-only implementation acceptance (mock validation; broker field evidence separately outstanding)**
 - [x] Final focused mock lifecycle/risk/restart/concurrency tests and existing broker regressions.
 - [x] Full canonical backend regression and frontend production build on final implementation.
-- [ ] Required GitHub CI on exact head (**CI #541 succeeded at implementation head `a68f044`**), security/lifecycle review and **explicit user approval** before verification/merge.
-- [ ] Separately authorized broker field evidence; no actual Paper or Live order was placed for this implementation.
+- [x] CI passed on exact corrected implementation head **#541** (`a68f044`) and documentation head **#543** (`be880c9`); supervised-only operator merge approval given 2026-10-23. Final roadmap-docs head must pass local checks and CI before merging.
+- [ ] **Deferred external provider validation, not a prerequisite for merging private supervised-only implementation:** separately authorized Paper broker field evidence. No Paper/Live orders were placed in these tests; this evidence is mandatory before unattended/automatic trading or declaring broker lifecycle field verified.
 
 **Local and CI checkpoint (2026-10-22; not an authorization to merge or trade):**
 - Exact branch commit `a68f0440c3008b45b8b52dab93f6f767bfa05d7c`, Windows `tradeagent-v2`: **188/188** focused bracket lifecycle, supervised dispatch, cancellation/close, restart/concurrency/reconciliation/protection tests passed; **57/57** Alpaca and cTrader broker safety regressions passed.
 - `python scripts/validate.py`: full backend suite passed; TypeScript/Vite frontend production build successful (**707 modules**). `git status --short` blank and `git diff --check origin/main...HEAD` clean.
 - CI **#540** on initial handoff SHA `0f8ce39` failed two old supervised tests because the new full-position preflight wasn't mocked. CI **#541** on corrected `a68f044` passed **both backend and frontend jobs**; the fix was a test-isolation-only change.
 - Reviewed cancellation-to-market-close vulnerability: cancelling protective exits can create an **unprotected exposure window**; the exit POST is **not reduce-only**. Durable claims prevent blind resubmission but are **not** unattended-safe recovery. No actual broker orders were placed during the local tests.
-- **Still pending:** operator review/approval to merge this supervised-only internal capability, separately authorized Paper broker field evidence, monitoring/escalation, orphan and consumed-claim recovery, completion accounting. No auto Paper/crypto entry or Alpaca Live activation.
+- **Approval boundary (2026-10-23):** operator said "ok let contine" in response to a request for permission to merge this **internal supervised-only capability** with automatic Paper and Live trading disabled. This is **not** broker-order authorization, field-test authorization, account exclusivity assurance, or automatic-entry activation. Those require separate explicit approvals. Broker field evidence, monitoring/escalation, orphan and consumed-claim recovery, and completion accounting remain pending.
+
+**Final exact-head checkpoint (2026-10-23):**
+- Windows `tradeagent-v2` at documentation head `be880c9c2c117773bc04a1ee1b994e26d970640c`: **188/188** focused tests passed, full backend regression passed, TypeScript/Vite build **707 modules**, clean worktree and whitespace diff. Previously **57/57** broker safety regressions passed on the implementation head; no subsequent implementation code edits were made.
+- GitHub Actions **#543** completed successfully for exact `be880c9` head. No unresolved PR review threads. Supervised-only merge approved by operator; no authorization to execute actual Paper/Live orders or enable automation.
+- **Final documentation-only review/head must also pass local validation and GitHub CI prior to merge.** No Phase 10.20 claims of real broker field verification or continuously protected positions are made.
 
 **Remaining dependencies before automatic readiness**
 - [ ] Continuous observation/restart monitoring with bounded response and operator escalation when protection disappears. The current callable inspector does not run in the background.
@@ -2333,4 +2339,4 @@ Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confi
 
 ## 15. Next item
 
-**Finish Phase 10.20 local and exact-head CI validation, review the supervised cancellation exposure window and recovery limitations, and obtain user approval before verification or merge. Then address the explicitly listed monitoring, recovery, accounting and field-evidence dependencies before any automatic activation proposal. Phase 10.19 synchronization is complete and must not be repeated as unfinished development.**
+**Complete Phase 10.20 supervised-only merge gate: validate the final roadmap-documentation head locally, confirm exact-head GitHub CI, merge PR #126 and return local `main` to a clean synchronized state. No Paper/Live orders, field testing, or automatic activation were authorized. Then continue with the next separately governed roadmap slice: continuous broker-protection monitoring and operator escalation, before missing/replaced-leg recovery, partial-fill/OCO field evidence, exclusive-account safe close policy, and journal/completion accounting. Alpaca Paper/crypto autonomous entry and Alpaca Live remain disabled.**
