@@ -86,6 +86,22 @@ def init_db() -> None:
     with get_db() as db:
         cur = db.cursor()
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS alpaca_bracket_monitor_states (
+                intent_id INTEGER PRIMARY KEY,
+                classification TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alpaca_bracket_monitor_heartbeat (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                completed_at TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS alpaca_bracket_exit_sessions (
                 intent_id INTEGER PRIMARY KEY,
                 account_id TEXT NOT NULL,
