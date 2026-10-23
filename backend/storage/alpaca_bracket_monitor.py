@@ -33,11 +33,15 @@ def candidate_paper_equity_brackets(*, limit: int) -> list[dict[str, object]]:
 
 def _incident(db, *, when: str, severity: str, code: str,
               message: str, details: dict[str, object]) -> None:
+    # IncidentRecord supports only info/warning/error. Preserve critical
+    # monitor severity in details, while displaying a critical alert as error.
+    level = "error" if severity == "critical" else severity
+    payload = {**details, "monitor_severity": severity}
     db.execute(
         """
         INSERT INTO incidents(created_at, level, code, message, details_json)
         VALUES(?, ?, ?, ?, ?)
-        """, (when, severity, code, message, json.dumps(details, sort_keys=True)),
+        """, (when, level, code, message, json.dumps(payload, sort_keys=True)),
     )
 
 
