@@ -1638,6 +1638,7 @@ Add one row after every completed task.
 | 2026-10-21 | Phase 10.19 Alpaca Paper read-only bracket lifecycle reconciliation and leg ID continuity | Add on-demand exact nested parent/stop/target + separate position truth, classify unknown/partial/missing exits as unresolved and prevent silently accepting changed broker protective-leg identities after restart | ✅ Local focused 135/135 twice and Alpaca/cTrader safety 57/57; full canonical backend and frontend 707-module build, clean git/diff; exact implementation-head CI #537 successful on `a947cd2`; mocked reads, zero broker mutation | PR #125 / `a947cd2` | Validate docs-only final PR head local/CI, merge and clean main sync, then separately govern exit/cancel/OCO, partial-fill and safe flatten/orphan handling prior to automatic Paper entries |
 | 2026-10-22 | Phase 10.20 supervised Alpaca Paper bracket cancel/exit Codex handoff (WIP) | Preserve local Codex implementation with one-shot durable cancellation/close claims, pure partial-fill/OCO accounting, inventory/capacity guards and operator runbook; fix CI test isolation | 🧪 Local 188/188 focused, 57/57 broker safety, full backend + 707-module frontend build and clean diff; corrected implementation CI #541 green at `a68f044`; initial #540 failed two missing broker inventory mocks. Mock-only with **no broker mutations** | Draft PR #126 / `a68f044` | Safety review and **explicit merge approval** outstanding; Paper field observations separately unauthorized; cancellation-to-close can expose a position; do not mark phase verified or enable automation |
 | 2026-10-23 | Phase 10.20 supervised-only bracket lifecycle merge approval (no broker authorization) | Operator approved proceeding with internal supervised-only code after exact-head local/CI validation; cancellation-to-close exposure, non-reduce-only close, field evidence and unattended readiness explicitly deferred | ✅ Mock local focused 188/188; full backend + frontend 707 modules; clean worktree/diff at `be880c9`; CI #541 and #543 successful. No live/Paper order transmissions during validation | Draft PR #126 / `be880c9` | Docs-only head local + exact CI, merge and synchronize main; later monitoring/escalation, broker field validation and recovery remain separately gated |
+| 2026-10-23 | Phase 10.21 opt-in Paper protection observation and local incident monitoring (WIP) | Operator-started one-shot/interval read-only monitor, fresh bracket inspection, durable per-intent alert dedupe, restart-gap heartbeat and local System incident escalation; no automatic trigger or order mutation | 🧪 Ready for mock-focused + canonical Windows validation; GitHub CI and review still pending, no Paper field queries authorized | New Phase 10.21 branch | Preserve automatic Paper/crypto and Live lockout; external liveness/push alerts, full-account orphan discovery and field evidence remain separate prerequisites |
 
 ---
 
@@ -2337,6 +2338,35 @@ Phase 10.19 is merged in PR #125 (`b29151c`); local `main` was fetched and confi
 
 **Other existing roadmap items remain untouched:** Phase 2.2 calibration evidence; Phase 2.6 natural-position chart field observation; Phase 2.11 account-scoped Journal history; Phase 4.9/4.10 generated-strategy runtime; Phase 5.3 evidence-dependent threshold research; Phase 7 protected-position disconnect field observation; the overall protection acceptance criterion.
 
+
+### 10.21 Alpaca Paper protection monitoring and operator incident escalation — opt-in read-only foundation
+**Priority:** P0
+**Status:** 🧪 Ready for local mock validation — not verified or activated
+
+After Phase 10.20's supervised-only merge (PR #126; `11f37f5`), introduce the **smallest independent monitoring slice** without creating another path to submit, cancel or close orders.
+
+**Implemented for validation**
+- [x] Operator-started only: explicit one-shot/interval poller, with separate acknowledgement of read-only Paper field queries. Import, engine boot, UI and scheduler do not automatically start monitoring.
+- [x] Scope accepted Alpaca Paper **US-equity bracket** intents without a 200-record blind spot; skip never-dispatched reservations, escalate unexpected outcome states and fail closed when more than the configured maximum intents require inspection.
+- [x] Reuse fresh Phase 10.20 exact-account/parent/stop/target/position inspection. Classify missing/changed/partial/unprotected exposure, failed or slow reads as unresolved; historical protected/flat snapshots never become continuous protection or an order-entry gate.
+- [x] Durably deduplicate unsafe-status incidents, retain previous incident records when a later snapshot improves, and store last completed poll to identify startup/restart observation gaps at the next sweep.
+- [x] Prevent all broker mutations, retries, automatic recovery, automatic Paper/crypto entry and Alpaca Live routing; preserve cTrader behavior.
+
+**Acceptance (pending validation)**
+- [ ] Windows focused mock monitor coverage (restart, missing SL, failure, partial/flat, false-clear, unknown state, scope cap, CLI permissions) and previous Alpaca safety regression pass.
+- [ ] Full canonical backend regression and frontend production build, clean worktree and whitespace checks.
+- [ ] GitHub CI green on exact implementation head; review results before marking implementation verified or merging.
+
+**Remaining operational safety gates — explicitly NOT complete**
+- [ ] No unattended liveness guarantee: process must be started manually; a stopped/crashed monitor cannot raise new incidents until restarted. A missed heartbeat is detected only when another sweep runs. No external watchdog or push alerts.
+- [ ] No account-wide orphan position survey, broker-specific network hard deadline, or proof of response/escalation latency under real provider load. A slow aggregate sweep raises a local incident only after the read returns.
+- [ ] Paper broker field observations need separate explicit authorization; tests use mocks, no actual order submissions, cancels or closes.
+- [ ] Phase 10.20's cancellation-to-close unprotected interval, broker-native partial/OCO field verification, failed-mutation recovery, journal realization and completion accounting all remain unresolved before automatic trading can even be proposed.
+
+This is an **operator-owned monitoring foundation**, not continuously guaranteed protection. Never switch on automatic Paper or Live entries based on these snapshots.
+
+---
+
 ## 15. Next item
 
-**Complete Phase 10.20 supervised-only merge gate: validate the final roadmap-documentation head locally, confirm exact-head GitHub CI, merge PR #126 and return local `main` to a clean synchronized state. No Paper/Live orders, field testing, or automatic activation were authorized. Then continue with the next separately governed roadmap slice: continuous broker-protection monitoring and operator escalation, before missing/replaced-leg recovery, partial-fill/OCO field evidence, exclusive-account safe close policy, and journal/completion accounting. Alpaca Paper/crypto autonomous entry and Alpaca Live remain disabled.**
+**Current Phase 10.21: locally validate the operator-started read-only Alpaca Paper bracket monitor, durable incident transitions and restart-gap warnings on the development branch; check exact-head CI, then verify/merge only after local evidence. Keep all actual broker order mutations and unauthorized Paper field reads OFF. A follow-on independently governed operational-liveness/watchdog/alert-delivery implementation and account-wide monitoring evidence must precede any claims of continuous protection. Automatic Alpaca Paper/crypto entries and Alpaca Live remain disabled.**
