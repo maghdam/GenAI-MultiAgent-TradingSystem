@@ -48,6 +48,7 @@ def _setup(monkeypatch):
     monkeypatch.setattr(alpaca_bracket_supervised, "_execution_ready_account", _account)
     monkeypatch.setattr(alpaca_bracket_supervised, "get_open_position", lambda symbol: None)
     monkeypatch.setattr(alpaca_bracket_supervised, "list_orders", lambda **kwargs: [])
+    monkeypatch.setattr(alpaca_bracket_supervised, "list_positions", lambda: [])
     monkeypatch.setattr(
         alpaca_bracket_supervised, "get_order_by_client_order_id",
         lambda cid, *, nested: None,
@@ -63,6 +64,31 @@ def _args(reserved, **kw):
         "operator_reason": "Operator supervised bracket experiment",
         **kw,
     }
+
+
+@pytest.mark.parametrize("blocker", ["max_zero", "symbol_zero", "capacity", "same_symbol", "truncated"])
+def test_dispatch_position_capacity_and_inventory_fail_closed(monkeypatch, blocker):
+    reserved = _setup(monkeypatch)
+    monkeypatch.setattr(alpaca_bracket_supervised, "submit_equity_bracket_order",
+                        lambda **kw: pytest.fail("Risk-blocked POST"))
+    if blocker in {"max_zero", "symbol_zero"}:
+        config = EngineConfig(kill_switch=False, **{
+            "max_open_positions" if blocker == "max_zero" else "max_positions_per_symbol": 0})
+        monkeypatch.setattr(alpaca_bracket_supervised, "load_engine_config", lambda defaults: config)
+    elif blocker == "capacity":
+        monkeypatch.setattr(alpaca_bracket_supervised, "list_positions",
+                            lambda: [{"symbol": symbol} for symbol in ("QQQ", "AAPL", "MSFT")])
+    elif blocker == "same_symbol":
+        monkeypatch.setattr(alpaca_bracket_supervised, "list_positions", lambda: [{"symbol": "SPY"}])
+    else:
+        monkeypatch.setattr(alpaca_bracket_supervised, "list_orders",
+                            lambda **kw: [{"symbol": "QQQ"}] * 500)
+    if blocker in {"max_zero", "symbol_zero", "truncated"}:
+        with pytest.raises(alpaca_paper.AlpacaPaperError):
+            alpaca_bracket_supervised.submit_supervised_paper_equity_bracket(**_args(reserved))
+    else:
+        assert alpaca_bracket_supervised.submit_supervised_paper_equity_bracket(**_args(reserved))["status"] == "blocked"
+    assert get_order_intent_by_id(reserved["intent_id"]).details["outcome_state"] == "bracket_reserved_not_submitted"
 
 
 def test_supervised_bracket_posts_exactly_once_and_records_unprotected_parent(monkeypatch):
@@ -261,6 +287,9 @@ def test_valid_reserved_numeric_representation_survives_sqlite_roundtrip(
     monkeypatch.setattr(alpaca_bracket_supervised, "_execution_ready_account", _account)
     monkeypatch.setattr(alpaca_bracket_supervised, "get_open_position", lambda symbol: None)
     monkeypatch.setattr(alpaca_bracket_supervised, "list_orders", lambda **kwargs: [])
+    # Never contact a real broker from the SQLite numeric-roundtrip test.
+    # Phase 10.20 adds a full-account capacity read to supervised dispatch.
+    monkeypatch.setattr(alpaca_bracket_supervised, "list_positions", lambda: [])
     monkeypatch.setattr(
         alpaca_bracket_supervised, "get_order_by_client_order_id",
         lambda cid, *, nested: None,

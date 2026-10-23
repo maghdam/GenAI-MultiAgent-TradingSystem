@@ -19,6 +19,7 @@ from backend.storage.repositories import (
     create_order_intent,
     list_order_intents,
     update_order_intent_status,
+    unresolved_alpaca_intent_for_symbol,
 )
 
 
@@ -60,18 +61,7 @@ def _execution_ready_account() -> dict[str, object]:
 
 
 def _unresolved_intent_for_symbol(symbol: str):
-    normalized = str(symbol or "").strip().upper()
-    for intent in list_order_intents(200):
-        if intent.status != "accepted" or intent.symbol.upper() != normalized:
-            continue
-        details = intent.details if isinstance(intent.details, dict) else {}
-        if (
-            details.get("broker_provider") == "alpaca"
-            and details.get("broker_environment") == "paper"
-            and details.get("reconciliation_resolved") is not True
-        ):
-            return intent
-    return None
+    return unresolved_alpaca_intent_for_symbol(str(symbol or ""))
 
 
 def _lookup_order_with_retry(client_order_id: str) -> dict[str, object] | None:

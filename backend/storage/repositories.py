@@ -766,7 +766,10 @@ def reserve_alpaca_bracket_order_intent(
     return get_order_intent_by_id(intent_id)
 
 
-def claim_reserved_alpaca_bracket_dispatch(intent_id: int) -> OrderIntentRecord | None:
+def claim_reserved_alpaca_bracket_dispatch(
+    intent_id: int, *, max_open_positions: int | None = None,
+    occupied_symbols: set[str] | None = None, local_open_count: int = 0,
+) -> OrderIntentRecord | None:
     """One-shot durable dispatch claim for a FUTURE separately gated sender.
 
     No HTTP calls occur here. A crashed/ambiguous claim cannot be claimed a
@@ -784,6 +787,19 @@ def claim_reserved_alpaca_bracket_dispatch(intent_id: int) -> OrderIntentRecord 
             if row is None:
                 raise KeyError(f"Unknown order intent {intent_id}")
             details = json.loads(row["details_json"] or "{}")
+            if max_open_positions is not None:
+                # No LIMIT: old unresolved claims still consume capacity after restart.
+                pending = db.execute(
+                    "SELECT symbol FROM order_intents WHERE status = 'accepted' AND id != ? "
+                    "AND json_extract(details_json, '$.broker_provider') = 'alpaca' "
+                    "AND json_extract(details_json, '$.broker_environment') = 'paper'",
+                    (int(intent_id),),
+                ).fetchall()
+                symbols = {str(r["symbol"]).upper() for r in pending} | (occupied_symbols or set())
+                if (row["symbol"].upper() in symbols or max_open_positions <= 0
+                        or len(symbols) + local_open_count >= max_open_positions):
+                    db.rollback()
+                    return None
             if (
                 row["status"] != "accepted"
                 or row["intent_type"] != "open"
@@ -836,6 +852,19 @@ def claim_reserved_alpaca_bracket_dispatch(intent_id: int) -> OrderIntentRecord 
             db.rollback()
             raise
     return get_order_intent_by_id(int(intent_id))
+
+
+def unresolved_alpaca_intent_for_symbol(symbol: str) -> OrderIntentRecord | None:
+    """Safety lookup must not lose old unresolved intents behind a UI page limit."""
+    with get_db() as db:
+        row = db.execute(
+            "SELECT id FROM order_intents WHERE upper(symbol) = ? AND status = 'accepted' "
+            "AND json_extract(details_json, '$.broker_provider') = 'alpaca' "
+            "AND json_extract(details_json, '$.broker_environment') = 'paper' "
+            "AND COALESCE(json_extract(details_json, '$.reconciliation_resolved'), 0) != 1 "
+            "ORDER BY id LIMIT 1", (symbol.strip().upper(),),
+        ).fetchone()
+    return get_order_intent_by_id(row["id"]) if row is not None else None
 
 
 def list_order_intents(limit: int = 20) -> List[OrderIntentRecord]:

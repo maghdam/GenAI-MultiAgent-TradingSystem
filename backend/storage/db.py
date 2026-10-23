@@ -85,6 +85,23 @@ def get_db() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with get_db() as db:
         cur = db.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alpaca_bracket_exit_sessions (
+                intent_id INTEGER PRIMARY KEY,
+                account_id TEXT NOT NULL,
+                identity_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alpaca_bracket_exit_actions (
+                intent_id INTEGER NOT NULL,
+                action_key TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (intent_id, action_key)
+            )
+        """)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS config (

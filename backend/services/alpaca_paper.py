@@ -137,9 +137,12 @@ def _request_mutation_json(
         raise AlpacaPaperError(
             f"Alpaca Paper {method.upper()} returned HTTP {response.status_code} for {path}.",
             status_code=int(response.status_code),
-            ambiguous=False,
+            ambiguous=response.status_code >= 500,
             broker_details=_safe_broker_error_details(response),
         )
+
+    if method.upper() == "DELETE" and response.status_code == 204:
+        return None
 
     try:
         return response.json()
@@ -231,8 +234,9 @@ def list_positions() -> list[dict[str, object]]:
 
     rows: list[dict[str, object]] = []
     for item in payload:
-        if isinstance(item, dict):
-            rows.append(_normalize_position(item))
+        if not isinstance(item, dict):
+            raise AlpacaPaperError("Alpaca Paper positions inventory contains a malformed row.")
+        rows.append(_normalize_position(item))
     return rows
 
 
@@ -258,8 +262,9 @@ def list_orders(*, status: str = "open", limit: int = 50) -> list[dict[str, obje
 
     rows: list[dict[str, object]] = []
     for item in payload:
-        if isinstance(item, dict):
-            rows.append(_normalize_order(item))
+        if not isinstance(item, dict):
+            raise AlpacaPaperError("Alpaca Paper orders inventory contains a malformed row.")
+        rows.append(_normalize_order(item))
     return rows
 
 
@@ -498,3 +503,37 @@ def close_position(symbol_or_asset_id: str) -> dict[str, object]:
             ambiguous=True,
         )
     return _normalize_order(payload)
+
+
+def require_official_paper_endpoint() -> None:
+    from urllib.parse import urlparse
+
+    endpoint = urlparse(_base_url())
+    if (endpoint.scheme != "https" or endpoint.netloc != "paper-api.alpaca.markets"
+            or endpoint.path not in ("", "/") or endpoint.query or endpoint.fragment):
+        raise AlpacaPaperError("Bracket lifecycle requires the official HTTPS Paper endpoint.")
+
+
+def cancel_paper_bracket_order(order_id: str) -> None:
+    """Cancellation acknowledgement is not proof that the order stopped filling."""
+    require_official_paper_endpoint()
+    if not isinstance(order_id, str) or not order_id.strip():
+        raise ValueError("Exact order ID required")
+    _request_mutation_json("DELETE", f"/v2/orders/{quote(order_id, safe='')}")
+
+
+def submit_paper_bracket_close(*, symbol: str, side: str, qty: str, client_order_id: str):
+    """Exact-quantity exit with durable client identity for ambiguous recovery.
+
+    Caller must establish that every native order is terminal and commit its
+    single-use close claim. This is not a reduce-only broker order.
+    """
+    require_official_paper_endpoint()
+    try:
+        quantity = Decimal(str(qty))
+    except InvalidOperation as exc:
+        raise ValueError("Invalid exit quantity") from exc
+    if not quantity.is_finite() or quantity <= 0:
+        raise ValueError("Invalid exit quantity")
+    return submit_market_order(symbol=symbol, asset_class="us_equity", side=side,
+                               qty=str(quantity), client_order_id=client_order_id)

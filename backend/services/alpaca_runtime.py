@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from backend.domain.models import EngineConfig, PaperPosition, StrategyAnalysis, WatchlistItem
 from backend.services.alpaca_execution import close_paper_position, submit_paper_market_order
+from backend.services.alpaca_bracket_readiness import paper_bracket_automation_readiness
 from backend.services.alpaca_paper import AlpacaPaperError, get_account, get_open_position, list_positions
 from backend.services.execution_engine import ExecutionResult
 from backend.services.financial_units import MonetaryBasis
@@ -432,7 +433,7 @@ def execute_alpaca_runtime_signal(
 
     summary = (
         "Automatic Alpaca Paper entry is blocked until broker-native protective-order "
-        "submission and parent/leg reconciliation are implemented. Existing positions "
+        "lifecycle validation and explicit activation approval are complete. Existing positions "
         "can still receive trusted close signals; operator-only simple Paper orders "
         "remain a separate supervised workflow."
     )
@@ -442,6 +443,7 @@ def execute_alpaca_runtime_signal(
         details={
             **execution_details,
             "automatic_entry_protection_required": True,
+            "bracket_automation_readiness": paper_bracket_automation_readiness(),
             "broker_native_protection_verified": False,
             "risk_accepted": True,
             "risk_intent_type": "open",
