@@ -77,6 +77,10 @@ def test_missing_protection_escalates_once_across_restart_and_recovery(monkeypat
     assert first["counts"]["attention"] == 1
     assert first["results"][0]["severity"] == "critical"
     assert len(_alerts()) == 1
+    # Internal critical escalation must serialize through the existing
+    # IncidentRecord/UI level vocabulary (info/warning/error).
+    assert _alerts()[0].level == "error"
+    assert _alerts()[0].details["monitor_severity"] == "critical"
     init_db()  # idempotent restart; no alert duplication after persisted state
     second = monitor.poll_paper_bracket_protection_once()
     assert second["counts"]["new_incidents"] == 0
