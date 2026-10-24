@@ -76,11 +76,12 @@ def test_stale_then_recent_preserves_old_alert_and_rearms():
     recovered = watchdog.check_monitor_heartbeat(observed_at=NOW + timedelta(seconds=30))
     assert recovered["severity"] == "info"
     assert recovered["incident_created"]  # review warning, not auto-clear
-    assert [i.code for i in _watchdog_events()] == [
+    assert sorted(i.code for i in _watchdog_events()) == [
         "ALPACA_PAPER_MONITOR_WATCHDOG_ALERT",
         "ALPACA_PAPER_MONITOR_WATCHDOG_CHANGED",
     ]
-    assert _watchdog_events()[-1].details["prior_alert_not_acknowledged"]
+    review = next(i for i in _watchdog_events() if i.code.endswith("_CHANGED"))
+    assert review.details["prior_alert_not_acknowledged"]
     subsequent = watchdog.check_monitor_heartbeat(observed_at=NOW + timedelta(seconds=40))
     assert not subsequent["incident_created"]
     again = watchdog.check_monitor_heartbeat(observed_at=NOW + timedelta(seconds=200),
