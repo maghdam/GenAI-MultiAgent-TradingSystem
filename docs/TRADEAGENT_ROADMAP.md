@@ -1640,6 +1640,7 @@ Add one row after every completed task.
 | 2026-10-23 | Phase 10.20 supervised-only bracket lifecycle merge approval (no broker authorization) | Operator approved proceeding with internal supervised-only code after exact-head local/CI validation; cancellation-to-close exposure, non-reduce-only close, field evidence and unattended readiness explicitly deferred | ✅ Mock local focused 188/188; full backend + frontend 707 modules; clean worktree/diff at `be880c9`; CI #541 and #543 successful. No live/Paper order transmissions during validation | Draft PR #126 / `be880c9` | Docs-only head local + exact CI, merge and synchronize main; later monitoring/escalation, broker field validation and recovery remain separately gated |
 | 2026-10-23 | Phase 10.21 opt-in Paper protection observation and local incident monitoring (mock-verified) | Operator-started read-only monitor and exact Paper bracket inspection; durable incident dedupe, restart-gap warning, scope cap and monitor severity serialization fix (`critical` → valid incident level `error`, preserving `monitor_severity`) | ✅ Local focused monitor/bracket suite, broker safety **57/57**, full backend and frontend 707-module build, clean worktree/diff; CI **#550** green on implementation `a4dff23`. No Paper broker reads/orders | Draft PR #128, branch `phase-10/alpaca-paper-protection-monitor` | Final docs-only head local/CI checks and merge outstanding; field evidence, unattended watchdog/push escalation, account-wide orphan discovery and recovery remain separate; no Alpaca auto-trading |
 | 2026-10-24 | Phase 10.22 offline Paper monitor watchdog (mock-verified, merge pending) | Explicit SQLite-only watchdog with stale/missing/invalid/unsafe heartbeat states, persisted deduplicated operator incidents, review-on-recovery and nonzero CLI exit; no Alpaca client/network/broker mutation | ✅ Windows focused mock tests, **57/57** broker safety, full backend and frontend **707-module** build, clean tree/diff; implementation-head CI **#553** backend/frontend green at `ee8ea09` | Draft PR #129 / `ee8ea09` | Final docs-only head local/CI check and merge; OS-independent alert delivery, unattended liveness, account-wide orphan audit and field evidence remain blocked |
+| 2026-10-24 | Alpaca integration closeout and fixed 5-gate readiness review (WIP) | Operator cleanly synchronized local `main` after merged PR #129 at `c41109b`; audit differentiates research/supervised Paper from protected autonomous US-equity Paper, documents finite B1–B5 safety packages, keeps crypto/Live independently blocked | 🧪 Docs-only audit PR awaiting local diff/canonical regression and exact-head GitHub CI; **no broker reads, orders, or activation** | `docs/alpaca-integration-closeout-review` | Review and merge scope freeze, then choose target A (research) or B (B1 first); no unbounded phase additions |
 
 ---
 
@@ -2373,7 +2374,7 @@ This is an **operator-owned monitoring foundation**, not continuously guaranteed
 
 ### 10.22 Independent local Paper bracket monitor watchdog — no broker access
 **Priority:** P0
-**Status:** ✅ Mock-verified **offline, opt-in watchdog foundation** on implementation head; **NOT unattended or externally alerting**, final documentation-head validation and merge pending
+**Status:** ✅ Mock-verified **offline, opt-in watchdog foundation**, PR #129 merged as `c41109b` and local `main` synced 2026-10-24; **NOT unattended or externally alerting**
 
 Phase 10.21 is merged in PR #128 (`c456982`) and local main was synchronized with a clean worktree on 2026-10-24. Its opt-in read-only broker snapshot monitor and durable incident log are retained without activation.
 
@@ -2386,7 +2387,7 @@ Phase 10.21 is merged in PR #128 (`c456982`) and local main was synchronized wit
 **Internal mock-verification acceptance — all passed (final docs-head CI/local gate still pending)**
 - [x] Windows focused mocked watchdog and Phase 10.21 monitor + bracket lifecycle tests passed, including restart, invalid/future timestamps, unsafe heartbeat, alert rearming, CLI codes and no broker calls.
 - [x] Alpaca/cTrader broker safety regression **57/57** passed; `python scripts/validate.py` full backend suite and TypeScript/Vite production build (**707 modules**) passed; local worktree and whitespace diff clean.
-- [x] GitHub Actions **#553** passed backend and frontend jobs on exact implementation head `ee8ea0988e1dbaa687d92640da5ba7a435e53946`; local evidence reviewed. **Final roadmap-only head must also pass local validation and exact-head CI before merge.**
+- [x] GitHub Actions **#553** passed backend and frontend jobs on exact implementation head `ee8ea0988e1dbaa687d92640da5ba7a435e53946`; local evidence reviewed. **Final roadmap-only head `eccd45f` also passed local focused/full validation and GitHub CI #554 (backend/frontend); PR #129 merged as `c41109b`, local main synced cleanly.**
 
 **Local/CI verification — 2026-10-24:** Operator switched to `phase-10/alpaca-monitor-watchdog` at `ee8ea09` with clean worktree; all focused watchdog/monitor/bracket tests passed; broker safety **57/57** passed. `python scripts/validate.py` passed full backend regression and `tsc -b && vite build` (**707 modules**). `git status --short` and `git diff --check origin/main...HEAD` were clean. GitHub CI **#553** completed successfully with backend and frontend jobs. Entire validation was local/mocked; no Alpaca broker field calls or trading orders.
 
@@ -2399,6 +2400,22 @@ The watchdog's purpose is **local detection when explicitly run**, not an unatte
 
 ---
 
+### Alpaca integration closeout — fixed end states and finite safety gates (review PR)
+
+**Priority:** P0 decision and scope control
+**Status:** 🧪 Documentation review awaiting local validation/CI; no broker activation or field test
+
+**Canonical review:** [Alpaca completion review](operations/alpaca-integration-closeout.md). It reconciles roadmap Phases 10.9–10.22 without rewriting their historical acceptance evidence.
+
+- [x] Distinguish **already delivered research** (read-only data and existing trusted-strategy evaluation), **existing supervised simple Paper experiments**, **mock-only protected equity bracket foundations**, and **not-yet-available automatic protected Paper/crypto/Live**.
+- [x] Freeze the **US-equity Paper autonomous** requirements at five finite packages: **B1 account-wide truth/ownership**, **B2 broker failure/protected-close recovery**, **B3 separately authorized real Paper equity bracket field evidence**, **B4 realized-fill ledger and reservation completion**, **B5 independent liveness/escalation plus final protected Paper acceptance**.
+- [x] Require an explicit product-path decision: **A: stop infrastructure expansion and use research/supervised analysis** (no extra deployment), or **B: begin B1 under separate governance** (no automatic entries until B1–B5 and a new authorization/activation PR pass). Crypto and Live remain separate, disabled.
+- [ ] Validate this documentation-only change locally (clean worktree, `git diff --check origin/main...HEAD`, full canonical backend/frontend suite) and on exact-head GitHub CI; merge only once operator evidence is green.
+
+**Non-negotiable:** Existing Phase 10.20–10.22 mock evidence is not continuous broker protection. No Alpaca orders, Paper field reads, activation, or Windows services are performed by this review.
+
+---
+
 ## 15. Next item
 
-**Finish Phase 10.22: pull the final roadmap-evidence-only commit, confirm exact-head local backend/frontend validation and GitHub CI, merge PR #129 once both pass, and restore local `main` to a clean synchronized state. Then address a separately governed step for unattended OS-level watchdog execution and external operator alert delivery, followed by account-wide orphan discovery. Historical broker/heartbeat snapshots remain insufficient proof of continuous protection. No Alpaca Paper field reads, order mutations, automatic Paper/crypto entries or Alpaca Live activation are authorized.**
+**Current checkpoint: validate and review the finite Alpaca integration closeout in `docs/operations/alpaca-integration-closeout.md` before further coding. This reconciles the already-merged 10.20–10.22 mock-verified scope with two different endpoints: (A) currently available market research/supervised Paper, or (B) optional protected automatic US-equity Paper subject to five named acceptance packages B1–B5. Choose the required endpoint explicitly before continuing B1; do not automatically initiate an endless monitoring phase. No broker field reads, order mutations, automatic Paper/crypto entries or Alpaca Live activation are authorized.**
