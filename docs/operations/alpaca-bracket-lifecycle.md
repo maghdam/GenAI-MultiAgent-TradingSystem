@@ -52,3 +52,21 @@ python -m scripts.monitor_alpaca_paper_brackets --continuous --interval 30 --ack
 Start manually after system restart and stop with Ctrl+C. This CLI is **not** started on import, backend boot, engine start or scheduled trades; there is no webhook, push notification, guaranteed unattended watchdog or automatic restoration after a restart. HTTP calls use the existing bounded per-request client timeout; a late aggregate sweep is flagged but cannot forcibly interrupt a hung network client. Full-account orphan exposure outside accepted local intents is **not** yet surveyed. More than the configured intent cap fails closed with a durable critical incident, rather than checking just the most recent 200 intents.
 
 The code never sends an order POST, DELETE, replace, flatten, recovery or broker retry and cannot enable Alpaca Paper/crypto automatic entries or Alpaca Live. Keep the existing Phase 10.20 cancellation-to-close exposure and non-reduce-only limitations open. Until operational liveness, authorized provider field testing, account-wide reconciliation, response escalation and completion accounting are separately proven, the monitor is **not a production trading safety layer**.
+
+## Phase 10.22 — independent local heartbeat watchdog (validation pending)
+
+**Scope:** a separate, explicitly started Windows/Python process checks **only the local SQLite completed-monitor heartbeat** produced by Phase 10.21. This can run without broker credentials or approval for Paper field queries because it performs no Alpaca HTTP requests. It never starts the broker monitor itself. It never places, cancels, replaces or closes a broker order.
+
+From the project root, after selecting the tradeagent-v2 environment:
+
+~~~powershell
+python -m scripts.watch_alpaca_monitor --once
+# Optional second *manually started* console, not a Windows service:
+python -m scripts.watch_alpaca_monitor --continuous --interval 30 --stale-after 120
+~~~
+
+A one-shot command exits **0** if a recent completed sweep exists with a recognized non-alert status, **2** if the completed sweep is missing, stale, invalid, future-dated or itself reports an unsafe status, and **3** if the local DB check fails. In all cases the console output explicitly says a recent completed sweep is **not** proof of continuously running monitoring or broker-side protection. The result and a short operator message may be observed in a terminal or by a **separately configured** external supervisor. This PR does not create a scheduled task, webhook, email or push delivery.
+
+A dedicated one-row SQLite transition state deduplicates repeated critical incidents. New unsafe states are saved in the existing System incidents log as level error, retaining monitor_severity=critical; later improvement records an additional warning and **does not acknowledge** old incidents. Clock skew, missing heartbeat, and missed intervals fail closed. A fresh completed sweep reporting attention_required or scope_exceeded_unverified also triggers a watchdog alert.
+
+**Important limitations:** this watchdog process can also stop, lose DB access or be unscheduled. A stopped watchdog cannot generate alerts; stdout/stderr and local incident storage are **not** an independently delivered notification. A recent completion timestamp proves neither broker account-wide exposure completeness nor operational SLA. Do not enable unattended broker trading based on this watchdog. Later roadmap work must separately establish OS-supervised process liveness, reliable external operator alert delivery, account-wide orphan detection, authorized Paper field observations, and broker failure/close safety.

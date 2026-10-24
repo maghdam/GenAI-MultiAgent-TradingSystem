@@ -95,6 +95,15 @@ def init_db() -> None:
             )
         """)
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS alpaca_bracket_monitor_watchdog_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                classification TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
+            )
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS alpaca_bracket_monitor_heartbeat (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 completed_at TEXT NOT NULL,
