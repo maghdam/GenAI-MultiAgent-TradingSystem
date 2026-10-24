@@ -1639,6 +1639,7 @@ Add one row after every completed task.
 | 2026-10-22 | Phase 10.20 supervised Alpaca Paper bracket cancel/exit Codex handoff (WIP) | Preserve local Codex implementation with one-shot durable cancellation/close claims, pure partial-fill/OCO accounting, inventory/capacity guards and operator runbook; fix CI test isolation | 🧪 Local 188/188 focused, 57/57 broker safety, full backend + 707-module frontend build and clean diff; corrected implementation CI #541 green at `a68f044`; initial #540 failed two missing broker inventory mocks. Mock-only with **no broker mutations** | Draft PR #126 / `a68f044` | Safety review and **explicit merge approval** outstanding; Paper field observations separately unauthorized; cancellation-to-close can expose a position; do not mark phase verified or enable automation |
 | 2026-10-23 | Phase 10.20 supervised-only bracket lifecycle merge approval (no broker authorization) | Operator approved proceeding with internal supervised-only code after exact-head local/CI validation; cancellation-to-close exposure, non-reduce-only close, field evidence and unattended readiness explicitly deferred | ✅ Mock local focused 188/188; full backend + frontend 707 modules; clean worktree/diff at `be880c9`; CI #541 and #543 successful. No live/Paper order transmissions during validation | Draft PR #126 / `be880c9` | Docs-only head local + exact CI, merge and synchronize main; later monitoring/escalation, broker field validation and recovery remain separately gated |
 | 2026-10-23 | Phase 10.21 opt-in Paper protection observation and local incident monitoring (mock-verified) | Operator-started read-only monitor and exact Paper bracket inspection; durable incident dedupe, restart-gap warning, scope cap and monitor severity serialization fix (`critical` → valid incident level `error`, preserving `monitor_severity`) | ✅ Local focused monitor/bracket suite, broker safety **57/57**, full backend and frontend 707-module build, clean worktree/diff; CI **#550** green on implementation `a4dff23`. No Paper broker reads/orders | Draft PR #128, branch `phase-10/alpaca-paper-protection-monitor` | Final docs-only head local/CI checks and merge outstanding; field evidence, unattended watchdog/push escalation, account-wide orphan discovery and recovery remain separate; no Alpaca auto-trading |
+| 2026-10-24 | Phase 10.22 offline Paper monitor watchdog foundation (WIP) | User confirmed local `main` == `origin/main` at merged Phase 10.21 `c456982`; implemented separate explicit SQLite-only watchdog with bounded-heartbeat age and status checks, durable local alert transitions, recovery-review notices and CLI nonzero status | 🧪 Await Windows focused mock, broker safety and full canonical suite + exact-head CI; no Alpaca HTTP/order mutations | Development branch `phase-10/alpaca-monitor-watchdog` | No automatic activation, external delivery or liveness guarantee; account-wide orphan audit remains next separately scoped task |
 
 ---
 
@@ -2369,6 +2370,33 @@ This is an **operator-owned monitoring foundation**, not continuously guaranteed
 
 ---
 
+
+### 10.22 Independent local Paper bracket monitor watchdog — no broker access
+**Priority:** P0
+**Status:** 🟨 Implementation for mock validation; no unattended liveness or external alert delivery claims
+
+Phase 10.21 is merged in PR #128 (`c456982`) and local main was synchronized with a clean worktree on 2026-10-24. Its opt-in read-only broker snapshot monitor and durable incident log are retained without activation.
+
+**Smallest coherent next slice for local validation**
+- [x] A separate **explicitly operator-started** local SQLite-only watchdog evaluates the timestamp and outcome of completed Phase 10.21 sweeps. It never opens Alpaca connections, modifies orders, or starts a monitor/engine/service automatically.
+- [x] Missing, stale, future, corrupt or unsafe monitor heartbeat yields critical operator attention. A recent safe-status heartbeat remains **historical completed-sweep evidence only** and never proves broker protection.
+- [x] Durable, transactional incident state deduplicates unchanged critical conditions across restarts; later apparent recovery adds a review-required warning without acknowledging the previous incident.
+- [x] A one-shot CLI emits JSON + actionable local console error, with exit **2** on alert and **3** on failed local DB check. Separate opt-in looping mode can re-check intervals. No push/email/webhook or OS job is installed.
+
+**Acceptance gates — pending user local/CI evidence**
+- [ ] Focused mocked watchdog and Phase 10.21 monitor + bracket lifecycle tests, including restart, invalid/future timestamps, unsafe heartbeat, alert rearming, command exit codes and no broker calls.
+- [ ] Prior broker safety regression and complete canonical backend regression / frontend production build pass.
+- [ ] GitHub CI passes on exact PR implementation head; local worktree and diff are clean, review evidence, then update roadmap/work log, merge and sync main.
+
+**Not delivered by this slice**
+- [ ] Actual independent **unattended** liveness: neither a manually started watchdog nor a stopped monitor can generate timely incidents while the relevant processes are down; no OS-managed service or external notifications.
+- [ ] Account-wide orphan position discovery, broker response deadlines, multi-account supervision, field validation or delivery acknowledgment/escalation SLA.
+- [ ] Resolving the Phase 10.20 cancellation-to-close protection gap, non-reduce-only close, OCO timing/recovery, journal accounting, or permitting Alpaca automatic Paper/crypto or Live trading.
+
+The watchdog's purpose is **local detection when explicitly run**, not an unattended trading safety system.
+
+---
+
 ## 15. Next item
 
-**Finish Phase 10.21: synchronize the final roadmap-only verification commit locally, confirm exact-head backend/frontend CI, merge PR #128 once final checks pass, and return local `main` to a clean synchronized state. Then govern a separate roadmap slice for monitor liveness/watchdog and operator escalation delivery with account-wide orphan discovery. Mock snapshots and stored local incidents are not continuous protection: no broker field testing, real order mutations or unattended activation are authorized. Automatic Alpaca Paper/crypto entries and Alpaca Live remain disabled.**
+**Current Phase 10.22: validate the separate opt-in local Paper monitor heartbeat watchdog (no broker connections), review exact-head CI and Windows regression evidence before marking this slice mock-verified or merging. Independent OS-level watchdog liveness, externally delivered operator notifications and account-wide orphan discovery are later separate prerequisites. Historical broker and heartbeat snapshots are not continuous protection. Alpaca automatic Paper/crypto entries and Alpaca Live remain disabled; no new Paper field queries or broker mutations are authorized.**
