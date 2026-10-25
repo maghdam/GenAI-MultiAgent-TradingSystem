@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import statistics
+import warnings
 
 import pandas as pd
 import pytest
@@ -150,6 +151,66 @@ def test_daily_sharpe_uses_observed_utc_daily_equity() -> None:
 
     assert sharpe == pytest.approx(expected)
     assert avg_daily_pct == pytest.approx(statistics.mean(returns) * 100.0)
+
+
+def test_daily_sharpe_does_not_fill_weekends_or_warn() -> None:
+    # Three observed market sessions across a weekend; an implicit calendar
+    # forward-fill would insert two zero-return days and distort Sharpe.
+    equity = pd.Series(
+        [1.01, 1.00495, 1.025049],
+        index=pd.DatetimeIndex(
+            [
+                "2026-01-02T21:00:00+00:00",  # Friday
+                "2026-01-05T21:00:00+00:00",  # Monday
+                "2026-01-06T21:00:00+00:00",  # Tuesday
+            ]
+        ),
+        dtype=float,
+    )
+    observed_returns = [0.01, -0.005, 0.02]
+    expected_sharpe = statistics.mean(observed_returns) / statistics.pstdev(observed_returns) * math.sqrt(252)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        sharpe, avg_daily_pct = studio_backtests._daily_metrics(equity)
+
+    assert sharpe == pytest.approx(expected_sharpe)
+    assert avg_daily_pct == pytest.approx(statistics.mean(observed_returns) * 100.0)
+
+
+def test_daily_metrics_use_last_observed_equity_per_utc_session() -> None:
+    # Multiple intraday observations must form one daily return per observed
+    # UTC date, without inventing extra calendar sessions between Friday/Mon.
+    equity = pd.Series(
+        [1.0, 1.01, 1.02, 1.0302, 1.019898],
+        index=pd.DatetimeIndex(
+            [
+                "2026-01-02T15:30:00+00:00",
+                "2026-01-02T21:00:00+00:00",
+                "2026-01-05T15:30:00+00:00",
+                "2026-01-05T21:00:00+00:00",
+                "2026-01-06T21:00:00+00:00",
+            ]
+        ),
+        dtype=float,
+    )
+    observed_returns = [0.01, 0.02, -0.01]
+    expected_sharpe = statistics.mean(observed_returns) / statistics.pstdev(observed_returns) * math.sqrt(252)
+
+    sharpe, avg_daily_pct = studio_backtests._daily_metrics(equity)
+
+    assert sharpe == pytest.approx(expected_sharpe)
+    assert avg_daily_pct == pytest.approx(statistics.mean(observed_returns) * 100.0)
+
+
+def test_daily_metrics_handle_no_or_single_observed_session() -> None:
+    index = pd.DatetimeIndex(["2026-01-02T21:00:00+00:00"])
+    missing = pd.Series([float("nan")], index=index, dtype=float)
+    single = pd.Series([1.015], index=index, dtype=float)
+
+    assert studio_backtests._daily_metrics(pd.Series(dtype=float, index=pd.DatetimeIndex([], tz="UTC"))) == (0.0, 0.0)
+    assert studio_backtests._daily_metrics(missing) == (0.0, 0.0)
+    assert studio_backtests._daily_metrics(single) == pytest.approx((0.0, 1.5))
 
 
 def test_drawdown_and_hold_duration_follow_mark_to_market_equity(monkeypatch) -> None:
