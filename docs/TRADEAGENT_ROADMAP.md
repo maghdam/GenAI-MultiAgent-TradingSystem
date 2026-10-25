@@ -2403,19 +2403,38 @@ The watchdog's purpose is **local detection when explicitly run**, not an unatte
 ### Alpaca integration closeout — fixed end states and finite safety gates (review PR)
 
 **Priority:** P0 decision and scope control
-**Status:** ✅ Fixed-scope documentation review validated locally and on implementation CI #556; **no broker activation or field test**. Final evidence-only head CI/local check pending merge.
+**Status:** ✅ Scope review verified and merged as PR #130 (`85ebd76`) on 2026-10-24. Local `main` synchronized cleanly; **no broker activation or field test**.
 
 **Canonical review:** [Alpaca completion review](operations/alpaca-integration-closeout.md). It reconciles roadmap Phases 10.9–10.22 without rewriting their historical acceptance evidence.
 
 - [x] Distinguish **already delivered research** (read-only data and existing trusted-strategy evaluation), **existing supervised simple Paper experiments**, **mock-only protected equity bracket foundations**, and **not-yet-available automatic protected Paper/crypto/Live**.
 - [x] Freeze the **US-equity Paper autonomous** requirements at five finite packages: **B1 account-wide truth/ownership**, **B2 broker failure/protected-close recovery**, **B3 separately authorized real Paper equity bracket field evidence**, **B4 realized-fill ledger and reservation completion**, **B5 independent liveness/escalation plus final protected Paper acceptance**.
 - [x] Require an explicit product-path decision: **A: stop infrastructure expansion and use research/supervised analysis** (no extra deployment), or **B: begin B1 under separate governance** (no automatic entries until B1–B5 and a new authorization/activation PR pass). Crypto and Live remain separate, disabled.
-- [x] Local validation on `56fa702`: clean working tree, docs-only diff (`docs/TRADEAGENT_ROADMAP.md` and `docs/operations/alpaca-integration-closeout.md`), clean `git diff --check origin/main...HEAD`, full `python scripts/validate.py` backend suite and frontend TypeScript/Vite build (707 modules). Exact-head GitHub CI **#556** completed successfully (backend and frontend). Final verification-evidence-only head must also pass CI and local sync/diff before merge.
+- [x] Local validation on `56fa702`: clean working tree, docs-only diff (`docs/TRADEAGENT_ROADMAP.md` and `docs/operations/alpaca-integration-closeout.md`), clean `git diff --check origin/main...HEAD`, full `python scripts/validate.py` backend suite and frontend TypeScript/Vite build (707 modules). Exact-head GitHub CI **#556** completed successfully (backend and frontend). Final evidence head `cbaecb6` passed Windows branch/diff checks and exact-head CI **#557** (backend/frontend); PR #130 merged as `85ebd76`, and local `main` matched `origin/main` with an empty working tree.
 
 **Non-negotiable:** Existing Phase 10.20–10.22 mock evidence is not continuous broker protection. No Alpaca orders, Paper field reads, activation, or Windows services are performed by this review.
 
 ---
 
+### Option A — initial Alpaca SPY/QQQ strategy-research baseline (2026-10-25)
+
+**Status:** 🧪 Ready for operator-local focused/full validation and exact-head CI. **Not yet a verified study or a strategy recommendation.**
+
+**Operator decision:** Choose **Option A (daily research and explicitly supervised Paper experiments)** after the merged PR #130 closeout. Do **not** start optional autonomous Paper acceptance gates B1–B5 without a separate decision. Automatic Alpaca Paper/crypto entry and Live remain disabled.
+
+**First narrow research item:** Provide a repeatable, manually invoked, **read-only** comparison of the three existing trusted runtime strategies (`sma_cross`, `rsi_reversal`, `breakout`) on Alpaca **SPY/QQQ D1** historical stock bars. Reuse Phase 5.1's existing trusted runtime validation/accounting, 70/30 chronological split, next-bar-open fills, cost assumptions, regime and development-only sensitivity reporting; do not duplicate or modify the trade engine. This only provides a research baseline; no new strategy, optimization sweep, Strategy Studio runtime bridge, portfolio permissions, or broker mutations.
+
+- [ ] Mocked focused tests: enforce SPY/QQQ-only scope and 250–1000 requested daily bars, Alpaca read-only market-data calls, incomplete/current-day bar exclusion, correct strategy matrix, fail-closed no-data handling and explicit JSON output.
+- [ ] Windows canonical full backend tests and frontend build; clean working tree and diff.
+- [ ] GitHub CI on the exact PR head; then record evidence and merge.
+- [ ] After merge and clean local-main sync, conduct a **separately observed** historical-data field run, review data range/feed limitations and inspect **development and untouched OOS** results before any strategy modification. Do not infer profitability without enough trades and credible costs.
+
+**Initial assumptions/limitations:** fee 1 bps per side, slippage 1 bps per side and quoted spread 2 bps are **illustrative**, not provider-verified. The existing normalized percent-return/short-capable auditor is **not** a $500 fractional-share, borrow, split/dividend, order-fill or live-account simulation. Provider stock feed is recorded (default IEX, not consolidated SIP). No holdout-based tuning or strategy promotion.
+
+**Research invocation only after local validation:** `python -m scripts.research_alpaca_strategy_baseline --bars 500 --output "$env:TEMP\alpaca-spy-qqq-baseline.json"` (requires configured Alpaca market-data access; performs read-only historical bars queries only).
+
+---
+
 ## 15. Next item
 
-**Current checkpoint: validate and review the finite Alpaca integration closeout in `docs/operations/alpaca-integration-closeout.md` before further coding. This reconciles the already-merged 10.20–10.22 mock-verified scope with two different endpoints: (A) currently available market research/supervised Paper, or (B) optional protected automatic US-equity Paper subject to five named acceptance packages B1–B5. Choose the required endpoint explicitly before continuing B1; do not automatically initiate an endless monitoring phase. No broker field reads, order mutations, automatic Paper/crypto entries or Alpaca Live activation are authorized.**
+**Option A selected. Complete local and GitHub CI verification of the small read-only SPY/QQQ trusted-strategy research baseline above (no automatic broker entries). Review the real historical-market-data research output separately after the validated PR is merged. Keep B1–B5 autonomous protected Paper, unattended crypto, and Alpaca Live blocked; do not begin Phase 4.9/4.10 generated-strategy runtime deployment as part of this baseline.**
