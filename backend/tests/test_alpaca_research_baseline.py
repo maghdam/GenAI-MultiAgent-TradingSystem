@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
+from fastapi import HTTPException
 
 from scripts import research_alpaca_strategy_baseline as research
 
@@ -75,7 +76,7 @@ def test_rejects_bad_scope_or_cost_before_any_provider_call(monkeypatch):
         {"slippage_bps": float("nan")},
         {"spread_bps": float("inf")},
     ):
-        with pytest.raises((ValueError, Exception)) as error:
+        with pytest.raises((ValueError, HTTPException)) as error:
             research.run_baseline(**kwargs)
         assert "No Alpaca reads allowed" not in str(error.value)
 
