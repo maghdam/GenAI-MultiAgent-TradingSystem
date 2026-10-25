@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from backend.services.alpaca_market_data import AlpacaMarketDataError, _stock_feed, get_bars
 from backend.services.runtime_strategy_validation import _audit_on_frame
-from backend.services.studio_backtests import _prepare_market_frame, _safe_cost_bps, _timestamp
+from backend.services.studio_backtests import _prepare_market_frame, _safe_cost_bps
 
 
 SYMBOLS = ("SPY", "QQQ")
