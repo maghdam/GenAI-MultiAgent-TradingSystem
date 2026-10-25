@@ -201,11 +201,14 @@ def _daily_metrics(equity: pd.Series) -> tuple[float, float]:
     if equity.empty:
         return 0.0, 0.0
 
-    daily_equity = equity.resample("1D").last()
+    # Use only dates with observed equity. Calendar-day resampling inserts
+    # empty weekends/market holidays; implicitly padding them dilutes the
+    # daily-return distribution and biases sqrt(252)-annualized Sharpe.
+    daily_equity = equity.resample("1D").last().dropna()
     if daily_equity.empty:
         return 0.0, 0.0
 
-    daily_returns = daily_equity.pct_change()
+    daily_returns = daily_equity.pct_change(fill_method=None)
     daily_returns.iloc[0] = float(daily_equity.iloc[0] - 1.0)
     daily_returns = daily_returns.replace([float("inf"), float("-inf")], pd.NA).dropna().astype(float)
 
