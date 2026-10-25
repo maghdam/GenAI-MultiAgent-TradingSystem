@@ -2439,6 +2439,24 @@ The watchdog's purpose is **local detection when explicitly run**, not an unatte
 
 ---
 
+
+### Deferred development track — private ChatGPT / TradeAgent integration (planning only, 2026-10-25)
+
+**Status:** 📋 Backlog / **not started**. [GitHub issue #133](https://github.com/maghdam/GenAI-MultiAgent-TradingSystem/issues/133) records the staged architecture and acceptance gates; **draft PR #127 remains unmerged and unapproved**. Do **not** interrupt the active Option A field-evidence and backtest-reliability sequence.
+
+**Intent from the user's earlier project discussion:** Keep `chatgpt-trading-strategy-assistant` (existing private Custom GPT/SMC/cTrader prototype) and `GenAI-MultiAgent-TradingSystem` (authoritative research/strategy/risk/broker system) as **separate repositories**. Build a **private ChatGPT research assistant** using a server-enforced **read-only MCP/service bridge** to TradeAgent, then consider a **light public research-only ChatGPT integration** after private validation. The linked shared chat was not directly retrievable in this session; reconcile additional details before implementation.
+
+**Future sequential gates, each a distinct roadmap item after the active research work:**
+- **Integration 0:** Map existing SMC `/analyze` + GPT Actions/instructions to a versioned TradeAgent read-only data/analysis contract; selectively reuse validated logic without moving the existing project or its order endpoints.
+- **Integration 1:** Review/test **draft PR #127** localhost-only `get_ctrader_candles` MCP proof of concept in cTrader Demo. No public tunnel, remote access, order tool or auto-start.
+- **Integration 2:** Design and test authenticated/TLS-protected, least-privilege private ChatGPT ↔ TradeAgent research connectivity; backend-enforced authorization, audits, staleness checks and credential isolation **before** any remote deployment.
+- **Integration 3:** Add staged read-only daily market preparation (SMC/EMA and chart-supported context), Alpaca/cTrader historical data, backtest/OOS/regime/risk analysis and explicit no-trade/discipline rules; only expose capabilities the validated client/tool runtime actually supports.
+- **Integration 4:** Complete end-to-end private pilot, security/privacy and docs checks; consider separately published light generic **public research-only** experience with no personal accounts, position history, keys, order, cancel, close or broker mutation.
+
+**Boundaries:** The connected Alpaca ChatGPT Paper plugin and TradeAgent's broker account state are distinct; research tools confer **no trading authorization**. Alpaca automatic US-equity Paper B1–B5, crypto and Live remain blocked. Do not claim that a localhost MCP PoC already integrates with remote ChatGPT. Detailed future milestones and source limitations are in issue #133.
+
+---
+
 ## 15. Next item
 
 **Option A first SPY/QQQ read-only Alpaca historical field report observed. Complete the single docs-only field-evidence PR (review Windows clean diff, exact-head CI, merge, sync local `main`). Then take the first isolated model-integrity item: deterministic trading-session daily metrics / pandas `pct_change` warning, with tests and operator-local verification; audit OHLC protective-exit/gap fills in a distinct later item. No OOS-tuned strategy approval, $500 execution assumption, broker order, protected-Paper B1–B5, crypto or Live activation.**
