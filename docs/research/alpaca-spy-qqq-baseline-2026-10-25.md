@@ -1,8 +1,8 @@
 # Option A — Alpaca SPY/QQQ D1 baseline: observed field-study review
 
-**Observation date:** 2026-10-25 (UTC report timestamp `2026-10-25T19:58:09.930476+00:00`)  
-**Source:** Operator-invoked `python -m scripts.research_alpaca_strategy_baseline --bars 500 --output <local JSON>` on merged `main` `88a38d6`.  
-**Original operator-supplied JSON:** `alpaca-spy-qqq-baseline.json`, **SHA-256** `390c1eea3dfd1e9e069d057af7c45ae946d9d4227f4e14c907f0bf5faf75b6e8` (retained outside repository, not committed).  
+**Observation date:** 2026-10-25 (UTC report timestamp `2026-10-25T19:58:09.930476+00:00`)
+**Source:** Operator-invoked `python -m scripts.research_alpaca_strategy_baseline --bars 500 --output <local JSON>` on merged `main` `88a38d6`.
+**Original operator-supplied JSON:** `alpaca-spy-qqq-baseline.json`, **SHA-256** `390c1eea3dfd1e9e069d057af7c45ae946d9d4227f4e14c907f0bf5faf75b6e8` (retained outside repository, not committed).
 **Scope:** Read-only historical-data observations; no Paper/Live orders or automatic entry activation.
 
 ## Coverage and comparison
