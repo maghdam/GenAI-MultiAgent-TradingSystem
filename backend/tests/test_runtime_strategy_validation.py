@@ -163,6 +163,148 @@ def test_protective_target_exit_uses_runtime_fill_and_costs() -> None:
     assert net["Total Return [%]"] < gross["Total Return [%]"]
 
 
+def _three_bar_protection_frame(
+    *, open_price: float, high_price: float, low_price: float, close_price: float
+) -> pd.DataFrame:
+    """Enter at bar 1 open (100); exercise protection on bar 2."""
+    index = pd.date_range("2026-01-01", periods=3, freq="5min", tz="UTC")
+    return pd.DataFrame(
+        {
+            "open": [100.0, 100.0, open_price],
+            "high": [100.5, 100.5, high_price],
+            "low": [99.5, 99.5, low_price],
+            "close": [100.0, 100.0, close_price],
+            "volume": [100.0] * 3,
+        },
+        index=index,
+    )
+
+
+def _protection_result(
+    *,
+    signal: str,
+    open_price: float,
+    high_price: float,
+    low_price: float,
+    close_price: float,
+    later_signal: str = "no_trade",
+) -> dict:
+    frame = _three_bar_protection_frame(
+        open_price=open_price,
+        high_price=high_price,
+        low_price=low_price,
+        close_price=close_price,
+    )
+    analyses = [
+        _analysis(signal, stop_loss=95.0 if signal == "long" else 105.0,
+                  take_profit=105.0 if signal == "long" else 95.0),
+        _analysis(later_signal, stop_loss=85.0 if signal == "long" else 115.0,
+                  take_profit=125.0 if signal == "long" else 75.0),
+        _analysis("no_trade"),
+    ]
+    return validation._runtime_accounting(
+        df=frame,
+        analyses=analyses,
+        start_bar=0,
+        end_bar=len(frame),
+        timeframe="M5",
+        fee_bps=0.0,
+        slippage_bps=0.0,
+        spread_bps=0.0,
+        position_size_pct=100.0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("signal", "high", "low", "exit_field", "expected_return"),
+    [
+        ("long", 104.0, 94.0, "Stop Exits", -5.0),
+        ("short", 106.0, 96.0, "Stop Exits", -5.0),
+        ("long", 106.0, 96.0, "Take-Profit Exits", 5.0),
+        ("short", 104.0, 94.0, "Take-Profit Exits", 5.0),
+        ("long", 106.0, 94.0, "Stop Exits", -5.0),
+        ("short", 106.0, 94.0, "Stop Exits", -5.0),
+    ],
+)
+def test_runtime_protection_uses_ohlc_extremes_and_stop_first_on_ambiguity(
+    signal: str, high: float, low: float, exit_field: str, expected_return: float
+) -> None:
+    # Close returns to the entry price; a close-only check would miss exits.
+    result = _protection_result(
+        signal=signal,
+        open_price=100.0,
+        high_price=high,
+        low_price=low,
+        close_price=100.0,
+    )
+
+    assert result["Protective Exits"] == 1.0
+    assert result[exit_field] == 1.0
+    assert result["Closed Trades"] == 1.0
+    assert result["Marked Open Trades"] == 0.0
+    assert result["Total Return [%]"] == pytest.approx(expected_return)
+    assert "stop first" in result["Protective Fill Assumption"]
+
+
+@pytest.mark.parametrize(
+    ("signal", "open_price", "high", "low", "exit_field", "expected_return"),
+    [
+        ("long", 90.0, 101.0, 89.0, "Stop Exits", -10.0),
+        ("short", 110.0, 111.0, 98.0, "Stop Exits", -10.0),
+        ("long", 110.0, 112.0, 90.0, "Take-Profit Exits", 5.0),
+        ("short", 90.0, 110.0, 89.0, "Take-Profit Exits", 5.0),
+    ],
+)
+def test_runtime_gap_protection_prioritizes_open_and_conservative_fill(
+    signal: str, open_price: float, high: float, low: float, exit_field: str, expected_return: float
+) -> None:
+    # Even with no_trade, protection stays active overnight. An adverse stop
+    # gap fills at the worse open; a favorable target gap gets only the target.
+    result = _protection_result(
+        signal=signal,
+        open_price=open_price,
+        high_price=high,
+        low_price=low,
+        close_price=100.0,
+    )
+
+    assert result["Protective Exits"] == 1.0
+    assert result[exit_field] == 1.0
+    assert result["Number of Trades"] == 1.0
+    assert result["Total Return [%]"] == pytest.approx(expected_return)
+
+
+def test_runtime_open_gap_exit_uses_prior_protection_without_same_bar_reentry() -> None:
+    # The later long signal proposes a wider stop, but the old standing stop
+    # must execute first at the adverse gap open, without opening a duplicate.
+    result = _protection_result(
+        signal="long",
+        open_price=90.0,
+        high_price=101.0,
+        low_price=89.0,
+        close_price=100.0,
+        later_signal="long",
+    )
+
+    assert result["Stop Exits"] == 1.0
+    assert result["Number of Trades"] == 1.0
+    assert result["Signal Flips"] == 0.0
+    assert result["Total Return [%]"] == pytest.approx(-10.0)
+
+
+def test_runtime_protection_does_not_invent_exit_when_ohlc_misses_levels() -> None:
+    result = _protection_result(
+        signal="long",
+        open_price=100.0,
+        high_price=104.0,
+        low_price=96.0,
+        close_price=102.0,
+    )
+    assert result["Protective Exits"] == 0.0
+    assert result["Marked Open Trades"] == 1.0
+    assert result["Total Return [%]"] == pytest.approx(2.0)
+
+
 @pytest.mark.parametrize("strategy_key", ["sma_cross", "rsi_reversal", "breakout"])
 def test_runtime_strategy_audit_covers_phase_51_dimensions(monkeypatch, strategy_key: str) -> None:
     frame = _synthetic_market()
