@@ -138,6 +138,39 @@ def test_market_gaps_are_reported_without_synthetic_filling(monkeypatch) -> None
     assert result["Data Start"].endswith("+00:00")
 
 
+@pytest.mark.parametrize(
+    ("position", "column", "value", "reason"),
+    [
+        (0, "high", 98.0, "high/low ordering"),
+        (1, "low", 102.0, "high/low ordering"),
+        (0, "high", 99.5, "open/close outside"),
+        (2, "low", 100.5, "open/close outside"),
+    ],
+)
+def test_research_backtest_rejects_malformed_ohlc_on_any_bar(
+    position: int, column: str, value: float, reason: str
+) -> None:
+    # Even a stale, non-latest candle can fabricate an intrabar stop/target.
+    frame = _frame([100.0] * 3)
+    frame.loc[frame.index[position], column] = value
+
+    with pytest.raises(HTTPException, match=rf"OHLC bar {position} is malformed: .*{reason}"):
+        studio_backtests._prepare_market_frame(frame, "M5")
+
+
+def test_research_backtest_accepts_valid_large_intrabar_range() -> None:
+    # The market-data safety gate imposes a live latest-bar range threshold;
+    # historical research only checks OHLC consistency, not that threshold.
+    frame = _frame([100.0] * 3)
+    frame.loc[frame.index[1], ["high", "low"]] = [150.0, 50.0]
+
+    prepared = studio_backtests._prepare_market_frame(frame, "M5")
+
+    assert len(prepared) == 3
+    assert float(prepared["high"].iloc[1]) == 150.0
+    assert float(prepared["low"].iloc[1]) == 50.0
+
+
 def test_daily_sharpe_uses_observed_utc_daily_equity() -> None:
     equity = pd.Series(
         [1.01, 1.00495, 1.025049],
