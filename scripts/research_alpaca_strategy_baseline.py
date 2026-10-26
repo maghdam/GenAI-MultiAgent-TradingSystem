@@ -25,6 +25,28 @@ MIN_COMPLETE_BARS = 250
 MAX_REQUESTED_BARS = 1000
 
 
+
+def _validate_alpaca_daily_session_labels(frame: pd.DataFrame, symbol: str) -> None:
+    """Check only Alpaca's US-stock D1 session-start timestamp convention.
+
+    A stock daily bar is labeled at midnight America/New_York, which is
+    04:00 or 05:00 UTC across daylight-saving transitions. This is not an
+    NYSE holiday calendar and does not establish a bar's actual close time.
+    """
+    eastern = frame.index.tz_convert("America/New_York")
+    for position, timestamp in enumerate(eastern):
+        if timestamp.dayofweek >= 5:
+            raise ValueError(
+                f"{symbol}: Alpaca D1 bar {position} has a weekend New York session label "
+                f"({timestamp.isoformat()})."
+            )
+        if timestamp != timestamp.normalize():
+            raise ValueError(
+                f"{symbol}: Alpaca D1 bar {position} must be labeled at midnight "
+                f"America/New_York ({timestamp.isoformat()})."
+            )
+
+
 def run_baseline(
     *,
     symbols: tuple[str, ...] = SYMBOLS,
@@ -57,6 +79,9 @@ def run_baseline(
         # A possibly still-forming current UTC daily bar must not enter a
         # historical experiment, even when Alpaca returns it.
         frame = frame.loc[frame.index < cutoff].copy()
+        # Validate observed US trading-day labels, not fixed UTC midnight:
+        # New York midnight converts to 05:00 or 04:00 UTC across DST.
+        _validate_alpaca_daily_session_labels(frame, symbol)
         if len(frame) < MIN_COMPLETE_BARS:
             raise ValueError(
                 f"{symbol}: only {len(frame)} completed daily bars; "
