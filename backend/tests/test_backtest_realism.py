@@ -173,7 +173,7 @@ def test_research_backtest_accepts_valid_large_intrabar_range() -> None:
 
 
 @pytest.mark.parametrize(
-    ("timeframe", "too_short"),
+    ("timeframe", "too_short_seconds"),
     [
         ("M1", 30),
         ("M5", 4 * 60),
