@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -89,7 +90,7 @@ def test_runtime_auditor_rejects_overlapping_bars_before_analysis(monkeypatch) -
     frame = _synthetic_market()
     # A 5-minute bar beginning 2 minutes after the preceding bar overlaps it.
     index = frame.index.to_list()
-    index[27] = index[26] + pd.Timedelta(minutes=2)
+    index[27] = index[26] + timedelta(minutes=2)
     frame.index = pd.DatetimeIndex(index)
 
     def no_analysis(**kwargs):
