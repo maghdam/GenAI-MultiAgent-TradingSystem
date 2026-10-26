@@ -85,6 +85,31 @@ def test_runtime_auditor_rejects_inconsistent_history_before_strategy_analysis(m
         )
 
 
+def test_runtime_auditor_rejects_overlapping_bars_before_analysis(monkeypatch) -> None:
+    frame = _synthetic_market()
+    # A 5-minute bar beginning 2 minutes after the preceding bar overlaps it.
+    index = frame.index.to_list()
+    index[27] = index[26] + pd.Timedelta(minutes=2)
+    frame.index = pd.DatetimeIndex(index)
+
+    def no_analysis(**kwargs):
+        pytest.fail("Overlapping timestamps must fail before signal evaluation")
+
+    monkeypatch.setattr(validation, "_analysis_series", no_analysis)
+    with pytest.raises(HTTPException, match=r"overlapping M5 bars at positions 26 and 27"):
+        validation._audit_on_frame(
+            strategy_key="sma_cross",
+            symbol="TEST",
+            timeframe="M5",
+            df=frame,
+            params=None,
+            fee_bps=0.0,
+            slippage_bps=0.0,
+            spread_bps=0.0,
+            position_size_pct=100.0,
+        )
+
+
 def test_runtime_registry_contains_exact_deterministic_strategies() -> None:
     assert validation.runtime_strategy_keys() == ["breakout", "rsi_reversal", "sma_cross"]
 
