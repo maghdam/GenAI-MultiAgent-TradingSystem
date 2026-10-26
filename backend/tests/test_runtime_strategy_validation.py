@@ -5,6 +5,7 @@ import math
 import numpy as np
 import pandas as pd
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from backend.domain.models import StrategyAnalysis
@@ -59,6 +60,29 @@ def _synthetic_market(bars: int = 180) -> pd.DataFrame:
     for idx in range(52, bars, 55):
         close[idx : min(idx + 4, bars)] -= 4.0
     return _frame(close.tolist())
+
+
+def test_runtime_auditor_rejects_inconsistent_history_before_strategy_analysis(monkeypatch) -> None:
+    frame = _synthetic_market()
+    position = 27
+    frame.loc[frame.index[position], "high"] = float(frame["low"].iloc[position]) - 1.0
+
+    def no_analysis(**kwargs):
+        pytest.fail("Malformed OHLC must be rejected before strategy evaluation")
+
+    monkeypatch.setattr(validation, "_analysis_series", no_analysis)
+    with pytest.raises(HTTPException, match=rf"OHLC bar {position} is malformed"):
+        validation._audit_on_frame(
+            strategy_key="sma_cross",
+            symbol="TEST",
+            timeframe="M5",
+            df=frame,
+            params=None,
+            fee_bps=0.0,
+            slippage_bps=0.0,
+            spread_bps=0.0,
+            position_size_pct=100.0,
+        )
 
 
 def test_runtime_registry_contains_exact_deterministic_strategies() -> None:

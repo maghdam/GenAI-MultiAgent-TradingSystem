@@ -11,6 +11,7 @@ import backend.data_fetcher as data_fetcher
 import pandas as pd
 from fastapi import HTTPException
 
+from backend.services.market_bar_validation import assess_market_bar_snapshot
 from backend.services.strategy_lifecycle import record_backtest
 from backend.services.strategy_sandbox import StrategySandboxError, run_strategy_source
 
@@ -100,6 +101,19 @@ def _prepare_market_frame(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         invalid = frame[column].isna() | ~frame[column].map(math.isfinite) | (frame[column] <= 0)
         if bool(invalid.any()):
             raise HTTPException(400, f"Backtest data contains invalid {column} prices.")
+
+    # Research backtests must reject malformed historical candles before
+    # strategy evaluation or OHLC protective-fill accounting. Reuse the same
+    # price-ordering rules as the market-data safety boundary, but do not apply
+    # its latest-live-bar volatility threshold to historical observations.
+    for position, (_, row) in enumerate(frame.iterrows()):
+        ok, _, reason = assess_market_bar_snapshot(
+            timeframe,
+            {column: row[column] for column in ("open", "high", "low", "close")},
+            check_extreme_range=False,
+        )
+        if not ok:
+            raise HTTPException(400, f"Backtest OHLC bar {position} is malformed: {reason}")
 
     if len(frame) < 2:
         raise HTTPException(400, "Backtest requires at least two market bars.")
