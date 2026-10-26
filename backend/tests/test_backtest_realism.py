@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import statistics
 import warnings
+from datetime import timedelta
 
 import pandas as pd
 import pytest
@@ -174,20 +175,20 @@ def test_research_backtest_accepts_valid_large_intrabar_range() -> None:
 @pytest.mark.parametrize(
     ("timeframe", "too_short"),
     [
-        ("M1", "30s"),
-        ("M5", "4min"),
-        ("M15", "14min"),
-        ("M30", "29min"),
-        ("H1", "59min"),
+        ("M1", 30),
+        ("M5", 4 * 60),
+        ("M15", 14 * 60),
+        ("M30", 29 * 60),
+        ("H1", 59 * 60),
     ],
 )
 def test_intraday_research_rejects_overlapping_timestamped_bars(
-    timeframe: str, too_short: str
+    timeframe: str, too_short_seconds: int
 ) -> None:
     # A later candle beginning before the earlier one could complete makes
     # the completed-bar / next-open order accounting causally inconsistent.
     base = pd.Timestamp("2026-01-05T12:00:00Z")
-    index = pd.DatetimeIndex([base, base + pd.Timedelta(too_short), base + pd.Timedelta("2h")])
+    index = pd.DatetimeIndex([base, base + timedelta(seconds=too_short_seconds), base + timedelta(hours=2)])
     frame = _frame([100.0] * 3, index=index)
 
     with pytest.raises(
@@ -220,7 +221,7 @@ def test_research_does_not_reject_clock_shifts_for_longer_bars(timeframe: str) -
     # DST/session clock changes can cause observed UTC start separations that
     # are shorter than one calendar bar. This narrow guard is intraday only.
     base = pd.Timestamp("2026-03-06T05:00:00Z")
-    index = pd.DatetimeIndex([base, base + pd.Timedelta("3h"), base + pd.Timedelta("1d")])
+    index = pd.DatetimeIndex([base, base + timedelta(hours=3), base + timedelta(days=1)])
     frame = _frame([100.0] * 3, index=index)
 
     prepared = studio_backtests._prepare_market_frame(frame, timeframe)
