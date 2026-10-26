@@ -118,7 +118,23 @@ def _prepare_market_frame(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     if len(frame) < 2:
         raise HTTPException(400, "Backtest requires at least two market bars.")
 
-    _timeframe_minutes(timeframe)
+    timeframe_minutes = _timeframe_minutes(timeframe)
+    # Intraday research bars are interpreted as successive completed candles.
+    # Starts closer than one candle width imply overlapping observations,
+    # making next-open execution and OHLC stop ordering untrustworthy.
+    # Do not impose calendar-clock spacing on H4/D1 sessions: DST/session
+    # boundaries can legitimately shift their UTC bar starts.
+    normalized_timeframe = (timeframe or "M5").upper()
+    if normalized_timeframe in {"M1", "M5", "M15", "M30", "H1"}:
+        seconds = frame.index.to_series().diff().dt.total_seconds()
+        for position, elapsed in enumerate(seconds.iloc[1:], start=1):
+            if elapsed < timeframe_minutes * 60:
+                raise HTTPException(
+                    400,
+                    f"Backtest has overlapping {normalized_timeframe} bars at positions "
+                    f"{position - 1} and {position}; expected at least "
+                    f"{timeframe_minutes} minutes between UTC timestamps.",
+                )
     return frame
 
 
