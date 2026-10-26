@@ -61,21 +61,38 @@ def _analysis_series(
 
 def _protective_exit(
     direction: float,
-    price: float,
+    open_price: float,
+    high_price: float,
+    low_price: float,
     stop_loss: float | None,
     take_profit: float | None,
-) -> tuple[str | None, float | None]:
+) -> tuple[str | None, float | None, bool]:
+    """Conservative OHLC protection: open first, then stop before target.
+
+    A stop gapped through at the open fills at that worse observed price.
+    A favorable target gap fills at the target (no unearned price improvement).
+    If both levels occur inside the bar, OHLC cannot resolve their order;
+    assume the stop was touched first. The boolean marks an at-open fill.
+    """
     if direction > 0:
-        if stop_loss is not None and price <= float(stop_loss):
-            return "stop_loss", float(stop_loss)
-        if take_profit is not None and price >= float(take_profit):
-            return "take_profit", float(take_profit)
+        if stop_loss is not None and open_price <= float(stop_loss):
+            return "stop_loss", open_price, True
+        if take_profit is not None and open_price >= float(take_profit):
+            return "take_profit", float(take_profit), True
+        if stop_loss is not None and low_price <= float(stop_loss):
+            return "stop_loss", float(stop_loss), False
+        if take_profit is not None and high_price >= float(take_profit):
+            return "take_profit", float(take_profit), False
     elif direction < 0:
-        if stop_loss is not None and price >= float(stop_loss):
-            return "stop_loss", float(stop_loss)
-        if take_profit is not None and price <= float(take_profit):
-            return "take_profit", float(take_profit)
-    return None, None
+        if stop_loss is not None and open_price >= float(stop_loss):
+            return "stop_loss", open_price, True
+        if take_profit is not None and open_price <= float(take_profit):
+            return "take_profit", float(take_profit), True
+        if stop_loss is not None and high_price >= float(stop_loss):
+            return "stop_loss", float(stop_loss), False
+        if take_profit is not None and low_price <= float(take_profit):
+            return "take_profit", float(take_profit), False
+    return None, None, False
 
 
 def _runtime_accounting(
@@ -192,15 +209,34 @@ def _runtime_accounting(
 
     for bar_index in range(start_bar + 1, end_bar):
         open_price = float(df["open"].iloc[bar_index])
+        high_price = float(df["high"].iloc[bar_index])
+        low_price = float(df["low"].iloc[bar_index])
         close_price = float(df["close"].iloc[bar_index])
         bar_time = pd.Timestamp(df.index[bar_index])
         bar_close_time = bar_time + timedelta(minutes=timeframe_minutes)
 
+        # Protection on an already-held position has priority at the open,
+        # even when the pending analysis says no_trade or requests a flip.
+        # After a gap exit, do not reopen on that same ambiguous bar.
+        exited_at_open = False
         if active_trade:
             equity = mark_equity(open_price)
+            reason, fill_price, _ = _protective_exit(
+                float(active_trade["direction"]),
+                open_price,
+                open_price,
+                open_price,
+                active_trade.get("stop_loss"),
+                active_trade.get("take_profit"),
+            )
+            if reason is not None and fill_price is not None:
+                equity = close_active(
+                    fill_price, bar_time, bar_index, marked=False, reason=reason
+                )
+                exited_at_open = True
 
         desired_direction = _direction(pending.signal)
-        if desired_direction != 0.0:
+        if desired_direction != 0.0 and not exited_at_open:
             if active_trade and float(active_trade["direction"]) != desired_direction:
                 equity = close_active(
                     open_price,
@@ -223,40 +259,28 @@ def _runtime_accounting(
                     pending,
                 )
 
-            if active_trade:
-                reason, fill_price = _protective_exit(
-                    float(active_trade["direction"]),
-                    open_price,
-                    active_trade.get("stop_loss"),
-                    active_trade.get("take_profit"),
-                )
-                if reason is not None and fill_price is not None:
-                    equity = close_active(
-                        fill_price,
-                        bar_time,
-                        bar_index,
-                        marked=False,
-                        reason=reason,
-                    )
-
-        # Runtime no_trade semantics are hold/do-nothing: an existing position
-        # and its prior protection remain unchanged.
+        # no_trade keeps the existing position/protection, but must never
+        # disable protective exits. Check OHLC extremes before marking equity
+        # at the close; a recovered close cannot erase an intrabar stop.
         if active_trade:
-            equity = mark_equity(close_price)
-            reason, fill_price = _protective_exit(
+            reason, fill_price, at_open = _protective_exit(
                 float(active_trade["direction"]),
-                close_price,
+                open_price,
+                high_price,
+                low_price,
                 active_trade.get("stop_loss"),
                 active_trade.get("take_profit"),
             )
             if reason is not None and fill_price is not None:
                 equity = close_active(
                     fill_price,
-                    bar_close_time,
+                    bar_time if at_open else bar_close_time,
                     bar_index,
                     marked=False,
                     reason=reason,
                 )
+            else:
+                equity = mark_equity(close_price)
 
         equity_points.append(float(equity))
         equity_index.append(bar_time)
@@ -330,7 +354,8 @@ def _runtime_accounting(
         "Position Size [%]": round(position_fraction * 100.0, 3),
         "Execution Timing": "Completed-bar decision; execute at next bar open.",
         "Runtime no_trade Semantics": "Hold existing position and prior protection; do not flatten.",
-        "Protection Semantics": "Check prior protection at next completed-bar close; same-direction decisions refresh protection for subsequent bars.",
+        "Protection Semantics": "Prior protection checked at each open (including no_trade); then OHLC high/low after next-open signal execution. At-open gap exits block same-bar re-entry.",
+        "Protective Fill Assumption": "Stops fill at adverse gap open or stop level intrabar; targets at target level; if both intrabar levels are hit, stop first. Intrabar fill time approximated by bar close.",
     }
 
 
