@@ -171,6 +171,63 @@ def test_research_backtest_accepts_valid_large_intrabar_range() -> None:
     assert float(prepared["low"].iloc[1]) == 50.0
 
 
+@pytest.mark.parametrize(
+    ("timeframe", "too_short"),
+    [
+        ("M1", "30s"),
+        ("M5", "4min"),
+        ("M15", "14min"),
+        ("M30", "29min"),
+        ("H1", "59min"),
+    ],
+)
+def test_intraday_research_rejects_overlapping_timestamped_bars(
+    timeframe: str, too_short: str
+) -> None:
+    # A later candle beginning before the earlier one could complete makes
+    # the completed-bar / next-open order accounting causally inconsistent.
+    base = pd.Timestamp("2026-01-05T12:00:00Z")
+    index = pd.DatetimeIndex([base, base + pd.Timedelta(too_short), base + pd.Timedelta("2h")])
+    frame = _frame([100.0] * 3, index=index)
+
+    with pytest.raises(
+        HTTPException, match=rf"overlapping {timeframe} bars at positions 0 and 1"
+    ):
+        studio_backtests._prepare_market_frame(frame, timeframe)
+
+
+def test_intraday_research_preserves_session_gaps_and_unsorted_input() -> None:
+    # Sorting by UTC start should not manufacture missing candles or reject a
+    # valid weekend/overnight gap.
+    index = pd.DatetimeIndex(
+        [
+            "2026-01-05T12:15:00Z",
+            "2026-01-02T21:00:00Z",
+            "2026-01-05T12:05:00Z",
+        ]
+    )
+    frame = _frame([100.0] * 3, index=index)
+
+    prepared = studio_backtests._prepare_market_frame(frame, "M5")
+
+    assert len(prepared) == 3
+    assert prepared.index.is_monotonic_increasing
+    assert prepared.index[0] == pd.Timestamp("2026-01-02T21:00:00Z")
+
+
+@pytest.mark.parametrize("timeframe", ["H4", "D1"])
+def test_research_does_not_reject_clock_shifts_for_longer_bars(timeframe: str) -> None:
+    # DST/session clock changes can cause observed UTC start separations that
+    # are shorter than one calendar bar. This narrow guard is intraday only.
+    base = pd.Timestamp("2026-03-06T05:00:00Z")
+    index = pd.DatetimeIndex([base, base + pd.Timedelta("3h"), base + pd.Timedelta("1d")])
+    frame = _frame([100.0] * 3, index=index)
+
+    prepared = studio_backtests._prepare_market_frame(frame, timeframe)
+
+    assert len(prepared) == 3
+
+
 def test_daily_sharpe_uses_observed_utc_daily_equity() -> None:
     equity = pd.Series(
         [1.01, 1.00495, 1.025049],
