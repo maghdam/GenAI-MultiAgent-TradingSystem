@@ -24,6 +24,19 @@ def _bars(count: int = 260) -> pd.DataFrame:
     )
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_read_only_calendar(monkeypatch):
+    # Isolate research tests from external trading APIs and account state.
+    # A mocked weekday calendar is not used to establish real NYSE closures.
+    def calendar(*, start_date: str, end_date: str):
+        return [
+            {"date": day.date().isoformat(), "open": "09:30", "close": "16:00"}
+            for day in pd.date_range(start_date, end_date, freq="B")
+        ]
+
+    monkeypatch.setattr(research, "get_stock_trading_calendar", calendar)
+
+
 def test_baseline_uses_alpaca_bars_only_and_existing_auditor(monkeypatch):
     requested = []
     audited = []
@@ -59,6 +72,8 @@ def test_baseline_uses_alpaca_bars_only_and_existing_auditor(monkeypatch):
     assert all(row["spread_bps"] == 2.0 and row["position_size_pct"] == 100.0 for row in audited)
     assert report["read_only"] and report["broker_order_requests"] == 0
     assert report["data_source"]["stock_feed"] == "iex"
+    assert report["data_source"]["session_calendar"] == "alpaca_paper_trading_day_calendar"
+    assert all(v["verified_observed_trading_dates"] == 260 for v in report["data_source"]["calendar_validation_by_symbol"].values())
     assert len(report["results"]) == 6
     assert "$500" in " ".join(report["limitations"])
 
@@ -81,7 +96,7 @@ def test_stock_daily_baseline_accepts_new_york_midnight_across_dst(monkeypatch):
     assert len(captured) == 3
     assert all(frame.index.equals(raw.index) for frame in captured)
     assert result["data_source"]["daily_bar_label"] == "00:00 America/New_York"
-    assert result["data_source"]["session_calendar"] == "weekday_label_only_not_nyse_holidays"
+    assert result["data_source"]["session_calendar"] == "alpaca_paper_trading_day_calendar"
 
 
 @pytest.mark.parametrize(
@@ -106,6 +121,84 @@ def test_stock_daily_baseline_rejects_bad_provider_session_labels_before_audit(
     monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
 
     with pytest.raises(ValueError, match=reason):
+        research.run_baseline(symbols=("SPY",))
+
+
+def test_d1_calendar_rejects_weekday_exchange_holiday_before_audit(monkeypatch):
+    frame = _bars()
+    excluded_date = frame.index[6].tz_convert("America/New_York").date().isoformat()
+
+    def calendar(*, start_date: str, end_date: str):
+        return [
+            {"date": day.date().isoformat(), "open": "09:30", "close": "16:00"}
+            for day in pd.date_range(start_date, end_date, freq="B")
+            if day.date().isoformat() != excluded_date
+        ]
+
+    monkeypatch.setattr(research, "get_stock_trading_calendar", calendar)
+    monkeypatch.setattr(research, "get_bars", lambda **kw: frame.copy())
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+    monkeypatch.setattr(
+        research, "_audit_on_frame",
+        lambda **kw: pytest.fail("A market-closed bar must never enter the strategy audit"),
+    )
+    with pytest.raises(ValueError, match="non-trading exchange date"):
+        research.run_baseline(symbols=("SPY",))
+
+
+def test_d1_calendar_reports_early_closes_and_unobserved_sessions_without_filling(monkeypatch):
+    frame = _bars()
+    short_day = frame.index[12].tz_convert("America/New_York").date().isoformat()
+    extra_day = pd.Timestamp("2024-01-01")
+
+    def calendar(*, start_date: str, end_date: str):
+        return [
+            {
+                "date": day.date().isoformat(),
+                "open": "09:30",
+                "close": "13:00" if day.date().isoformat() == short_day else "16:00",
+            }
+            for day in pd.date_range(start_date, end_date, freq="B")
+        ]
+
+    monkeypatch.setattr(research, "get_stock_trading_calendar", calendar)
+    monkeypatch.setattr(research, "get_bars", lambda **kw: frame.copy())
+    audited = []
+    monkeypatch.setattr(
+        research, "_audit_on_frame",
+        lambda **kw: audited.append(kw["df"].copy()) or {"strategy": kw["strategy_key"]},
+    )
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+
+    report = research.run_baseline(symbols=("SPY",))
+    summary = report["data_source"]["calendar_validation_by_symbol"]["SPY"]
+    assert summary["early_close_observations"] == 1
+    assert summary["verified_observed_trading_dates"] == 260
+    assert summary["unobserved_exchange_sessions"] == 0
+    assert len(audited) == 3 and all(bar.index.equals(frame.index) for bar in audited)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("open", "bad"), ("close", "09:00"), ("date", "2024-99-01")],
+)
+def test_d1_calendar_fails_closed_on_malformed_session_details(monkeypatch, field, value):
+    frame = _bars()
+    def calendar(*, start_date: str, end_date: str):
+        result = [
+            {"date": day.date().isoformat(), "open": "09:30", "close": "16:00"}
+            for day in pd.date_range(start_date, end_date, freq="B")
+        ]
+        result[0][field] = value
+        return result
+    monkeypatch.setattr(research, "get_stock_trading_calendar", calendar)
+    monkeypatch.setattr(research, "get_bars", lambda **kw: frame.copy())
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+    monkeypatch.setattr(
+        research, "_audit_on_frame",
+        lambda **kw: pytest.fail("Malformed exchange calendar must prevent auditing"),
+    )
+    with pytest.raises(research.AlpacaMarketDataError, match="calendar"):
         research.run_baseline(symbols=("SPY",))
 
 
