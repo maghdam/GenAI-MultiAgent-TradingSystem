@@ -147,9 +147,11 @@ def test_d1_calendar_rejects_weekday_exchange_holiday_before_audit(monkeypatch):
 
 
 def test_d1_calendar_reports_early_closes_and_unobserved_sessions_without_filling(monkeypatch):
-    frame = _bars()
-    short_day = frame.index[12].tz_convert("America/New_York").date().isoformat()
-    extra_day = pd.Timestamp("2024-01-01")
+    raw = _bars()
+    short_day = raw.index[12].tz_convert("America/New_York").date().isoformat()
+    # An expected market day is absent from the observed IEX bar feed: report
+    # the coverage gap, never silently insert a synthetic price candle.
+    frame = raw.drop(index=raw.index[20])
 
     def calendar(*, start_date: str, end_date: str):
         return [
@@ -173,8 +175,9 @@ def test_d1_calendar_reports_early_closes_and_unobserved_sessions_without_fillin
     report = research.run_baseline(symbols=("SPY",))
     summary = report["data_source"]["calendar_validation_by_symbol"]["SPY"]
     assert summary["early_close_observations"] == 1
-    assert summary["verified_observed_trading_dates"] == 260
-    assert summary["unobserved_exchange_sessions"] == 0
+    assert summary["verified_observed_trading_dates"] == 259
+    assert summary["unobserved_exchange_sessions"] == 1
+    assert not summary["observed_bar_completeness_verified"]
     assert len(audited) == 3 and all(bar.index.equals(frame.index) for bar in audited)
 
 
