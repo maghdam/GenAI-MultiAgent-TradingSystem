@@ -25,6 +25,28 @@ MIN_COMPLETE_BARS = 250
 MAX_REQUESTED_BARS = 1000
 
 
+
+def _validate_alpaca_daily_session_labels(frame: pd.DataFrame, symbol: str) -> None:
+    """Check only Alpaca's US-stock D1 session-start timestamp convention.
+
+    A stock daily bar is labeled at midnight America/New_York, which is
+    04:00 or 05:00 UTC across daylight-saving transitions. This is not an
+    NYSE holiday calendar and does not establish a bar's actual close time.
+    """
+    eastern = frame.index.tz_convert("America/New_York")
+    for position, timestamp in enumerate(eastern):
+        if timestamp.dayofweek >= 5:
+            raise ValueError(
+                f"{symbol}: Alpaca D1 bar {position} has a weekend New York session label "
+                f"({timestamp.isoformat()})."
+            )
+        if timestamp != timestamp.normalize():
+            raise ValueError(
+                f"{symbol}: Alpaca D1 bar {position} must be labeled at midnight "
+                f"America/New_York ({timestamp.isoformat()})."
+            )
+
+
 def run_baseline(
     *,
     symbols: tuple[str, ...] = SYMBOLS,
@@ -57,6 +79,9 @@ def run_baseline(
         # A possibly still-forming current UTC daily bar must not enter a
         # historical experiment, even when Alpaca returns it.
         frame = frame.loc[frame.index < cutoff].copy()
+        # Validate observed US trading-day labels, not fixed UTC midnight:
+        # New York midnight converts to 05:00 or 04:00 UTC across DST.
+        _validate_alpaca_daily_session_labels(frame, symbol)
         if len(frame) < MIN_COMPLETE_BARS:
             raise ValueError(
                 f"{symbol}: only {len(frame)} completed daily bars; "
@@ -92,6 +117,8 @@ def run_baseline(
             "stock_feed": stock_feed,
             "adjustment": "raw",
             "completed_daily_bars_only": True,
+            "daily_bar_label": "00:00 America/New_York",
+            "session_calendar": "weekday_label_only_not_nyse_holidays",
         },
         "cost_assumptions_bps": {"fee_per_side": fee, "slippage_per_side": slippage, "quoted_spread": spread},
         "position_size_pct": size_pct,
@@ -100,6 +127,7 @@ def run_baseline(
             "Research percentages use normalized portfolio sizing, not a $500 cash/fractional-share/margin model.",
             "The existing runtime accounting is not stock-exchange fill or borrow/short-sale simulation.",
             "Raw bars may omit split/dividend adjustment; IEX and SIP feed coverage can differ.",
+            "Alpaca D1 session labels are checked for New York midnight and weekdays, but NYSE holidays, early closes and actual daily fill times are not validated.",
             "Costs are assumptions, not Alpaca-confirmed execution costs.",
             "No model selection is performed on the out-of-sample window; no strategy is approved for trading.",
         ],

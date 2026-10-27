@@ -10,7 +10,7 @@ from scripts import research_alpaca_strategy_baseline as research
 
 
 def _bars(count: int = 260) -> pd.DataFrame:
-    idx = pd.date_range("2024-01-01", periods=count, freq="D", tz="UTC")
+    idx = pd.date_range("2024-01-02", periods=count, freq="B", tz="America/New_York").tz_convert("UTC")
     close = pd.Series([100.0 + 0.07 * i for i in range(count)], index=idx)
     return pd.DataFrame(
         {
@@ -61,6 +61,52 @@ def test_baseline_uses_alpaca_bars_only_and_existing_auditor(monkeypatch):
     assert report["data_source"]["stock_feed"] == "iex"
     assert len(report["results"]) == 6
     assert "$500" in " ".join(report["limitations"])
+
+
+def test_stock_daily_baseline_accepts_new_york_midnight_across_dst(monkeypatch):
+    captured = []
+    raw = _bars()
+    assert {int(hour) for hour in raw.index.hour} == {4, 5}
+
+    monkeypatch.setattr(research, "get_bars", lambda **kw: raw.copy())
+    monkeypatch.setattr(
+        research,
+        "_audit_on_frame",
+        lambda **kw: captured.append(kw["df"].copy()) or {"strategy": kw["strategy_key"]},
+    )
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+
+    result = research.run_baseline(symbols=("SPY",))
+
+    assert len(captured) == 3
+    assert all(frame.index.equals(raw.index) for frame in captured)
+    assert result["data_source"]["daily_bar_label"] == "00:00 America/New_York"
+    assert result["data_source"]["session_calendar"] == "weekday_label_only_not_nyse_holidays"
+
+
+@pytest.mark.parametrize(
+    ("invalid_label", "reason"),
+    [
+        ("2024-01-03T00:00:00Z", "midnight America/New_York"),
+        ("2024-01-06T05:00:00Z", "weekend New York session label"),
+    ],
+)
+def test_stock_daily_baseline_rejects_bad_provider_session_labels_before_audit(
+    monkeypatch, invalid_label: str, reason: str
+):
+    frame = _bars()
+    updated_index = frame.index.to_list()
+    updated_index[2] = pd.Timestamp(invalid_label)
+    frame.index = pd.DatetimeIndex(updated_index)
+    monkeypatch.setattr(research, "get_bars", lambda **kw: frame.copy())
+    monkeypatch.setattr(
+        research, "_audit_on_frame",
+        lambda **kw: pytest.fail("Untrusted daily labels must fail before strategy audit"),
+    )
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+
+    with pytest.raises(ValueError, match=reason):
+        research.run_baseline(symbols=("SPY",))
 
 
 def test_rejects_bad_scope_or_cost_before_any_provider_call(monkeypatch):
