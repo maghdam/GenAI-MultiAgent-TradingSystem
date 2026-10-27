@@ -97,7 +97,7 @@ def _validate_exchange_sessions(
         "early_close_observations": sum(
             by_date[day][1] < time(16, 0) for day in observed_dates
         ),
-        "exchange_calendar_complete_for_range": True,
+        "calendar_response_shape_checked": True,
         "observed_bar_completeness_verified": False,
     }
 
