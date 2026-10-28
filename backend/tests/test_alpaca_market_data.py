@@ -209,3 +209,58 @@ def test_shared_market_data_normalizes_alpaca_adapter_errors(monkeypatch) -> Non
             venue="alpaca",
             alpaca_asset_class="us_equity",
         )
+
+
+def test_paper_stock_calendar_uses_only_get_with_bounded_trading_dates(monkeypatch) -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return [{"date": "2026-11-27", "open": "09:30", "close": "13:00"}]
+
+    class Client:
+        def __init__(self, *, base_url, timeout, headers):
+            assert base_url == "https://paper-api.alpaca.markets"
+            assert headers["APCA-API-KEY-ID"] == "key"
+            assert headers["APCA-API-SECRET-KEY"] == "secret"
+            assert timeout == 15.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, path, *, params):
+            calls.append((path, params))
+            return Response()
+
+    monkeypatch.delenv("ALPACA_PAPER_BASE_URL", raising=False)
+    monkeypatch.setattr(alpaca_market_data, "_credentials", lambda: ("key", "secret"))
+    monkeypatch.setattr(alpaca_market_data.httpx, "Client", Client)
+
+    result = alpaca_market_data.get_stock_trading_calendar(
+        start_date="2026-11-25", end_date="2026-11-30"
+    )
+
+    assert result[0]["close"] == "13:00"
+    assert calls == [
+        ("/v2/calendar", {"start": "2026-11-25", "end": "2026-11-30", "date_type": "TRADING"})
+    ]
+
+
+def test_stock_calendar_invalid_bounds_fail_before_credential_lookup(monkeypatch) -> None:
+    monkeypatch.setattr(
+        alpaca_market_data, "_credentials",
+        lambda: pytest.fail("Bad dates must fail before reading credentials"),
+    )
+    for first, last in (
+        ("2026-11-30", "2026-11-25"),
+        ("invalid", "2026-11-25"),
+    ):
+        with pytest.raises(ValueError):
+            alpaca_market_data.get_stock_trading_calendar(
+                start_date=first, end_date=last
+            )

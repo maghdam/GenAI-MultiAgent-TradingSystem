@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -94,6 +94,53 @@ def _request_json(path: str, *, params: dict[str, object]) -> Any:
         raise AlpacaMarketDataError(
             f"Alpaca market-data request returned a non-JSON response for {path}."
         ) from exc
+
+
+
+def get_stock_trading_calendar(*, start_date: str, end_date: str) -> list[dict]:
+    """Read Alpaca's dated US-equity core-session calendar; never mutate an account.
+
+    Uses the Trading *Paper* API's GET /v2/calendar, not the data API.
+    Holiday closures are absent and early closes are represented in "close".
+    Fail closed if calendar truth cannot be retrieved or is malformed.
+    """
+    try:
+        first = date.fromisoformat(start_date)
+        last = date.fromisoformat(end_date)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Alpaca calendar bounds must be ISO dates.") from exc
+    if first > last:
+        raise ValueError("Alpaca calendar start must not exceed end.")
+
+    key_id, secret_key = _credentials()
+    headers = {
+        "APCA-API-KEY-ID": key_id,
+        "APCA-API-SECRET-KEY": secret_key,
+        "Accept": "application/json",
+    }
+    base = (os.getenv("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets").strip().rstrip("/")
+    try:
+        with httpx.Client(base_url=base, timeout=15.0, headers=headers) as client:
+            response = client.get(
+                "/v2/calendar",
+                params={"start":first.isoformat(), "end":last.isoformat(), "date_type":"TRADING"},
+            )
+    except httpx.HTTPError as exc:
+        raise AlpacaMarketDataError("Alpaca read-only stock calendar request failed.") from exc
+    if response.status_code >= 400:
+        raise AlpacaMarketDataError(
+            f"Alpaca read-only stock calendar returned HTTP {response.status_code}.",
+            status_code=int(response.status_code),
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise AlpacaMarketDataError("Alpaca stock calendar returned non-JSON data.") from exc
+    if not isinstance(payload, list) or not payload:
+        raise AlpacaMarketDataError("Alpaca stock calendar was empty or malformed.")
+    if any(not isinstance(row, dict) for row in payload):
+        raise AlpacaMarketDataError("Alpaca stock calendar contains malformed sessions.")
+    return payload
 
 
 def _lookback_start(

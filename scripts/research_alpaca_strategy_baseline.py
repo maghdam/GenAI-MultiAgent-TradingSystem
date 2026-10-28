@@ -8,13 +8,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 import pandas as pd
 from fastapi import HTTPException
 
-from backend.services.alpaca_market_data import AlpacaMarketDataError, _stock_feed, get_bars
+from backend.services.alpaca_market_data import (
+    AlpacaMarketDataError, _stock_feed, get_bars, get_stock_trading_calendar,
+)
 from backend.services.runtime_strategy_validation import _audit_on_frame
 from backend.services.studio_backtests import _prepare_market_frame, _safe_cost_bps
 
@@ -47,6 +49,59 @@ def _validate_alpaca_daily_session_labels(frame: pd.DataFrame, symbol: str) -> N
             )
 
 
+
+def _validate_exchange_sessions(
+    frame: pd.DataFrame, symbol: str, sessions: list[dict]
+) -> dict:
+    """Require observed D1 dates to exist in Alpaca's dated US-market calendar.
+
+    Absence of some expected sessions is reported, NOT silently filled or
+    treated as a data-integrity failure (e.g. IEX-specific sparse history).
+    """
+    first = frame.index[0].tz_convert("America/New_York").date()
+    last = frame.index[-1].tz_convert("America/New_York").date()
+    by_date: dict[date, tuple[time, time]] = {}
+    for row in sessions:
+        if not isinstance(row, dict):
+            raise AlpacaMarketDataError("Alpaca stock calendar includes a non-object session.")
+        try:
+            raw_date, raw_open, raw_close = row["date"], row["open"], row["close"]
+            if not all(isinstance(x, str) for x in (raw_date, raw_open, raw_close)):
+                raise ValueError("Non-string calendar value.")
+            if len(raw_open) != 5 or len(raw_close) != 5:
+                raise ValueError("Calendar clock must be HH:MM.")
+            session_date = date.fromisoformat(raw_date)
+            start = time.fromisoformat(raw_open)
+            end = time.fromisoformat(raw_close)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AlpacaMarketDataError("Alpaca stock calendar has malformed session fields.") from exc
+        if (session_date < first or session_date > last or session_date.weekday() >= 5
+                or start >= end or session_date in by_date):
+            raise AlpacaMarketDataError("Alpaca stock calendar has invalid or duplicate session dates.")
+        by_date[session_date] = (start, end)
+    if not by_date:
+        raise AlpacaMarketDataError("Alpaca stock calendar returned no dates in the requested range.")
+
+    observed_dates = [timestamp.date() for timestamp in frame.index.tz_convert("America/New_York")]
+    for index, observed in enumerate(observed_dates):
+        if observed not in by_date:
+            raise ValueError(
+                f"{symbol}: Alpaca D1 bar {index} falls on a non-trading exchange date "
+                f"({observed.isoformat()})."
+            )
+    return {
+        "source": "alpaca_paper_GET_v2_calendar",
+        "verified_observed_trading_dates": len(observed_dates),
+        "exchange_sessions_in_observed_range": len(by_date),
+        "unobserved_exchange_sessions": len(by_date) - len(set(observed_dates)),
+        "early_close_observations": sum(
+            by_date[day][1] < time(16, 0) for day in observed_dates
+        ),
+        "calendar_response_shape_checked": True,
+        "observed_bar_completeness_verified": False,
+    }
+
+
 def run_baseline(
     *,
     symbols: tuple[str, ...] = SYMBOLS,
@@ -73,6 +128,7 @@ def run_baseline(
     stock_feed = _stock_feed()
 
     rows: list[dict] = []
+    calendar_checks: dict[str, dict] = {}
     for symbol in selected:
         raw = get_bars(symbol=symbol, timeframe="D1", num_bars=num_bars, asset_class="us_equity")
         frame = _prepare_market_frame(raw, "D1")
@@ -87,6 +143,12 @@ def run_baseline(
                 f"{symbol}: only {len(frame)} completed daily bars; "
                 f"at least {MIN_COMPLETE_BARS} are required for this baseline."
             )
+        local = frame.index.tz_convert("America/New_York")
+        sessions = get_stock_trading_calendar(
+            start_date=local[0].date().isoformat(),
+            end_date=local[-1].date().isoformat(),
+        )
+        calendar_checks[symbol] = _validate_exchange_sessions(frame, symbol, sessions)
         for key in STRATEGIES:
             result = _audit_on_frame(
                 strategy_key=key,
@@ -118,7 +180,8 @@ def run_baseline(
             "adjustment": "raw",
             "completed_daily_bars_only": True,
             "daily_bar_label": "00:00 America/New_York",
-            "session_calendar": "weekday_label_only_not_nyse_holidays",
+            "session_calendar": "alpaca_paper_trading_day_calendar",
+            "calendar_validation_by_symbol": calendar_checks,
         },
         "cost_assumptions_bps": {"fee_per_side": fee, "slippage_per_side": slippage, "quoted_spread": spread},
         "position_size_pct": size_pct,
@@ -127,7 +190,8 @@ def run_baseline(
             "Research percentages use normalized portfolio sizing, not a $500 cash/fractional-share/margin model.",
             "The existing runtime accounting is not stock-exchange fill or borrow/short-sale simulation.",
             "Raw bars may omit split/dividend adjustment; IEX and SIP feed coverage can differ.",
-            "Alpaca D1 session labels are checked for New York midnight and weekdays, but NYSE holidays, early closes and actual daily fill times are not validated.",
+            "Alpaca Paper trading calendar cross-checks observed US-stock D1 dates and reports early-close sessions, but never fabricates missing stock bars or claims complete IEX/SIP coverage.",
+            "Actual intraday daily-bar close/fill timestamps and exchange-specific broker execution or borrow remain unmodeled.",
             "Costs are assumptions, not Alpaca-confirmed execution costs.",
             "No model selection is performed on the out-of-sample window; no strategy is approved for trading.",
         ],
