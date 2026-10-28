@@ -55,8 +55,9 @@ def _validate_exchange_sessions(
 ) -> dict:
     """Require observed D1 dates to exist in Alpaca's dated US-market calendar.
 
-    Absence of some expected sessions is reported, NOT silently filled or
-    treated as a data-integrity failure (e.g. IEX-specific sparse history).
+    Every exchange trading session within the observed D1 range must have
+    a source bar. Missing dates fail closed before strategy auditing; the
+    validator never fabricates or repairs provider candles.
     """
     first = frame.index[0].tz_convert("America/New_York").date()
     last = frame.index[-1].tz_convert("America/New_York").date()
@@ -89,11 +90,21 @@ def _validate_exchange_sessions(
                 f"{symbol}: Alpaca D1 bar {index} falls on a non-trading exchange date "
                 f"({observed.isoformat()})."
             )
+    missing = sorted(by_date.keys() - set(observed_dates))
+    if missing:
+        preview = ", ".join(day.isoformat() for day in missing[:3])
+        suffix = ", ..." if len(missing) > 3 else ""
+        raise ValueError(
+            f"{symbol}: {len(missing)} missing exchange trading session(s) "
+            f"within observed D1 history ({preview}{suffix}); "
+            "strategy audit was not run."
+        )
     return {
         "source": "alpaca_paper_GET_v2_calendar",
         "verified_observed_trading_dates": len(observed_dates),
         "exchange_sessions_in_observed_range": len(by_date),
-        "unobserved_exchange_sessions": len(by_date) - len(set(observed_dates)),
+        "unobserved_exchange_sessions": 0,
+        "exchange_session_coverage_checked": True,
         "early_close_observations": sum(
             by_date[day][1] < time(16, 0) for day in observed_dates
         ),
@@ -190,7 +201,8 @@ def run_baseline(
             "Research percentages use normalized portfolio sizing, not a $500 cash/fractional-share/margin model.",
             "The existing runtime accounting is not stock-exchange fill or borrow/short-sale simulation.",
             "Raw bars may omit split/dividend adjustment; IEX and SIP feed coverage can differ.",
-            "Alpaca Paper trading calendar cross-checks observed US-stock D1 dates and reports early-close sessions, but never fabricates missing stock bars or claims complete IEX/SIP coverage.",
+            "Alpaca Paper calendar checks that every scheduled trading date within the observed D1 range has a bar; any missing session rejects the research run without fabricated bars.",
+            "Complete observed exchange-date coverage does not establish consolidated SIP coverage, corporate-action adjustment, or authentic exchange fills.",
             "Actual intraday daily-bar close/fill timestamps and exchange-specific broker execution or borrow remain unmodeled.",
             "Costs are assumptions, not Alpaca-confirmed execution costs.",
             "No model selection is performed on the out-of-sample window; no strategy is approved for trading.",
