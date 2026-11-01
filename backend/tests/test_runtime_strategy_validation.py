@@ -556,3 +556,23 @@ def test_trace_prior_open_gap_exit_blocks_same_bar_stop_update() -> None:
     assert trade["final_stop_loss"] == 95.0
     assert trade["stop_updates"] == []
     assert trade["fill_phase_assumption"] == "prior_position_gap_or_open_protection"
+
+
+def test_opt_in_auditor_limits_trace_to_research_holdout() -> None:
+    result = validation._audit_on_frame(
+        strategy_key="breakout",
+        symbol="TEST",
+        timeframe="M5",
+        df=_synthetic_market(),
+        params=None,
+        fee_bps=1.0,
+        slippage_bps=1.0,
+        spread_bps=2.0,
+        position_size_pct=100.0,
+        include_holdout_trade_trace=True,
+    )
+    assert "Trade Trace" not in result["Full Backtest"]
+    assert "Trade Trace" not in result["Development"]
+    assert "Trade Trace" not in result["Regime Analysis"][0]
+    assert len(result["Out of Sample"]["Trade Trace"]) == result["Out of Sample"]["Number of Trades"]
+    assert "not actual exchange fills" in result["Out of Sample"]["Trade Trace Semantics"]
