@@ -186,6 +186,7 @@ def run_baseline(
                 slippage_bps=slippage,
                 spread_bps=spread,
                 position_size_pct=size_pct,
+                include_holdout_trade_trace=(key == "breakout"),
             )
             rows.append(result)
 
@@ -223,6 +224,7 @@ def run_baseline(
             "Actual intraday daily-bar close/fill timestamps and exchange-specific broker execution or borrow remain unmodeled.",
             "Costs are assumptions, not Alpaca-confirmed execution costs.",
             "No model selection is performed on the out-of-sample window; no strategy is approved for trading.",
+            "Breakout out-of-sample trade traces show simulated stop/target updates at next opens and modeled stop exits, not independently timed exchange fills or actual broker-protected orders.",
         ],
         "results": rows,
     }
