@@ -492,3 +492,65 @@ def test_unknown_runtime_strategy_is_rejected() -> None:
             spread_bps=0.0,
             position_size_pct=100.0,
         )
+
+
+
+def test_opt_in_stop_trace_explains_profitable_modeled_stop_after_next_open_update() -> None:
+    frame = _frame([100.0, 100.0, 105.0, 106.0])
+    frame.loc[frame.index[2], "low"] = 101.0
+    analyses = [
+        _analysis("long", stop_loss=95.0, take_profit=125.0),
+        _analysis("long", stop_loss=102.0, take_profit=120.0),
+        _analysis("no_trade"),
+        _analysis("no_trade"),
+    ]
+    kwargs = dict(
+        df=frame, analyses=analyses, start_bar=0, end_bar=len(frame),
+        timeframe="M5", fee_bps=0.0, slippage_bps=0.0,
+        spread_bps=0.0, position_size_pct=100.0,
+    )
+    original = validation._runtime_accounting(**kwargs)
+    traced = validation._runtime_accounting(**kwargs, include_trade_trace=True)
+
+    assert "Trade Trace" not in original  # Other audit consumers remain unchanged.
+    assert traced["Total Return [%]"] == original["Total Return [%]"]
+    assert traced["Stop Exits"] == original["Stop Exits"] == 1.0
+    assert traced["Total Return [%]"] == pytest.approx(2.0)
+    assert len(traced["Trade Trace"]) == traced["Number of Trades"] == 1
+    trade = traced["Trade Trace"][0]
+    assert trade["exit_reason"] == "stop_loss"
+    assert trade["direction"] == "long"
+    assert trade["entry_bar"] == 1 and trade["exit_bar"] == 2
+    assert trade["entry_price"] == 100.0 and trade["exit_price"] == 102.0
+    assert trade["initial_stop_loss"] == 95.0
+    assert trade["final_stop_loss"] == 102.0
+    assert trade["net_trade_return_pct"] == pytest.approx(2.0)
+    assert trade["fill_phase_assumption"] == "intrabar_ohlc_exit_time_approximated_at_bar_close"
+    assert len(trade["stop_updates"]) == 1
+    update = trade["stop_updates"][0]
+    assert update["bar"] == 2
+    assert update["old_stop_loss"] == 95.0 and update["new_stop_loss"] == 102.0
+    assert "next_open" in update["rule"]
+
+
+def test_trace_prior_open_gap_exit_blocks_same_bar_stop_update() -> None:
+    frame = _frame([100.0, 100.0, 90.0, 92.0])
+    analyses = [
+        _analysis("long", stop_loss=95.0, take_profit=125.0),
+        _analysis("long", stop_loss=102.0, take_profit=120.0),
+        _analysis("no_trade"), _analysis("no_trade"),
+    ]
+    traced = validation._runtime_accounting(
+        df=frame, analyses=analyses, start_bar=0, end_bar=len(frame),
+        timeframe="M5", fee_bps=0.0, slippage_bps=0.0,
+        spread_bps=0.0, position_size_pct=100.0,
+        include_trade_trace=True,
+    )
+    assert traced["Stop Exits"] == traced["Closed Trades"] == 1.0
+    assert traced["Number of Trades"] == 1.0
+    assert traced["Total Return [%]"] == pytest.approx(-10.0)
+    trade = traced["Trade Trace"][0]
+    assert trade["exit_price"] == 90.0
+    assert trade["final_stop_loss"] == 95.0
+    assert trade["stop_updates"] == []
+    assert trade["fill_phase_assumption"] == "prior_position_gap_or_open_protection"
