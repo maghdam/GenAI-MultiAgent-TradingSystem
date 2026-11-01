@@ -106,6 +106,7 @@ def _runtime_accounting(
     slippage_bps: float,
     spread_bps: float,
     position_size_pct: float,
+    include_trade_trace: bool = False,
 ) -> dict[str, Any]:
     if start_bar < 0 or end_bar > len(df) or end_bar - start_bar < 2:
         raise HTTPException(400, "Runtime strategy validation window must contain at least 2 bars.")
@@ -132,6 +133,7 @@ def _runtime_accounting(
     signal_flips = 0
     stop_exits = 0
     take_exits = 0
+    trade_trace: list[dict[str, Any]] = []
 
     def mark_equity(price: float) -> float:
         if not active_trade:
@@ -147,6 +149,7 @@ def _runtime_accounting(
         *,
         marked: bool,
         reason: str,
+        fill_phase: str,
     ) -> float:
         nonlocal active_trade, closed_trades, marked_open_trades, protective_exits, stop_exits, take_exits
         if not active_trade:
@@ -174,7 +177,28 @@ def _runtime_accounting(
                 else:
                     take_exits += 1
 
-        trade_returns.append((final_equity / pre_entry_equity) - 1.0 if pre_entry_equity > 0 else 0.0)
+        trade_return = (final_equity / pre_entry_equity) - 1.0 if pre_entry_equity > 0 else 0.0
+        trade_returns.append(trade_return)
+        if include_trade_trace:
+            # This is model provenance, not exchange-confirmed intrabar fill time.
+            trade_trace.append({
+                "entry_bar": entry_bar,
+                "entry_time": _timestamp(entry_time),
+                "direction": "long" if float(active_trade["direction"]) > 0 else "short",
+                "entry_price": float(active_trade["entry_price"]),
+                "initial_stop_loss": active_trade["initial_stop_loss"],
+                "final_stop_loss": active_trade.get("stop_loss"),
+                "initial_take_profit": active_trade["initial_take_profit"],
+                "final_take_profit": active_trade.get("take_profit"),
+                "stop_updates": list(active_trade["stop_updates"]),
+                "exit_bar": int(exit_bar),
+                "exit_time_assumption": _timestamp(exit_time),
+                "exit_price": float(exit_price),
+                "exit_reason": reason,
+                "fill_phase_assumption": fill_phase,
+                "marked_open_at_window_end": bool(marked),
+                "net_trade_return_pct": round(trade_return * 100.0, 6),
+            })
         hold_bars.append(int(bars_held))
         hold_minutes.append(max(0.0, (exit_time - entry_time).total_seconds() / 60.0))
         active_trade = None
@@ -203,6 +227,10 @@ def _runtime_accounting(
             "stop_loss": analysis.stop_loss,
             "take_profit": analysis.take_profit,
         }
+        if include_trade_trace:
+            active_trade["initial_stop_loss"] = analysis.stop_loss
+            active_trade["initial_take_profit"] = analysis.take_profit
+            active_trade["stop_updates"] = []
         return entry_equity_after_cost
 
     pending = analyses[start_bar]
@@ -231,7 +259,8 @@ def _runtime_accounting(
             )
             if reason is not None and fill_price is not None:
                 equity = close_active(
-                    fill_price, bar_time, bar_index, marked=False, reason=reason
+                    fill_price, bar_time, bar_index, marked=False, reason=reason,
+                    fill_phase="prior_position_gap_or_open_protection",
                 )
                 exited_at_open = True
 
@@ -244,10 +273,24 @@ def _runtime_accounting(
                     bar_index,
                     marked=False,
                     reason="signal_flip",
+                    fill_phase="next_bar_open_signal_flip",
                 )
                 signal_flips += 1
 
             if active_trade:
+                if include_trade_trace and (
+                    active_trade.get("stop_loss") != pending.stop_loss
+                    or active_trade.get("take_profit") != pending.take_profit
+                ):
+                    active_trade["stop_updates"].append({
+                        "bar": int(bar_index),
+                        "time": _timestamp(bar_time),
+                        "old_stop_loss": active_trade.get("stop_loss"),
+                        "new_stop_loss": pending.stop_loss,
+                        "old_take_profit": active_trade.get("take_profit"),
+                        "new_take_profit": pending.take_profit,
+                        "rule": "same_direction_completed_bar_signal_applied_at_next_open",
+                    })
                 active_trade["stop_loss"] = pending.stop_loss
                 active_trade["take_profit"] = pending.take_profit
             else:
@@ -278,6 +321,10 @@ def _runtime_accounting(
                     bar_index,
                     marked=False,
                     reason=reason,
+                    fill_phase=(
+                        "same_bar_open_protection" if at_open
+                        else "intrabar_ohlc_exit_time_approximated_at_bar_close"
+                    ),
                 )
             else:
                 equity = mark_equity(close_price)
@@ -295,6 +342,7 @@ def _runtime_accounting(
             final_bar,
             marked=True,
             reason="final_mark",
+            fill_phase="window_end_mark_only_not_a_fill",
         )
         equity_points[-1] = float(equity)
 
@@ -324,7 +372,7 @@ def _runtime_accounting(
     avg_hold_bars = float(statistics.mean(hold_bars)) if hold_bars else 0.0
     avg_hold_minutes = float(statistics.mean(hold_minutes)) if hold_minutes else 0.0
 
-    return {
+    result = {
         "Total Return [%]": round(total_return, 4),
         "Number of Trades": float(num_trades),
         "Closed Trades": float(closed_trades),
@@ -357,6 +405,13 @@ def _runtime_accounting(
         "Protection Semantics": "Prior protection checked at each open (including no_trade); then OHLC high/low after next-open signal execution. At-open gap exits block same-bar re-entry.",
         "Protective Fill Assumption": "Stops fill at adverse gap open or stop level intrabar; targets at target level; if both intrabar levels are hit, stop first. Intrabar fill time approximated by bar close.",
     }
+    if include_trade_trace:
+        result["Trade Trace"] = trade_trace
+        result["Trade Trace Semantics"] = (
+            "Simulated entry/exit and next-open protection updates only; "
+            "intrabar exit timestamps are approximations, not actual exchange fills."
+        )
+    return result
 
 
 def _regime_windows(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -461,6 +516,7 @@ def _audit_on_frame(
     slippage_bps: float,
     spread_bps: float,
     position_size_pct: float,
+    include_holdout_trade_trace: bool = False,
 ) -> dict[str, Any]:
     normalized = str(strategy_key or "").strip().lower()
     if normalized not in _RUNTIME_STRATEGIES:
@@ -513,6 +569,7 @@ def _audit_on_frame(
         slippage_bps=slippage_bps,
         spread_bps=spread_bps,
         position_size_pct=position_size_pct,
+        include_trade_trace=include_holdout_trade_trace,
     )
     gross = _runtime_accounting(
         df=prepared,

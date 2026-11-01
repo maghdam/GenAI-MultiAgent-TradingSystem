@@ -70,6 +70,10 @@ def test_baseline_uses_alpaca_bars_only_and_existing_auditor(monkeypatch):
     ]
     assert all(row["fee_bps"] == 1.0 and row["slippage_bps"] == 1.0 for row in audited)
     assert all(row["spread_bps"] == 2.0 and row["position_size_pct"] == 100.0 for row in audited)
+    assert all(
+        row["include_holdout_trade_trace"] == (row["strategy_key"] == "breakout")
+        for row in audited
+    )
     assert report["read_only"] and report["broker_order_requests"] == 0
     assert report["data_source"]["stock_feed"] == "iex"
     assert report["data_source"]["session_calendar"] == "alpaca_paper_trading_day_calendar"
