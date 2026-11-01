@@ -146,12 +146,9 @@ def test_d1_calendar_rejects_weekday_exchange_holiday_before_audit(monkeypatch):
         research.run_baseline(symbols=("SPY",))
 
 
-def test_d1_calendar_reports_early_closes_and_unobserved_sessions_without_filling(monkeypatch):
-    raw = _bars()
-    short_day = raw.index[12].tz_convert("America/New_York").date().isoformat()
-    # An expected market day is absent from the observed IEX bar feed: report
-    # the coverage gap, never silently insert a synthetic price candle.
-    frame = raw.drop(index=raw.index[20])
+def test_d1_calendar_reports_early_closes_without_filling(monkeypatch):
+    frame = _bars()
+    short_day = frame.index[12].tz_convert("America/New_York").date().isoformat()
 
     def calendar(*, start_date: str, end_date: str):
         return [
@@ -175,10 +172,60 @@ def test_d1_calendar_reports_early_closes_and_unobserved_sessions_without_fillin
     report = research.run_baseline(symbols=("SPY",))
     summary = report["data_source"]["calendar_validation_by_symbol"]["SPY"]
     assert summary["early_close_observations"] == 1
-    assert summary["verified_observed_trading_dates"] == 259
-    assert summary["unobserved_exchange_sessions"] == 1
+    assert summary["verified_observed_trading_dates"] == 260
+    assert summary["unobserved_exchange_sessions"] == 0
+    assert summary["exchange_session_coverage_checked"] is True
     assert not summary["observed_bar_completeness_verified"]
     assert len(audited) == 3 and all(bar.index.equals(frame.index) for bar in audited)
+
+
+@pytest.mark.parametrize("missing_count", [1, 4])
+def test_d1_missing_exchange_sessions_fail_closed_before_strategy_audit(
+    monkeypatch, missing_count
+):
+    raw = _bars()
+    removed = raw.index[20 : 20 + missing_count]
+    missing_labels = [
+        timestamp.tz_convert("America/New_York").date().isoformat()
+        for timestamp in removed
+    ]
+    frame = raw.drop(index=removed)
+    assert len(frame) >= research.MIN_COMPLETE_BARS
+
+    def calendar(*, start_date: str, end_date: str):
+        return [
+            {"date": day.date().isoformat(), "open": "09:30", "close": "16:00"}
+            for day in pd.date_range(start_date, end_date, freq="B")
+        ]
+
+    monkeypatch.setattr(research, "get_stock_trading_calendar", calendar)
+    monkeypatch.setattr(research, "get_bars", lambda **kw: frame.copy())
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+    monkeypatch.setattr(
+        research,
+        "_audit_on_frame",
+        lambda **kw: pytest.fail("Missing exchange dates must reject before any strategy audit"),
+    )
+    with pytest.raises(ValueError, match=f"SPY: {missing_count} missing exchange trading") as exc:
+        research.run_baseline(symbols=("SPY",))
+    for label in missing_labels[:3]:
+        assert label in str(exc.value)
+    assert ("..." in str(exc.value)) == (missing_count > 3)
+
+
+def test_d1_missing_exchange_sessions_cli_fails_without_report(monkeypatch, tmp_path):
+    raw = _bars()
+    frame = raw.drop(index=raw.index[20])
+    monkeypatch.setattr(research, "get_bars", lambda **kw: frame.copy())
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+    monkeypatch.setattr(
+        research,
+        "_audit_on_frame",
+        lambda **kw: pytest.fail("CLI must reject before strategy audit"),
+    )
+    target = tmp_path / "not-created.json"
+    assert research.main(["--symbol", "SPY", "--output", str(target)]) == 2
+    assert not target.exists()
 
 
 @pytest.mark.parametrize(
