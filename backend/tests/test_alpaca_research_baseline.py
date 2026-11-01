@@ -74,8 +74,41 @@ def test_baseline_uses_alpaca_bars_only_and_existing_auditor(monkeypatch):
     assert report["data_source"]["stock_feed"] == "iex"
     assert report["data_source"]["session_calendar"] == "alpaca_paper_trading_day_calendar"
     assert all(v["verified_observed_trading_dates"] == 260 for v in report["data_source"]["calendar_validation_by_symbol"].values())
+    for counts in report["data_source"]["sample_depth_by_symbol"].values():
+        assert counts == {
+            "requested_bars": 500,
+            "provider_returned_bars": 260,
+            "retained_completed_bars": 260,
+            "excluded_conservative_current_utc_day_bars": 0,
+            "provider_request_shortfall_bars": 240,
+            "retained_request_shortfall_bars": 240,
+            "requested_completed_sample_satisfied": False,
+            "independent_feed_completeness_verified": False,
+        }
     assert len(report["results"]) == 6
     assert "$500" in " ".join(report["limitations"])
+
+
+def test_complete_requested_bar_count_is_reported_without_claiming_feed_truth(monkeypatch):
+    raw = _bars()
+    monkeypatch.setattr(research, "get_bars", lambda **kw: raw.copy())
+    monkeypatch.setattr(
+        research,
+        "_audit_on_frame",
+        lambda **kw: {"strategy": kw["strategy_key"]},
+    )
+    monkeypatch.setattr(research, "_stock_feed", lambda: "iex")
+
+    report = research.run_baseline(symbols=("SPY",), num_bars=260)
+
+    counts = report["data_source"]["sample_depth_by_symbol"]["SPY"]
+    assert counts["requested_bars"] == 260
+    assert counts["provider_returned_bars"] == 260
+    assert counts["retained_completed_bars"] == 260
+    assert counts["provider_request_shortfall_bars"] == 0
+    assert counts["retained_request_shortfall_bars"] == 0
+    assert counts["requested_completed_sample_satisfied"] is True
+    assert counts["independent_feed_completeness_verified"] is False
 
 
 def test_stock_daily_baseline_accepts_new_york_midnight_across_dst(monkeypatch):
@@ -293,9 +326,15 @@ def test_discards_current_utc_day_as_potentially_incomplete(monkeypatch):
         "_audit_on_frame",
         lambda **kw: inspected.append(kw["df"].copy()) or {"strategy": kw["strategy_key"]},
     )
-    research.run_baseline(symbols=("SPY",))
+    report = research.run_baseline(symbols=("SPY",))
     assert len(inspected) == 3
     assert all(len(frame) == 260 and today not in frame.index for frame in inspected)
+    counts = report["data_source"]["sample_depth_by_symbol"]["SPY"]
+    assert counts["provider_returned_bars"] == 261
+    assert counts["retained_completed_bars"] == 260
+    assert counts["excluded_conservative_current_utc_day_bars"] == 1
+    assert counts["provider_request_shortfall_bars"] == 239
+    assert counts["retained_request_shortfall_bars"] == 240
 
 
 def test_cli_writes_explicit_local_json_report_without_orders(monkeypatch, tmp_path, capsys):
