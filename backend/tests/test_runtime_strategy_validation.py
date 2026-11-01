@@ -497,6 +497,7 @@ def test_unknown_runtime_strategy_is_rejected() -> None:
 
 def test_opt_in_stop_trace_explains_profitable_modeled_stop_after_next_open_update() -> None:
     frame = _frame([100.0, 100.0, 105.0, 106.0])
+    frame.loc[frame.index[2], "open"] = 105.0
     frame.loc[frame.index[2], "low"] = 101.0
     analyses = [
         _analysis("long", stop_loss=95.0, take_profit=125.0),
@@ -535,6 +536,7 @@ def test_opt_in_stop_trace_explains_profitable_modeled_stop_after_next_open_upda
 
 def test_trace_prior_open_gap_exit_blocks_same_bar_stop_update() -> None:
     frame = _frame([100.0, 100.0, 90.0, 92.0])
+    frame.loc[frame.index[2], "open"] = 90.0
     analyses = [
         _analysis("long", stop_loss=95.0, take_profit=125.0),
         _analysis("long", stop_loss=102.0, take_profit=120.0),
