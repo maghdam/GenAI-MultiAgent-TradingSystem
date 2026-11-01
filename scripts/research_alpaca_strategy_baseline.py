@@ -140,9 +140,12 @@ def run_baseline(
 
     rows: list[dict] = []
     calendar_checks: dict[str, dict] = {}
+    sample_depth_checks: dict[str, dict] = {}
     for symbol in selected:
         raw = get_bars(symbol=symbol, timeframe="D1", num_bars=num_bars, asset_class="us_equity")
+        provider_bar_count = len(raw)
         frame = _prepare_market_frame(raw, "D1")
+        prepared_bar_count = len(frame)
         # A possibly still-forming current UTC daily bar must not enter a
         # historical experiment, even when Alpaca returns it.
         frame = frame.loc[frame.index < cutoff].copy()
@@ -154,6 +157,18 @@ def run_baseline(
                 f"{symbol}: only {len(frame)} completed daily bars; "
                 f"at least {MIN_COMPLETE_BARS} are required for this baseline."
             )
+        # Count-level sample provenance is not independent confirmation of
+        # exchange/feed completeness, corporate actions or realized fills.
+        sample_depth_checks[symbol] = {
+            "requested_bars": num_bars,
+            "provider_returned_bars": provider_bar_count,
+            "retained_completed_bars": len(frame),
+            "excluded_conservative_current_utc_day_bars": prepared_bar_count - len(frame),
+            "provider_request_shortfall_bars": max(0, num_bars - provider_bar_count),
+            "retained_request_shortfall_bars": max(0, num_bars - len(frame)),
+            "requested_completed_sample_satisfied": len(frame) >= num_bars,
+            "independent_feed_completeness_verified": False,
+        }
         local = frame.index.tz_convert("America/New_York")
         sessions = get_stock_trading_calendar(
             start_date=local[0].date().isoformat(),
@@ -193,6 +208,7 @@ def run_baseline(
             "daily_bar_label": "00:00 America/New_York",
             "session_calendar": "alpaca_paper_trading_day_calendar",
             "calendar_validation_by_symbol": calendar_checks,
+            "sample_depth_by_symbol": sample_depth_checks,
         },
         "cost_assumptions_bps": {"fee_per_side": fee, "slippage_per_side": slippage, "quoted_spread": spread},
         "position_size_pct": size_pct,
@@ -203,6 +219,7 @@ def run_baseline(
             "Raw bars may omit split/dividend adjustment; IEX and SIP feed coverage can differ.",
             "Alpaca Paper calendar checks that every scheduled trading date within the observed D1 range has a bar; any missing session rejects the research run without fabricated bars.",
             "Complete observed exchange-date coverage does not establish consolidated SIP coverage, corporate-action adjustment, or authentic exchange fills.",
+            "Requested versus returned and retained daily bar counts are reported separately; any shortfall is disclosed, but is not independent evidence of feed completeness or a validated sample size.",
             "Actual intraday daily-bar close/fill timestamps and exchange-specific broker execution or borrow remain unmodeled.",
             "Costs are assumptions, not Alpaca-confirmed execution costs.",
             "No model selection is performed on the out-of-sample window; no strategy is approved for trading.",
