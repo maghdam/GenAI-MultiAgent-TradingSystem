@@ -117,6 +117,81 @@ def test_reconcile_open_positions_logs_skip_incident_when_market_data_fails(monk
     assert incidents[0].details["reason"] == "test_skip"
 
 
+
+def test_disabled_ctrader_routing_never_paper_reconciles_broker_backed_tracker(monkeypatch) -> None:
+    save_engine_config(EngineConfig(enabled=False, ctrader_autotrade=False, kill_switch=True))
+    position = open_paper_position(
+        symbol="XAUUSD", timeframe="M5", strategy="sma_cross",
+        direction="short", quantity=0.01, entry_price=4171.946,
+        stop_loss=4180.0, take_profit=4160.0, broker_position_id=58437535,
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_bars",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("disabled cTrader tracker must not fetch paper mark bars")
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.reconcile_position",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("broker-backed tracker must never paper-close")
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.sync_position_targets",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("disabled cTrader must not amend broker protection")
+        ),
+    )
+
+    summary = reconcile_open_positions(reason="manual")
+    assert summary == {"checked": 0, "closed": 0, "skipped": 1, "reason": "manual"}
+    assert [p.id for p in list_paper_positions("open")] == [position.id]
+    incidents = list_incidents(5)
+    assert any(row.code == "ctrader_tracker_reconciliation_deferred" for row in incidents)
+
+
+def test_unwatched_ctrader_tracker_is_not_reclassified_as_pure_paper(monkeypatch) -> None:
+    save_engine_config(
+        EngineConfig(
+            enabled=False, ctrader_autotrade=True, kill_switch=True,
+            watchlist=[
+                WatchlistItem(
+                    symbol="EURUSD", timeframe="M5", strategy="sma_cross",
+                    enabled=True, trading_enabled=True,
+                )
+            ],
+        )
+    )
+    opened = open_paper_position(
+        symbol="XAUUSD", timeframe="M5", strategy="sma_cross",
+        direction="long", quantity=0.01, entry_price=100.0,
+        stop_loss=99.0, take_profit=101.0, broker_position_id=889,
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_broker_status",
+        lambda: type("Status", (), {"execution_ready": False})(),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.get_bars",
+        lambda *args, **kwargs: __import__("pandas").DataFrame(
+            [{"close": 105.0}],
+            index=__import__("pandas").to_datetime(["2026-11-02T08:00:00Z"], utc=True),
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.reconciler.reconcile_position",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("missing trading row must not invoke paper exit")
+        ),
+    )
+
+    summary = reconcile_open_positions(reason="manual")
+    assert summary["closed"] == 0
+    assert summary["skipped"] == 1
+    assert [p.id for p in list_paper_positions("open")] == [opened.id]
+
+
 def test_recover_demo_broker_tracker_from_tradeagent_intent(monkeypatch) -> None:
     config = EngineConfig(
         enabled=True,
