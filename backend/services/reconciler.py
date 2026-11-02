@@ -335,6 +335,24 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
     broker_rows = list_positions() if ctrader_ready else []
 
     for position in positions:
+        # Disabling cTrader execution must never convert a previously broker-
+        # backed position into a simulated paper trade during reconciliation.
+        if position.broker_position_id is not None and not cfg.ctrader_autotrade:
+            skipped += 1
+            log_incident(
+                "warning",
+                "ctrader_tracker_reconciliation_deferred",
+                f"Broker-backed tracker #{position.id} was not reconciled as pure paper.",
+                {
+                    "reason": reason,
+                    "position_id": position.id,
+                    "broker_position_id": position.broker_position_id,
+                    "ctrader_autotrade": False,
+                    "broker_mutation_suppressed": True,
+                },
+            )
+            continue
+
         try:
             df = get_bars(position.symbol, position.timeframe, 5)
             last_price = float(df["close"].iloc[-1])
@@ -361,6 +379,21 @@ def reconcile_open_positions(reason: str = "manual") -> Dict[str, Any]:
             None,
         )
         ctrader_managed = bool(cfg.ctrader_autotrade and watch is not None)
+        if position.broker_position_id is not None and not ctrader_managed:
+            skipped += 1
+            log_incident(
+                "warning",
+                "ctrader_tracker_reconciliation_deferred",
+                f"Broker-backed tracker #{position.id} has no enabled cTrader trading row.",
+                {
+                    "reason": reason,
+                    "position_id": position.id,
+                    "broker_position_id": position.broker_position_id,
+                    "ctrader_autotrade": cfg.ctrader_autotrade,
+                    "broker_mutation_suppressed": True,
+                },
+            )
+            continue
 
         if ctrader_managed:
             apply_mark(position, last_price)
