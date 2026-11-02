@@ -148,6 +148,7 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
       const pnl = p.unrealized_pnl || 0;
       const realized = p.realized_pnl || 0;
       const brokerBacked = p.broker_position_id != null;
+      const brokerMatched = !brokerBacked || p.broker_sync_status === 'id_match';
       return (
         <div key={p.id} className="ta-position">
           <div className="ta-position__row">
@@ -157,13 +158,16 @@ export default function SidePanel({ status, onSignalSelected }: SidePanelProps) 
             <span className="ta-position__symbol">{p.symbol}</span>
             <span className="ta-position__detail">{p.timeframe}</span>
             <span className="ta-position__detail">qty {p.quantity.toFixed(2)}</span>
-            <span className={`ta-position__pnl ${pnl >= 0 ? 'ta-position__pnl--profit' : 'ta-position__pnl--loss'}`}>
-              {formatPnl(pnl)} {p.account_currency}
+            <span className={`ta-position__pnl ${brokerMatched ? (pnl >= 0 ? 'ta-position__pnl--profit' : 'ta-position__pnl--loss') : ''}`}>
+              {brokerMatched ? `${formatPnl(pnl)} ${p.account_currency}` : 'P&L unverified'}
             </span>
           </div>
           <div className="ta-position__meta">
             <span>local #{p.id}</span>
             <span>{brokerBacked ? `cTrader #${p.broker_position_id}` : 'paper only'}</span>
+            {brokerBacked && !brokerMatched && (
+              <span>Local tracker only · broker position not verified</span>
+            )}
             {brokerBacked ? (
               <>
                 <span>broker entry {formatPrice(p.broker_entry_price)}</span>
