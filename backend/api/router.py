@@ -257,7 +257,7 @@ def _active_status_incidents(
     config: EngineConfig,
     broker: BrokerStatus,
     runtime: EngineRuntime,
-    positions: list[PaperPosition],
+    positions: list[PaperPosition] | None = None,
 ) -> list[ActiveIncident]:
     incidents: list[ActiveIncident] = []
     startup_disabled = any(
@@ -481,7 +481,8 @@ def _active_status_incidents(
     # A verified account snapshot may report no matching broker position even
     # while SQLite still has an open TradeAgent tracker. This is unresolved
     # tracking, not proof of a live broker position or permission to delete it.
-    for position in positions:
+    # Legacy three-argument callers have no position evidence to inspect.
+    for position in positions or ():
         if position.broker_position_id is None:
             continue
         sync = position.broker_sync_status
