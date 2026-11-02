@@ -107,6 +107,120 @@ def test_v2_status_exposes_matched_broker_position_truth(monkeypatch) -> None:
     assert position["broker_last_synced_at"] is not None
 
 
+
+def test_status_flags_missing_broker_position_without_claiming_it_is_open(monkeypatch) -> None:
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
+
+    from backend.domain.models import EngineConfig
+
+    monkeypatch.setattr(
+        "backend.api.router._current_config",
+        lambda: EngineConfig(enabled=False, ctrader_autotrade=False, kill_switch=True),
+    )
+    monkeypatch.setattr(
+        "backend.api.router.get_broker_status",
+        lambda: BrokerStatus(
+            connected=True,
+            socket_connected=True,
+            account_authorized=True,
+            symbols_loaded=1,
+            open_positions=0,
+            pending_orders=0,
+            ready=True,
+            market_data_ready=True,
+            broker_mode="demo",
+            account_id=123,
+            account_type="demo",
+            account_verified=True,
+            execution_ready=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.api.router.list_paper_positions",
+        lambda status=None: [
+            PaperPosition(
+                id=177,
+                symbol="XAUUSD",
+                timeframe="M5",
+                strategy="sma_cross",
+                direction="short",
+                quantity=0.01,
+                status="open",
+                entry_price=4171.946,
+                opened_at=pd.Timestamp("2026-10-30T12:00:00Z").to_pydatetime(),
+                broker_position_id=58437535,
+            ),
+        ],
+    )
+    monkeypatch.setattr("backend.api.router.list_positions", lambda: [])
+
+    from backend.app import app
+
+    with TestClient(app) as client:
+        response = client.get("/api/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["config"]["ctrader_autotrade"] is False
+    tracker = payload["paper_positions"][0]
+    assert tracker["broker_sync_status"] == "id_not_found"
+    assert tracker["broker_entry_price"] is None
+    assert tracker["broker_protection_status"] == "unavailable"
+    incidents = [row for row in payload["active_incidents"] if row["code"] == "ctrader_tracked_position_unmatched"]
+    assert len(incidents) == 1
+    assert incidents[0]["level"] == "warning"
+    assert "58437535" in incidents[0]["message"]
+    assert "closed-deal history" in incidents[0]["message"]
+
+
+def test_status_does_not_claim_broker_position_missing_if_broker_read_failed(monkeypatch) -> None:
+    monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
+    monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
+    monkeypatch.setenv("APP_START_LEGACY_CONTROLLER_ON_BOOT", "0")
+    from backend.domain.models import EngineConfig
+
+    monkeypatch.setattr("backend.api.router._current_config", lambda: EngineConfig(enabled=False))
+    monkeypatch.setattr(
+        "backend.api.router.get_broker_status",
+        lambda: BrokerStatus(
+            connected=True, socket_connected=True, account_authorized=True,
+            symbols_loaded=1, open_positions=1, pending_orders=0, ready=True,
+            market_data_ready=True, broker_mode="demo", account_id=123,
+            account_type="demo", account_verified=True, execution_ready=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.api.router.list_paper_positions",
+        lambda status=None: [
+            PaperPosition(
+                id=2, symbol="XAUUSD", timeframe="M5", strategy="sma_cross",
+                direction="short", quantity=0.01, status="open", entry_price=100.0,
+                opened_at=pd.Timestamp("2026-10-30T12:00:00Z").to_pydatetime(),
+                broker_position_id=55,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.api.router.list_positions",
+        lambda: (_ for _ in ()).throw(RuntimeError("broker request failed")),
+    )
+
+    from backend.app import app
+
+    with TestClient(app) as client:
+        response = client.get("/api/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paper_positions"][0]["broker_sync_status"] == "unavailable"
+    assert not any(
+        row["code"] == "ctrader_tracked_position_unmatched"
+        for row in payload["active_incidents"]
+    )
+
+
 def test_v2_market_status_reports_feed_unavailable_without_booting_services(monkeypatch) -> None:
     monkeypatch.setenv("APP_START_CTRADER_ON_BOOT", "0")
     monkeypatch.setenv("APP_WARM_OLLAMA_ON_BOOT", "0")
