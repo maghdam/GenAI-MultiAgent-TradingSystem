@@ -36,6 +36,7 @@ from backend.domain.models import (
     ManualOrderRequest,
     MarketIntelligenceResponse,
     MarketEventInput,
+    PaperPosition,
     ProtectionHealthResponse,
     ReadinessCheck,
     ReconciliationHealthResponse,
@@ -256,6 +257,7 @@ def _active_status_incidents(
     config: EngineConfig,
     broker: BrokerStatus,
     runtime: EngineRuntime,
+    positions: list[PaperPosition],
 ) -> list[ActiveIncident]:
     incidents: list[ActiveIncident] = []
     startup_disabled = any(
@@ -476,6 +478,28 @@ def _active_status_incidents(
             )
         )
 
+    # A verified account snapshot may report no matching broker position even
+    # while SQLite still has an open TradeAgent tracker. This is unresolved
+    # tracking, not proof of a live broker position or permission to delete it.
+    for position in positions:
+        if position.broker_position_id is None:
+            continue
+        sync = position.broker_sync_status
+        if sync not in {"id_not_found", "id_mismatch"}:
+            continue
+        incidents.append(
+            ActiveIncident(
+                level="error" if sync == "id_mismatch" else "warning",
+                code="ctrader_tracked_position_unmatched",
+                message=(
+                    f"TradeAgent tracker #{position.id} ({position.symbol}, cTrader position "
+                    f"#{position.broker_position_id}) has broker status {sync}. "
+                    "Confirm the selected broker account and closed-deal history before "
+                    "changing local tracking. No current broker P&L or protection is verified."
+                ),
+            )
+        )
+
     return incidents
 
 
@@ -487,7 +511,6 @@ async def _status_payload() -> EngineStatus:
     runtime = load_runtime()
     runtime.ollama_ready = await _get_cached_ollama_ready()
     status_truth = _status_truth_checks(config, broker, runtime)
-    active_incidents = _active_status_incidents(config, broker, runtime)
     armed_account_id = get_live_trading_armed_account_id()
     live_trading_armed = bool(
         broker.account_type == "live"
@@ -503,7 +526,8 @@ async def _status_payload() -> EngineStatus:
         except Exception:
             broker_rows = None
     paper_positions = attach_broker_truth(paper_positions, broker_rows)
-    
+    active_incidents = _active_status_incidents(config, broker, runtime, paper_positions)
+
     return EngineStatus(
         version=SETTINGS.version,
         mode=(
