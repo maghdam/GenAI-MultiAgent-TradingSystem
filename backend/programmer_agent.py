@@ -411,7 +411,7 @@ class ProgrammerAgent:
             # one-bar event pulses; confirmed crosses update a held position.
             if "ema" in goal_lower and "cross" in goal_lower:
                 spans = list(dict.fromkeys(
-                    int(raw) for raw in re.findall(r"\\bema\\s*[-_]?\\s*(\\d{1,3})\\b", goal_lower)
+                    int(raw) for raw in re.findall(r"\bema\s*[-_]?\s*(\d{1,3})\b", goal_lower)
                 ))
                 if len(spans) != 2:
                     raise ValueError(
