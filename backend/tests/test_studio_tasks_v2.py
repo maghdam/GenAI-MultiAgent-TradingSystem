@@ -221,19 +221,14 @@ def test_studio_ema_20_50_timeout_fallback_preserves_requested_rules_and_no_look
     # A falling/rising/falling close series makes both bearish and bullish
     # crosses occur strictly after both EMAs have sufficient observations.
     close = pd.Series([100.0] * 60 + [80.0] * 60 + [120.0] * 60 + [70.0] * 60)
+    prices = close.to_numpy()
     frame = pd.DataFrame({
-        "open": close,
-        "high": close + 1.0,
-        "low": close - 1.0,
-        "close": close,
+        "open": prices,
+        "high": prices + 1.0,
+        "low": prices - 1.0,
+        "close": prices,
         "volume": 1.0,
     }, index=pd.date_range("2026-10-01", periods=len(close), freq="5min", tz="UTC"))
-    # Preserve prices when constructing a DataFrame with a datetime index.
-    frame["open"] = close.to_numpy()
-    frame["high"] = close.to_numpy() + 1
-    frame["low"] = close.to_numpy() - 1
-    frame["close"] = close.to_numpy()
-    frame["volume"] = 1.0
 
     actual = run_strategy_source(source, frame)
     fast = frame["close"].ewm(span=20, adjust=False, min_periods=20).mean()
