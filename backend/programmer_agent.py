@@ -442,23 +442,14 @@ class ProgrammerAgent:
                 """
                 return textwrap.dedent(src).strip()
 
-            # Fallback: SMA crossover (kept as a default) but at least echo the request.
-            src = f"""
-                # Default crossover strategy (fallback when the request is unclear).
-                # Original request: {goal_comment or "no description provided"}
-                import pandas as pd
-
-                def sma(series: pd.Series, n: int) -> pd.Series:
-                    return series.rolling(n, min_periods=n).mean()
-
-                def signals(df: pd.DataFrame, fast: int = 50, slow: int = 200) -> pd.Series:
-                    f = sma(df["close"], fast)
-                    s = sma(df["close"], slow)
-                    sig = (f > s).astype(int).diff().fillna(0)
-                    # 1 = long entry, -1 = exit/short entry depending on rules
-                    return sig
-            """
-            return textwrap.dedent(src).strip()
+            # Do not disguise an unsupported user strategy as an SMA 50/200
+            # implementation. The former unconditional template produced valid
+            # Python for an unrelated strategy, making backtests misleading.
+            raise ValueError(
+                "The selected model did not produce usable strategy code, and "
+                "no deterministic fallback matches these requested rules. "
+                "Choose another model or specify a supported setup and its parameters."
+            )
 
         # For backtest requests, return a helper snippet to show intent
         src = f"""
