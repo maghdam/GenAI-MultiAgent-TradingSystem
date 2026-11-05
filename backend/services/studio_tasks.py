@@ -153,7 +153,19 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         code = _validate_strategy_code(response["text"])
         response["text"] = code
         return response
-    except Exception:
+    except Exception as exc:
+        # Preserve a non-sensitive reason for model failure rather than
+        # incorrectly labelling every invalid model response a timeout.
+        fallback_reason = (
+            "timeout" if isinstance(exc, TimeoutError)
+            else "invalid_code" if isinstance(exc, ValueError)
+            else "model_error"
+        )
+        logging.warning(
+            "Strategy Studio code-generation fallback: provider=%s failure=%s",
+            provider,
+            fallback_reason,
+        )
         programmer = ProgrammerAgent()
         fallback_context = message
         fallback_goal = message
@@ -186,6 +198,7 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
             "provider": "template",
             "model": "programmer_agent",
             "text": validated,
+            "fallback_reason": fallback_reason,
         }
 
 
@@ -372,13 +385,28 @@ async def execute_studio_task(request: StudioTaskRequest) -> StudioTaskResponse:
                 return StudioTaskResponse(status="error", message=str(exc))
             action = "updated" if current_code else "created"
             if generated["provider"] == "template":
-                message = f"Strategy draft {action} with built-in fallback after the selected model did not return code in time."
+                failure_desc = {
+                    "timeout": "timed out",
+                    "invalid_code": "returned code that failed validation",
+                    "model_error": "failed to generate usable code",
+                }.get(generated.get("fallback_reason"), "did not return usable code")
+                message = (
+                    f"Strategy draft {action} with built-in fallback because the "
+                    f"selected model {failure_desc}. Review the rules before saving or backtesting."
+                )
             else:
                 message = f"Strategy draft {action} with {generated['provider']}:{generated['model']}."
+            response_details = {
+                "stdout": generated["text"],
+                "provider": generated["provider"],
+                "model": generated["model"],
+            }
+            if generated.get("fallback_reason"):
+                response_details["fallback_reason"] = generated["fallback_reason"]
             return StudioTaskResponse(
                 status="success",
                 message=message,
-                result={"stdout": generated["text"], "provider": generated["provider"], "model": generated["model"]},
+                result=response_details,
             )
         reply = await strategy_studio_chat_reply(goal_text, ctx)
         return StudioTaskResponse(status="success", message=reply)
