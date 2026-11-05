@@ -270,6 +270,59 @@ def test_studio_ema_crossover_fallback_fails_closed_without_two_periods(monkeypa
     assert result.result is None
 
 
+
+def test_studio_timeout_never_substitutes_generic_sma_for_unsupported_rules(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _timeout(**kwargs):
+        raise TimeoutError("model timed out")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _timeout)
+
+    result = asyncio.run(execute_studio_task(StudioTaskRequest(
+        task_type="chat",
+        goal="Create an XAUUSD M5 strategy using anchored VWAP and candle volume.",
+        params={"llm_provider": "ollama", "llm_model": "test-model"},
+    )))
+    assert result.status == "error"
+    assert "no deterministic fallback matches" in result.message
+    assert result.result is None
+    assert "Default crossover strategy" not in result.message
+
+
+def test_studio_fallback_reports_timeout_and_invalid_code_distinctly(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    goal = "Create a research EMA 20 and EMA 50 crossover strategy for XAUUSD M5."
+
+    async def _timeout(**kwargs):
+        raise TimeoutError("model timed out")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _timeout)
+    timeout_result = asyncio.run(execute_studio_task(StudioTaskRequest(
+        task_type="chat", goal=goal, params={"llm_provider": "ollama", "llm_model": "test-model"},
+    )))
+    assert timeout_result.status == "success"
+    assert timeout_result.result["fallback_reason"] == "timeout"
+    assert "selected model timed out" in timeout_result.message
+    assert "EMA 20/50 crossover" in timeout_result.result["stdout"]
+
+    async def _invalid(**kwargs):
+        return {"provider": "ollama", "model": "test-model", "text": "not valid python ***"}
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _invalid)
+    invalid_result = asyncio.run(execute_studio_task(StudioTaskRequest(
+        task_type="chat", goal=goal, params={"llm_provider": "ollama", "llm_model": "test-model"},
+    )))
+    assert invalid_result.status == "success"
+    assert invalid_result.result["fallback_reason"] == "invalid_code"
+    assert "returned code that failed validation" in invalid_result.message
+    assert "EMA 20/50 crossover" in invalid_result.result["stdout"]
+
+
+
 def test_v2_studio_fallback_matches_ema_rsi_pullback_request(monkeypatch) -> None:
     from backend.domain.models import StudioTaskRequest
     from backend.services.studio_tasks import execute_studio_task
