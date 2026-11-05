@@ -1,3 +1,4 @@
+import re
 import textwrap
 from typing import Literal
 
@@ -405,23 +406,50 @@ class ProgrammerAgent:
                 """
                 return textwrap.dedent(src).strip()
 
-            # Fallback: SMA crossover (kept as a default) but at least echo the request.
-            src = f"""
-                # Default crossover strategy (fallback when the request is unclear).
-                # Original request: {goal_comment or "no description provided"}
-                import pandas as pd
+            # Deterministic EMA-cross fallback for an explicit two-period request.
+            # The backtester treats returned values as target exposure, not
+            # one-bar event pulses; confirmed crosses update a held position.
+            if "ema" in goal_lower and "cross" in goal_lower:
+                spans = list(dict.fromkeys(
+                    int(raw) for raw in re.findall(r"\bema\s*[-_]?\s*(\d{1,3})\b", goal_lower)
+                ))
+                if len(spans) != 2:
+                    raise ValueError(
+                        "EMA crossover fallback needs exactly two explicit EMA periods. "
+                        "Retry with a working model or specify e.g. EMA 20 and EMA 50."
+                    )
+                fast, slow = sorted(spans)
+                if fast < 2 or slow > 500:
+                    raise ValueError("EMA crossover periods must satisfy 2 <= fast < slow <= 500.")
+                src = f"""
+                    # EMA {fast}/{slow} crossover; research only, no broker execution.
+                    # Position targets: +1 long, -1 short, 0 before the first confirmed cross.
+                    # Completed-candle cross signals are executed at next bar open by the backtester.
+                    import pandas as pd
 
-                def sma(series: pd.Series, n: int) -> pd.Series:
-                    return series.rolling(n, min_periods=n).mean()
+                    def signals(df: pd.DataFrame, fast: int = {fast}, slow: int = {slow}) -> pd.Series:
+                        if fast < 2 or slow <= fast:
+                            raise ValueError("Expected 2 <= fast < slow")
+                        close = df["close"].astype(float)
+                        fast_ema = close.ewm(span=fast, adjust=False, min_periods=fast).mean()
+                        slow_ema = close.ewm(span=slow, adjust=False, min_periods=slow).mean()
+                        cross_up = (fast_ema > slow_ema) & (fast_ema.shift(1) <= slow_ema.shift(1))
+                        cross_down = (fast_ema < slow_ema) & (fast_ema.shift(1) >= slow_ema.shift(1))
+                        changes = pd.Series(float("nan"), index=df.index, dtype=float)
+                        changes.loc[cross_up] = 1.0
+                        changes.loc[cross_down] = -1.0
+                        return changes.ffill().fillna(0.0)
+                """
+                return textwrap.dedent(src).strip()
 
-                def signals(df: pd.DataFrame, fast: int = 50, slow: int = 200) -> pd.Series:
-                    f = sma(df["close"], fast)
-                    s = sma(df["close"], slow)
-                    sig = (f > s).astype(int).diff().fillna(0)
-                    # 1 = long entry, -1 = exit/short entry depending on rules
-                    return sig
-            """
-            return textwrap.dedent(src).strip()
+            # Do not disguise an unsupported user strategy as an SMA 50/200
+            # implementation. The former unconditional template produced valid
+            # Python for an unrelated strategy, making backtests misleading.
+            raise ValueError(
+                "The selected model did not produce usable strategy code, and "
+                "no deterministic fallback matches these requested rules. "
+                "Choose another model or specify a supported setup and its parameters."
+            )
 
         # For backtest requests, return a helper snippet to show intent
         src = f"""
