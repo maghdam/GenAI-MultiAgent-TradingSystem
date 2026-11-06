@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CodeDisplay } from '../../components/CodeDisplay';
 import { BacktestResult } from '../../components/BacktestResult';
+import { studioBacktestResultTitle } from '../../services/strategyStudioPresentation';
 
 const BacktestDashboard = lazy(() =>
   import('../../components/BacktestDashboard').then((module) => ({ default: module.BacktestDashboard }))
@@ -48,9 +49,9 @@ export default function StrategyStudioResultsPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontWeight: 700 }}>Backtest Results</div>
-            {meta?.symbol && (
+            {result && (
               <div className="muted" style={{ fontSize: 12 }}>
-                {String(meta.strategy || '').toUpperCase() || 'STRATEGY'} · {String(meta.symbol).toUpperCase()} · {meta.timeframe} · {meta.numBars} bars
+                {String(result.strategy || meta?.strategy || 'STRATEGY').toUpperCase()} · {studioBacktestResultTitle(result, meta)}
               </div>
             )}
           </div>
