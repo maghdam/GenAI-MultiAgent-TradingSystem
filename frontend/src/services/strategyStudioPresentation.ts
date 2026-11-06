@@ -26,3 +26,38 @@ export function lifecycleStageState(
   if (stageIndex === currentIndex) return 'current';
   return 'pending';
 }
+
+type ResultContext = Record<string, unknown>;
+
+function objectOrEmpty(value: unknown): ResultContext {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as ResultContext : {};
+}
+
+function positiveBarCount(value: unknown): number | null {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+/**
+ * Display the completed backtest's immutable data provenance, never the live
+ * request controls (which the operator can change without running another test).
+ */
+export function studioBacktestResultTitle(result: unknown, metadata?: unknown): string {
+  const report = objectOrEmpty(result);
+  if (report['Total Return [%]'] === undefined && report.metrics === undefined) {
+    return 'No backtest result yet';
+  }
+  const meta = objectOrEmpty(metadata);
+  const symbol = String(report.symbol || meta.symbol || 'Unknown symbol').toUpperCase();
+  const timeframe = String(report.timeframe || meta.timeframe || 'Unknown timeframe').toUpperCase();
+  const requested = positiveBarCount(meta.numBars);
+  const fetched = positiveBarCount(report['Fetched Bars']);
+  const selected = positiveBarCount(report['Selected Bars']);
+  const depth = [
+    requested === null ? null : `${requested} requested`,
+    fetched === null ? null : `${fetched} fetched`,
+    selected === null ? null : `${selected} tested`,
+  ].filter((part): part is string => part !== null);
+  return [symbol, timeframe, ...depth].join(' · ');
+}
