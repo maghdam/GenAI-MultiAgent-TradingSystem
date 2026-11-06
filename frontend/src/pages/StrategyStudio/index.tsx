@@ -19,6 +19,7 @@ import {
   STUDIO_LIFECYCLE_STAGES,
   STUDIO_VALIDATION_OPTIONS,
   lifecycleStageState,
+  studioBacktestResultTitle,
 } from '../../services/strategyStudioPresentation';
 import StrategyChat, { type ChatMessage } from '../../components/StrategyChat';
 import { CodeDisplay } from '../../components/CodeDisplay';
@@ -38,6 +39,14 @@ export default function StrategyStudioPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastResult, setLastResult] = useState<any>(null);
+  const [lastMeta, setLastMeta] = useState<Record<string, unknown> | null>(() => {
+    try {
+      const raw = localStorage.getItem(META_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [draftCode, setDraftCode] = useState<string>(() => {
     try {
       return localStorage.getItem(DRAFT_CODE_KEY) || '';
@@ -90,11 +99,11 @@ export default function StrategyStudioPage() {
   ) => {
     try {
       localStorage.setItem(RESULT_KEY, JSON.stringify(result));
-      const nextMeta = meta ?? { strategy: savedStrategy || 'draft', symbol, timeframe, numBars };
-      localStorage.setItem(META_KEY, JSON.stringify({
-        ts: Date.now(),
-        ...nextMeta,
-      }));
+      if (meta) {
+        const completedMeta = { ts: Date.now(), ...meta };
+        localStorage.setItem(META_KEY, JSON.stringify(completedMeta));
+        setLastMeta(completedMeta);
+      }
     } catch {
       // ignore
     }
@@ -102,7 +111,8 @@ export default function StrategyStudioPage() {
 
   const openResults = () => {
     if (lastResult && isBacktestLikeResult(lastResult)) {
-      persistBacktestResult(lastResult);
+      // Already persisted at execution time. Do not overwrite its original
+      // request metadata with any controls changed after that run.
       window.open('/build-test/results', '_blank', 'noopener,noreferrer');
     }
   };
@@ -118,6 +128,7 @@ export default function StrategyStudioPage() {
     setMessages([]);
     setDraftCode('');
     setLastResult(null);
+    setLastMeta(null);
     setView('auto');
   };
 
@@ -715,7 +726,7 @@ export default function StrategyStudioPage() {
         <div className="studio-card-head">
           <div>
             <span className="studio-eyebrow">Latest result</span>
-            <strong>{hasBacktestResult ? `${symbol} · ${timeframe} · ${numBars} bars` : 'No backtest result yet'}</strong>
+            <strong>{studioBacktestResultTitle(lastResult, lastMeta)}</strong>
           </div>
           <div className="studio-result-actions">
             <button

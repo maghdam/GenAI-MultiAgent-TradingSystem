@@ -14,6 +14,9 @@ venv/
 *.env
 credentials.json
 
+# Local Strategy Studio research exports (existing committed examples stay tracked)
+backend/strategies_generated/*.py
+
 # Database or local state
 signals.db
 backend/data/*.db
