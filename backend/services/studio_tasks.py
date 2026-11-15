@@ -154,6 +154,14 @@ async def _generate_strategy_code(message: str, ctx: Optional[dict]) -> dict[str
         response["text"] = code
         return response
     except Exception as exc:
+        # A generic rolling-high breakout is not a valid substitute for
+        # session-specific opening-range rules and New York clock handling.
+        if re.search(r"\b(?:opening[\s-]*range|orb)\b", message, flags=re.I):
+            raise ValueError(
+                "The selected model did not generate valid Opening-Range Breakout code. "
+                "The built-in generic breakout fallback cannot implement the requested "
+                "New York opening-range rules. Try another model; no draft was created."
+            ) from exc
         # Preserve a non-sensitive reason for model failure rather than
         # incorrectly labelling every invalid model response a timeout.
         fallback_reason = (
@@ -329,6 +337,14 @@ def _seed_optimization_grid(task_type: str, strategy_effective: str, extra: dict
 def _normalize_task_type(task_type: str, goal_text: str) -> str:
     goal_lower = goal_text.lower()
     if task_type == "save_strategy" or not goal_text:
+        return task_type
+    # Creation requests may describe backtesting constraints in later lines.
+    # Do not interpret that background text (e.g. "do not simulate ... unless
+    # the backtesting interface supports it") as a command to run a test.
+    if task_type == "chat" and re.match(
+        r"^\s*(?:(?:please|can you|could you)\s+)?(?:create|build|generate|write|draft)\b",
+        goal_lower,
+    ) and _is_code_request(goal_text, None):
         return task_type
     try:
         import re
