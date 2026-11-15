@@ -150,6 +150,78 @@ def test_v2_studio_chat_negated_optimize_stays_on_draft_generation(monkeypatch) 
     assert "muse-glimmer:latest" in result.message
 
 
+
+def test_v2_studio_orb_creation_prompt_does_not_route_to_saved_draft_backtest(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _generated_orb(**kwargs):
+        assert "New York Opening-Range Breakout" in kwargs["prompt"]
+        return {
+            "provider": "ollama",
+            "model": "muse-glimmer:latest",
+            "text": (
+                "import pandas as pd\n\n"
+                "def signals(df: pd.DataFrame) -> pd.Series:\n"
+                "    return pd.Series(0.0, index=df.index)\n"
+            ),
+        }
+
+    def _fail_if_backtested(*args, **kwargs):
+        raise AssertionError("An ORB creation prompt must not invoke a backtest")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _generated_orb)
+    monkeypatch.setattr("backend.services.studio_tasks.run_backtest", _fail_if_backtested)
+
+    # Reproduces the operator's multi-line prompt: an incidental mention of
+    # the "backtesting interface" after "do not simulate" previously matched
+    # the broad natural-language backtest command regex, loading 'draft'.
+    goal = (
+        "Create a NEW research-only Python trading strategy for US500 on the M15 timeframe.\n"
+        "Strategy: New York Opening-Range Breakout (ORB).\n"
+        "Use the 09:30 America/New_York opening and the first two completed M15 candles.\n"
+        "Only enter on confirmed range breaks between 10:00 and 12:00 New York.\n"
+        "For this first version, do not simulate an H1 trend filter, ATR stop-loss "
+        "or take-profit unless the available backtesting interface can genuinely support them.\n"
+        "Do not substitute a generic rolling-high breakout for this session-specific strategy."
+    )
+    result = asyncio.run(execute_studio_task(StudioTaskRequest(
+        task_type="chat",
+        goal=goal,
+        params={"strategy_name": "draft", "symbol": "US500", "timeframe": "M15"},
+    )))
+
+    assert result.status == "success"
+    assert (result.result or {}).get("provider") == "ollama"
+    assert "def signals" in (result.result or {}).get("stdout", "")
+    assert "Saved strategy 'draft' not found" not in result.message
+
+
+def test_v2_studio_orb_model_failure_does_not_fall_back_to_generic_breakout(monkeypatch) -> None:
+    from backend.domain.models import StudioTaskRequest
+    from backend.services.studio_tasks import execute_studio_task
+
+    async def _timeout(**kwargs):
+        raise TimeoutError("model timeout")
+
+    monkeypatch.setattr("backend.services.studio_tasks.studio_llm.generate_text", _timeout)
+
+    result = asyncio.run(execute_studio_task(StudioTaskRequest(
+        task_type="chat",
+        goal=(
+            "Please create a US500 M15 Opening-Range Breakout strategy at 09:30 "
+            "America/New_York with 10:00-12:00 entries. "
+            "Do not simulate unsupported exits; the backtesting interface cannot support them."
+        ),
+        params={"strategy_name": "draft", "llm_provider": "ollama"},
+    )))
+
+    assert result.status == "error"
+    assert "generic breakout fallback cannot implement" in result.message
+    assert "no draft was created" in result.message
+    assert not result.result
+
+
 def test_v2_studio_code_generation_uses_longer_local_default_timeout(monkeypatch) -> None:
     from backend.domain.models import StudioTaskRequest
     from backend.services.studio_tasks import execute_studio_task
