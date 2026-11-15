@@ -2698,7 +2698,7 @@ The initial EMA-target fallback fix on PR #145 at `1df125b` passed 40 focused te
 
 ---
 
-## 18. In progress — Strategy Studio long-form ORB creation intent and honest fallback (2026-11-15)
+## 18. Verified implementation — Strategy Studio long-form ORB creation intent and honest fallback (2026-11-15)
 
 **Operator-observed blocker:** In the running Strategy Studio (Ollama, US500 M15), the user requested creation of a new New York Opening-Range Breakout (ORB) research draft with 09:30–10:00 New York range and 10:00–12:00 entries. The assistant instead returned `Saved strategy 'draft' not found.` The UI correctly sent `task_type=chat` with `strategy_name=draft`, but `_normalize_task_type` treated an incidental phrase `do not simulate ... unless the available backtesting interface ...` as an actionable `do ... backtesting` request and prematurely routed to a saved-strategy backtest without generated code. No strategy was generated, saved, or deployed by that failed request.
 
