@@ -347,8 +347,6 @@ def _normalize_task_type(task_type: str, goal_text: str) -> str:
     ) and _is_code_request(goal_text, None):
         return task_type
     try:
-        import re
-
         negated_opt_cmd = bool(
             re.search(r"\b(?:do\s+not|don't|dont|avoid|without)\s+optimi[sz](?:e|ation|ing)?\b", goal_lower)
         )
