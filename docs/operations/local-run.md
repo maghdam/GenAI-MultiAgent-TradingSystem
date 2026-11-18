@@ -20,6 +20,38 @@ This script attempts to:
 - start the backend on `127.0.0.1:4000`
 - start the frontend on `127.0.0.1:5173`
 - open the dashboard
+- start the separate read-only MCP gateway on `127.0.0.1:8765` **only from this explicit local launcher**, once backend is ready. The TradeAgent backend itself never automatically creates an MCP listener.
+
+### MCP local start/stop (Windows)
+
+The one-command launcher now starts the local read-only MCP gateway **by default**
+when a ready backend is detected. Starting `backend.app` directly does **not**
+start MCP. This is for local developer use only; the MCP endpoint is **not
+authenticated**, is **not a ChatGPT Work/cloud connection**, and must never be
+tunneled, reverse-proxied, or exposed outside loopback.
+
+To temporarily **disable MCP** for a PowerShell startup session:
+
+```powershell
+$env:TRADEAGENT_START_MCP = "0"
+cmd /c call start-local.cmd
+Remove-Item Env:TRADEAGENT_START_MCP
+```
+
+The default (when the variable is absent) is `TRADEAGENT_START_MCP=1`.
+Before launching, `scripts/local-mcp-lifecycle.ps1` verifies that port 8765
+is free or is already owned by the expected `tradeagent-v2` Python process
+running `-m backend.chatgpt_mcp_readonly`. It must refuse a foreign port
+owner rather than kill or overwrite that process. The gateway is started
+once and can be safely rechecked on repeated launcher runs; a foreign 8765
+listener produces a warning/nonzero launcher exit without preventing the
+dashboard from opening. Gateway logs are under `.codex-run/mcp.log` and
+`.codex-run/mcp-error.log`.
+
+The existing `stop-local.cmd` runs the ownership-checked gateway stop **first**,
+then the usual backend/frontend shutdown; it refuses to kill an unrelated
+listener on port 8765. Stopping local components does not change any
+TradeAgent account, trading engine, or execution permissions.
 
 ### Manual backend startup
 
@@ -49,7 +81,7 @@ From the repo root:
 cmd /c call stop-local.cmd
 ```
 
-This script kills listeners on ports `4000` and `5173` and aggressively cleans up common local frontend/backend orphans.
+This script stops the verified local MCP gateway on `8765` before stopping listeners on ports `4000` and `5173`; it refuses to stop a foreign `8765` listener and reports a warning/nonzero status if that happens. The existing backend/frontend orphan cleanup remains unchanged.
 
 ## Useful Environment Flags
 
