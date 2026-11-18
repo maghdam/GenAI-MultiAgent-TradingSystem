@@ -24,6 +24,11 @@ def test_stop_local_stops_mcp_before_backend_and_frontend():
     assert stop.index('-Action Stop') < stop.index("for %%P in (4000 5173)")
     assert "for %%P in (4000 5173 8765)" not in stop
     assert "if defined MCP_STOP_FAILED" in stop
+    assert "exit /b 1" in stop
+    # taskkill /im returns nonzero when no optional orphan exists; a successful
+    # shutdown must not inherit that stale Windows ERRORLEVEL.
+    assert stop.rstrip().endswith("exit /b 0")
+    assert stop.index("if defined MCP_STOP_FAILED") < stop.rindex("exit /b 0")
 
 
 def test_mcp_lifecycle_refuses_foreign_port_owners():
