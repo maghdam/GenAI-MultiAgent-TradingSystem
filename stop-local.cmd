@@ -30,3 +30,6 @@ if defined MCP_STOP_FAILED (
 )
 
 echo System stopped successfully.
+rem taskkill returns nonzero when an optional orphan process does not exist.
+rem Do not leak that harmless status after the verified MCP/port shutdown.
+exit /b 0
