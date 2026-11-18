@@ -119,6 +119,9 @@ This starts:
 
 - backend on `http://127.0.0.1:4000`
 - frontend on `http://127.0.0.1:5173`
+- local **read-only** MCP gateway on `http://127.0.0.1:8765/mcp`, if the backend is ready (set `TRADEAGENT_START_MCP=0` before launching to opt out; not a remote ChatGPT connection).
+
+Use `cmd /c call stop-local.cmd` to stop the verified gateway before stopping backend and frontend. Details: [Local Run Guide](docs/operations/local-run.md).
 
 ### cTrader account setup
 
