@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -81,7 +82,14 @@ def test_rejects_invalid_timeframe_or_size_without_network(monkeypatch, timefram
     [dict(sample(), open="bad")],
 ])
 def test_rejects_malformed_rows_fail_closed(monkeypatch, rows):
-    client_with_response(monkeypatch, httpx.Response(200, json={"candles": rows}))
+    # httpx.Response(json=...) rejects NaN while constructing the mock,
+    # before gateway validation runs. Supply raw upstream text instead to
+    # exercise the gateway's own fail-closed non-finite price guard.
+    raw_upstream = json.dumps({"candles": rows}, allow_nan=True)
+    client_with_response(
+        monkeypatch,
+        httpx.Response(200, content=raw_upstream, headers={"content-type": "application/json"}),
+    )
     with pytest.raises(RuntimeError):
         gateway.get_ctrader_candles("US30")
 
