@@ -7,8 +7,12 @@ the historical draft PR #127. It offers exactly one MCP v2 tool:
 
 - The only upstream URL is **GET** `http://127.0.0.1:4000/api/market/candles`.
 - The MCP listener is bound to **127.0.0.1:8765**, at local `/mcp`.
-- It **does not auto-start** with TradeAgent; no change to trading runtime,
-  account selection, orders, journal, Strategy Studio or Alpaca.
+- Starting the **backend directly** does not auto-start MCP. The explicitly
+  invoked Windows one-command `start-local.cmd` now starts this separate
+  loopback gateway after backend readiness unless
+  `TRADEAGENT_START_MCP=0` is set; `stop-local.cmd` stops only the verified
+  MCP process before the existing backend/frontend shutdown. No change to
+  trading runtime, account selection, orders, journal, Strategy Studio or Alpaca.
 - It accepts cTrader M1/M5/M15/M30/H1/H4/D1 symbols, 2–500 bars; malformed,
   empty or out-of-order candles fail closed. Gaps are kept, not filled.
 - Responses label requested vs observed depth and observed UTC timestamps.
@@ -26,6 +30,23 @@ python -m pip install -e ".[mcp]"
 python -m pytest backend/tests/test_chatgpt_mcp_readonly.py -q
 python scripts/validate.py
 ```
+
+For one-command **Windows** start/stop from the repository root:
+
+```powershell
+cmd /c call start-local.cmd
+cmd /c call stop-local.cmd
+```
+
+The `start-local.cmd` launcher now starts the local MCP process by default
+when the backend is healthy. Use `$env:TRADEAGENT_START_MCP = "0"` before
+`start-local.cmd` to skip it for that run, then remove the variable when
+you want normal behavior. The lifecycle helper refuses port 8765 if it
+belongs to an unrelated process; stop never kills that foreign process.
+Logs are kept in `.codex-run/mcp.log` and `.codex-run/mcp-error.log`.
+On Windows, this uses the same `tradeagent-v2` Python path as
+`run-backend-local.cmd`. The launch script returns a failure code if MCP
+is opted in but cannot start; the dashboard may still open.
 
 The MCP SDK v2 dependency is optional for normal TradeAgent startup. The
 GitHub backend CI installs the `mcp` extra so SDK registration is tested.
