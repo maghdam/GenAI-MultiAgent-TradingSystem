@@ -2,10 +2,13 @@
 
 This module is the first **TradeAgent platform** research integration, not a
 second SMC strategy engine. It is a renewed, current-main-based successor to
-the historical draft PR #127. It offers exactly one MCP v2 tool:
-`get_ctrader_candles(symbol, timeframe="M5", num_bars=100)`.
+the historical draft PR #127. It now offers exactly **two** MCP v2 research tools:
+`get_ctrader_candles(symbol, timeframe="M5", num_bars=100)` and
+`list_studio_saved_strategies()`.
 
-- The only upstream URL is **GET** `http://127.0.0.1:4000/api/market/candles`.
+- The only two upstream URLs are the fixed **GET** routes
+  `http://127.0.0.1:4000/api/market/candles` and
+  `http://127.0.0.1:4000/api/studio/strategy-files`.
 - The MCP listener is bound to **127.0.0.1:8765**, at local `/mcp`.
 - Starting the **backend directly** does not auto-start MCP. The explicitly
   invoked Windows one-command `start-local.cmd` now starts this separate
@@ -19,8 +22,15 @@ the historical draft PR #127. It offers exactly one MCP v2 tool:
   The `live=true` request can still hit TradeAgent memory cache; it does **not**
   attest broker provenance, freshness, completed bars, exact bar labeling,
   market calendar, execution/fills, trading signals or profit.
+- The Studio catalog returns **only** sorted, deduplicated, lower-case saved
+  strategy names, at most **50**; it checks at most **512** observed filenames,
+  validates the response at **64 KB**, rejects unsafe names/payloads, and
+  reports observed/returned counts and whether the unique-name list was
+  truncated. It never returns upstream `cwd`, full paths, raw strategy code,
+  lifecycle evidence or arbitrary upstream metadata. These are filenames,
+  **not** proof of lifecycle validity, profitability or execution eligibility.
 - No order, cancel, close, account switch, strategy registration, backtest
-  initiation or privileged broker tool is registered.
+  initiation, lifecycle write or privileged broker tool is registered.
 
 ## Local Windows test and smoke (non-trading)
 
@@ -51,11 +61,15 @@ is opted in but cannot start; the dashboard may still open.
 The MCP SDK v2 dependency is optional for normal TradeAgent startup. The
 GitHub backend CI installs the `mcp` extra so SDK registration is tested.
 For an **optional manual smoke**, run TradeAgent normally on loopback 4000 with
-an already authorized cTrader **Demo** data connection; do not switch accounts,
-enable the engine, or change autotrade/kill-switch controls. In a separate
-PowerShell session, run `python -m backend.chatgpt_mcp_readonly` and use an
-MCP v2-compatible local client/Inspector to list exactly one tool and call
-`get_ctrader_candles` read-only. Stop the standalone process afterward.
+an already authorized cTrader **Demo** data connection **only if testing
+candles**; a Studio catalog test requires no broker call. Do not switch
+accounts, enable the engine, or change autotrade/kill-switch controls. In a
+separate PowerShell session, run `python -m backend.chatgpt_mcp_readonly` or
+use the verified local `start-local.cmd` launcher. With an MCP v2-compatible
+local client/Inspector, list exactly **two** tools, call
+`list_studio_saved_strategies()` read-only, and optionally call
+`get_ctrader_candles` read-only. If launched manually, stop that standalone
+process afterward. Do not expose it remotely.
 Do not send raw broker credentials, tokens or portfolio/account information to
 an AI tool.
 
