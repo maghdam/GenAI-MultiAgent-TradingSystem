@@ -1,6 +1,6 @@
-"""Opt-in localhost-only MCP entry point for *TradeAgent* candle research.
+"""Opt-in localhost-only MCP entry point for *TradeAgent* research reads.
 
-This is a thin, one-tool facade over the existing TradeAgent GET API. It is NOT
+This is a thin, read-only facade over vetted TradeAgent GET APIs. It is NOT
 an execution surface and does not start from the normal TradeAgent application.
 Never expose either loopback listener through a tunnel or public reverse proxy.
 """
@@ -14,6 +14,12 @@ from datetime import UTC, datetime
 import httpx
 
 _BACKEND_URL = "http://127.0.0.1:4000/api/market/candles"
+_STUDIO_FILES_URL = "http://127.0.0.1:4000/api/studio/strategy-files"
+_STUDIO_ROUTE = "/api/studio/strategy-files"
+_MAX_STUDIO_RESPONSE_BYTES = 64_000
+_MAX_STUDIO_OBSERVED_FILES = 512
+_MAX_STUDIO_RETURNED_FILES = 50
+_STUDIO_FILE_RE = re.compile(r"[a-z0-9_-]{1,64}\.py\Z")
 _ALLOWED_SYMBOL = re.compile(r"[A-Za-z0-9_.-]{2,32}\Z")
 # Mirrors the existing cTrader adapter, which currently rejects W1.
 _ALLOWED_TIMEFRAMES = frozenset({"M1", "M5", "M15", "M30", "H1", "H4", "D1"})
@@ -102,13 +108,59 @@ def get_ctrader_candles(symbol: str, timeframe: str = "M5", num_bars: int = 100)
     }
 
 
+def list_studio_saved_strategies() -> dict:
+    """List bounded saved Strategy Studio names without source or execution.
+
+    This only reads the existing TradeAgent strategy-files GET route. The
+    upstream response also includes a local cwd; never return or log it.
+    File names are research catalog entries, not verified strategy lifecycles.
+    """
+    try:
+        # Fixed loopback route, no caller-controlled URL, proxies or redirects.
+        with httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False) as client:
+            response = client.get(_STUDIO_FILES_URL)
+            response.raise_for_status()
+            if len(response.content) > _MAX_STUDIO_RESPONSE_BYTES:
+                raise RuntimeError("Local TradeAgent strategy catalog payload exceeds the size limit")
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise RuntimeError("Local TradeAgent strategy catalog read failed or returned invalid JSON") from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+        raise RuntimeError("Local TradeAgent returned an invalid strategy catalog envelope")
+
+    files = payload["files"]
+    if len(files) > _MAX_STUDIO_OBSERVED_FILES:
+        raise RuntimeError("Local TradeAgent strategy catalog exceeds the observed-file limit")
+    # Strictly permit existing lower-case saved-file names (the Studio source
+    # loader itself normalizes strategy IDs to lower case). Reject all paths,
+    # extensions, oversized names and nonstrings instead of guessing.
+    if any(type(name) is not str or not _STUDIO_FILE_RE.fullmatch(name) for name in files):
+        raise RuntimeError("Local TradeAgent returned an unsafe saved-strategy filename")
+
+    unique_names = sorted({name[:-3] for name in files})
+    selected = unique_names[:_MAX_STUDIO_RETURNED_FILES]
+    return {
+        "source_route": _STUDIO_ROUTE,
+        "strategies": selected,
+        "observed_count": len(files),
+        "returned_count": len(selected),
+        "truncated": len(unique_names) > _MAX_STUDIO_RETURNED_FILES,
+        "warning": (
+            "Saved-file names only; catalog entries are not validated lifecycle, "
+            "strategy performance, backtest results or authorization to trade."
+        ),
+    }
+
+
 def create_server():
-    """Register the single read-only tool with the current MCP Python SDK v2."""
+    """Register only the approved read-only tools with MCP Python SDK v2."""
     # Import lazily: the SDK is an opt-in dependency, never needed to boot TradeAgent.
     from mcp.server.mcpserver import MCPServer
 
     server = MCPServer("TradeAgent Local Read-Only Research")
     server.tool()(get_ctrader_candles)
+    server.tool()(list_studio_saved_strategies)
     return server
 
 

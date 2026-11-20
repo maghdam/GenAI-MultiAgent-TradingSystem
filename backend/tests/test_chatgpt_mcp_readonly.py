@@ -107,13 +107,132 @@ def test_http_failure_does_not_fallback_to_generated_market_data(monkeypatch):
         gateway.get_ctrader_candles("XAUUSD")
 
 
-def test_mcp_sdk_v2_registers_exactly_one_tool():
+def test_catalog_reads_only_fixed_loopback_get_and_omits_cwd_and_source(monkeypatch):
+    seen = client_with_response(monkeypatch, httpx.Response(200, json={
+        "files": ["sma.py", "rsi.py", "sma.py"],
+        "cwd": "C:\\Users\\operator\\private-folder",
+        "source": "secret source not for MCP",
+        "account": {"token": "not-for-mcp"},
+    }))
+    result = gateway.list_studio_saved_strategies()
+
+    assert result == {
+        "source_route": "/api/studio/strategy-files",
+        "strategies": ["rsi", "sma"],
+        "observed_count": 3,
+        "returned_count": 2,
+        "truncated": False,
+        "warning": (
+            "Saved-file names only; catalog entries are not validated lifecycle, "
+            "strategy performance, backtest results or authorization to trade."
+        ),
+    }
+    assert "private-folder" not in json.dumps(result)
+    assert "secret source" not in json.dumps(result)
+    assert "token" not in json.dumps(result)
+    assert len(seen) == 1
+    request = seen[0]
+    assert request.method == "GET"
+    assert (request.url.scheme, request.url.host, request.url.port, request.url.path) == (
+        "http", "127.0.0.1", 4000, "/api/studio/strategy-files",
+    )
+    assert not request.url.params
+
+
+def test_catalog_can_be_empty_without_fabricating_names(monkeypatch):
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": [], "cwd": "C:\\private"}))
+    result = gateway.list_studio_saved_strategies()
+    assert result["strategies"] == []
+    assert result["observed_count"] == 0
+    assert result["returned_count"] == 0
+    assert result["truncated"] is False
+
+
+def test_catalog_bounded_deterministic_sort_and_truncation(monkeypatch):
+    filenames = [f"strategy_{i:03d}.py" for i in reversed(range(65))]
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": filenames}))
+    result = gateway.list_studio_saved_strategies()
+    assert result["observed_count"] == 65
+    assert result["returned_count"] == 50
+    assert result["truncated"] is True
+    assert result["strategies"] == [f"strategy_{i:03d}" for i in range(50)]
+
+
+def test_catalog_duplicate_entries_do_not_fake_truncation(monkeypatch):
+    filenames = [f"strategy_{i:03d}.py" for i in range(45)] + ["strategy_000.py"] * 25
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": filenames}))
+    result = gateway.list_studio_saved_strategies()
+    assert result["observed_count"] == 70
+    assert result["returned_count"] == 45
+    assert result["truncated"] is False
+
+
+@pytest.mark.parametrize("payload", [
+    None, [], {}, {"files": None}, {"files": {}}, {"files": "sma.py"},
+    {"files": [0]}, {"files": [True]}, {"files": [None]},
+    {"files": ["sma.py", {"name": "rsi.py"}]},
+])
+def test_catalog_rejects_bad_envelope_and_entries(monkeypatch, payload):
+    client_with_response(monkeypatch, httpx.Response(200, json=payload))
+    with pytest.raises(RuntimeError, match="catalog|saved-strategy"):
+        gateway.list_studio_saved_strategies()
+
+
+@pytest.mark.parametrize("filename", [
+    "../orders.py", "/tmp/secret.py", r"C:\\secret.py", "sample.env",
+    "SMA.py", "strange.PY", "script.py/other", ".py", "x" * 65 + ".py",
+    "x.py\nsecret", "x/../y.py", "symbol:code.py", "test.py.py",
+])
+def test_catalog_rejects_unsafe_saved_filename(monkeypatch, filename):
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": [filename]}))
+    with pytest.raises(RuntimeError, match="unsafe"):
+        gateway.list_studio_saved_strategies()
+
+
+def test_catalog_rejects_too_many_upstream_files(monkeypatch):
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": ["sma.py"] * 513}))
+    with pytest.raises(RuntimeError, match="observed-file limit"):
+        gateway.list_studio_saved_strategies()
+
+
+def test_catalog_rejects_oversize_response_even_if_valid_json(monkeypatch):
+    huge_response = {"files": [], "cwd": "x" * 65_000}
+    client_with_response(monkeypatch, httpx.Response(200, json=huge_response))
+    with pytest.raises(RuntimeError, match="size limit"):
+        gateway.list_studio_saved_strategies()
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(503, json={"detail": "backend unavailable"}),
+    httpx.Response(302, headers={"Location": "https://example.org/sensitive"}),
+    httpx.Response(200, content=b"not valid json"),
+])
+def test_catalog_http_redirect_and_json_fail_closed(monkeypatch, response):
+    seen = client_with_response(monkeypatch, response)
+    with pytest.raises(RuntimeError, match="Local TradeAgent strategy catalog"):
+        gateway.list_studio_saved_strategies()
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/api/studio/strategy-files"
+
+
+def test_catalog_does_not_accept_external_urls_or_strategy_names():
+    # A zero-argument, fixed-route API; no URL, file path, or SQL can be supplied.
+    import inspect
+
+    assert list(inspect.signature(gateway.list_studio_saved_strategies).parameters) == []
+
+
+def test_mcp_sdk_v2_registers_exactly_two_approved_research_tools():
     from mcp.server.mcpserver import MCPServer
 
     server = gateway.create_server()
     assert isinstance(server, MCPServer)
     tools = asyncio.run(server.list_tools())
-    assert [tool.name for tool in tools] == ["get_ctrader_candles"]
+    assert [tool.name for tool in tools] == [
+        "get_ctrader_candles",
+        "list_studio_saved_strategies",
+    ]
 
 
 def test_gateway_run_only_on_loopback(monkeypatch):
