@@ -200,7 +200,7 @@ def get_studio_recorded_evidence(strategy: str, limit: int = 5) -> dict:
         payload.get("strategy") != strategy
         or type(version) is not int or version < 1
         or not isinstance(version_hash, str) or not _VERSION_HASH_RE.fullmatch(version_hash)
-        or stage not in _LIFECYCLE_STAGES
+        or type(stage) is not str or stage not in _LIFECYCLE_STAGES
         or type(current_source) is not bool
         or not isinstance(evidence, list)
     ):
@@ -215,7 +215,7 @@ def get_studio_recorded_evidence(strategy: str, limit: int = 5) -> dict:
     for item in evidence[:limit]:
         if (
             not isinstance(item, dict)
-            or item.get("evidence_type") not in _LIFECYCLE_EVIDENCE_TYPES
+            or type(item.get("evidence_type")) is not str or item["evidence_type"] not in _LIFECYCLE_EVIDENCE_TYPES
             or type(item.get("passed")) is not bool
             or not isinstance(item.get("metrics"), dict)
             or not isinstance(item.get("created_at"), str)
@@ -231,7 +231,7 @@ def get_studio_recorded_evidence(strategy: str, limit: int = 5) -> dict:
         for key in _EVIDENCE_NUMERIC_KEYS:
             if key in item["metrics"]:
                 value = item["metrics"][key]
-                if type(value) not in (float, int) or not math.isfinite(value) or abs(value) > 1e9:
+                if type(value) not in (float, int) or abs(value) > 1e9 or not math.isfinite(value):
                     raise RuntimeError("TradeAgent returned an invalid recorded-evidence numeric metric")
                 numeric[key] = value
         records.append({
