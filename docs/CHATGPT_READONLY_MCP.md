@@ -2,13 +2,16 @@
 
 This module is the first **TradeAgent platform** research integration, not a
 second SMC strategy engine. It is a renewed, current-main-based successor to
-the historical draft PR #127. It now offers exactly **two** MCP v2 research tools:
-`get_ctrader_candles(symbol, timeframe="M5", num_bars=100)` and
-`list_studio_saved_strategies()`.
+the historical draft PR #127. It now offers exactly **three** MCP v2 research tools:
+`get_ctrader_candles(symbol, timeframe="M5", num_bars=100)`,
+`list_studio_saved_strategies()`, and
+`get_studio_recorded_evidence(strategy, limit=5)`.
 
-- The only two upstream URLs are the fixed **GET** routes
-  `http://127.0.0.1:4000/api/market/candles` and
-  `http://127.0.0.1:4000/api/studio/strategy-files`.
+- The only upstream URLs are fixed **GET** routes
+  `http://127.0.0.1:4000/api/market/candles`,
+  `http://127.0.0.1:4000/api/studio/strategy-files`, and the single
+  exact-name path under `http://127.0.0.1:4000/api/studio/lifecycle/`.
+  There is no caller-selected server or arbitrary path.
 - The MCP listener is bound to **127.0.0.1:8765**, at local `/mcp`.
 - Starting the **backend directly** does not auto-start MCP. The explicitly
   invoked Windows one-command `start-local.cmd` now starts this separate
@@ -29,6 +32,19 @@ the historical draft PR #127. It now offers exactly **two** MCP v2 research tool
   truncated. It never returns upstream `cwd`, full paths, raw strategy code,
   lifecycle evidence or arbitrary upstream metadata. These are filenames,
   **not** proof of lifecycle validity, profitability or execution eligibility.
+- The **recorded evidence** tool reads only the latest persisted lifecycle
+  version for one validated lower-case strategy name (1–64 allowed characters).
+  It returns at most **five** existing evidence entries selected newest-first,
+  explicitly labels latest-version-only scope, source hash/version, lifecycle
+  stage, current-source match, total/returned counts, and truncation. Each entry
+  contains only evidence type, pass/fail, normalized UTC recording time, and
+  a fixed whitelist of finite numeric backtest metrics (trades, return,
+  drawdown, modeled costs and win rate). Upstream response is bounded at
+  **256 KB** / **200** evidence entries. Hypotheses, free-text summaries,
+  arbitrary context/metrics, operator identities and raw code are dropped.
+  Missing lifecycle registration yields an error; an empty evidence list is
+  accurately represented without inventing backtest runs. The evidence does
+  **not** represent a full archived report or trading authorization.
 - No order, cancel, close, account switch, strategy registration, backtest
   initiation, lifecycle write or privileged broker tool is registered.
 
@@ -66,9 +82,10 @@ candles**; a Studio catalog test requires no broker call. Do not switch
 accounts, enable the engine, or change autotrade/kill-switch controls. In a
 separate PowerShell session, run `python -m backend.chatgpt_mcp_readonly` or
 use the verified local `start-local.cmd` launcher. With an MCP v2-compatible
-local client/Inspector, list exactly **two** tools, call
-`list_studio_saved_strategies()` read-only, and optionally call
-`get_ctrader_candles` read-only. If launched manually, stop that standalone
+local client/Inspector, list exactly **three** tools, call
+`list_studio_saved_strategies()` read-only, optionally call
+`get_studio_recorded_evidence(strategy="sma", limit=3)` only for an existing
+registered saved name, and optionally call `get_ctrader_candles` read-only. If launched manually, stop that standalone
 process afterward. Do not expose it remotely.
 Do not send raw broker credentials, tokens or portfolio/account information to
 an AI tool.

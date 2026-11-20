@@ -20,6 +20,19 @@ _MAX_STUDIO_RESPONSE_BYTES = 64_000
 _MAX_STUDIO_OBSERVED_FILES = 512
 _MAX_STUDIO_RETURNED_FILES = 50
 _STUDIO_FILE_RE = re.compile(r"[a-z0-9_-]{1,64}\.py\Z")
+_LIFECYCLE_BASE_URL = "http://127.0.0.1:4000/api/studio/lifecycle/"
+_LIFECYCLE_ROUTE = "/api/studio/lifecycle/{strategy}"
+_STRATEGY_NAME_RE = re.compile(r"[a-z0-9_-]{1,64}\Z")
+_VERSION_HASH_RE = re.compile(r"[a-f0-9]{64}\Z")
+_LIFECYCLE_STAGES = frozenset({"draft", "backtested", "validated", "paper", "eligible", "retired"})
+_LIFECYCLE_EVIDENCE_TYPES = frozenset({"development_backtest", "out_of_sample", "regime", "paper"})
+_EVIDENCE_NUMERIC_KEYS = (
+    "Number of Trades", "Total Return [%]", "Max Drawdown [%]",
+    "Fees [bps]", "Slippage [bps]", "Spread [bps]", "Win Rate [%]",
+)
+_MAX_LIFECYCLE_RESPONSE_BYTES = 256_000
+_MAX_LIFECYCLE_OBSERVED_EVIDENCE = 200
+_MAX_LIFECYCLE_RETURNED_EVIDENCE = 5
 _ALLOWED_SYMBOL = re.compile(r"[A-Za-z0-9_.-]{2,32}\Z")
 # Mirrors the existing cTrader adapter, which currently rejects W1.
 _ALLOWED_TIMEFRAMES = frozenset({"M1", "M5", "M15", "M30", "H1", "H4", "D1"})
@@ -153,6 +166,100 @@ def list_studio_saved_strategies() -> dict:
     }
 
 
+def get_studio_recorded_evidence(strategy: str, limit: int = 5) -> dict:
+    """Read bounded *existing* latest-version lifecycle evidence only.
+
+    Do not run a backtest. Saved lifecycle evidence is not the full backtest
+    report and does not make a strategy eligible for trading.
+    """
+    if not isinstance(strategy, str) or not _STRATEGY_NAME_RE.fullmatch(strategy):
+        raise ValueError("strategy must be a lower-case saved strategy name (1-64 letters, digits, _ or -)")
+    if type(limit) is not int or not 1 <= limit <= _MAX_LIFECYCLE_RETURNED_EVIDENCE:
+        raise ValueError("limit must be an integer between 1 and 5")
+
+    # Validated ASCII identifier allows only an exact path segment; the caller
+    # cannot inject routes, query parameters, upstream hosts or file paths.
+    try:
+        with httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False) as client:
+            response = client.get(_LIFECYCLE_BASE_URL + strategy)
+            response.raise_for_status()
+            if len(response.content) > _MAX_LIFECYCLE_RESPONSE_BYTES:
+                raise RuntimeError("Local TradeAgent lifecycle evidence payload exceeds the size limit")
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise RuntimeError("Local TradeAgent recorded-evidence read failed or returned invalid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("TradeAgent returned an invalid recorded-evidence envelope")
+    version = payload.get("version")
+    version_hash = payload.get("version_hash")
+    stage = payload.get("stage")
+    current_source = payload.get("current_source")
+    evidence = payload.get("evidence")
+    if (
+        payload.get("strategy") != strategy
+        or type(version) is not int or version < 1
+        or not isinstance(version_hash, str) or not _VERSION_HASH_RE.fullmatch(version_hash)
+        or type(stage) is not str or stage not in _LIFECYCLE_STAGES
+        or type(current_source) is not bool
+        or not isinstance(evidence, list)
+    ):
+        raise RuntimeError("TradeAgent returned an invalid recorded-evidence lifecycle")
+    if len(evidence) > _MAX_LIFECYCLE_OBSERVED_EVIDENCE:
+        raise RuntimeError("TradeAgent recorded-evidence list exceeds the observed-entry limit")
+
+    # Lifecycle API is ordered newest-first by stored evidence ID. Copy only
+    # selected scalar fields. Untrusted summaries, context, operator names,
+    # hypotheses, source code and arbitrary nested metrics are never passed on.
+    records = []
+    for item in evidence[:limit]:
+        if (
+            not isinstance(item, dict)
+            or type(item.get("evidence_type")) is not str or item["evidence_type"] not in _LIFECYCLE_EVIDENCE_TYPES
+            or type(item.get("passed")) is not bool
+            or not isinstance(item.get("metrics"), dict)
+            or not isinstance(item.get("created_at"), str)
+        ):
+            raise RuntimeError("TradeAgent returned malformed recorded-evidence entries")
+        try:
+            created = datetime.fromisoformat(item["created_at"])
+        except ValueError as exc:
+            raise RuntimeError("TradeAgent returned invalid recorded-evidence timestamp") from exc
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)  # SQLite UTC-naive dates.
+        numeric = {}
+        for key in _EVIDENCE_NUMERIC_KEYS:
+            if key in item["metrics"]:
+                value = item["metrics"][key]
+                if type(value) not in (float, int) or abs(value) > 1e9 or not math.isfinite(value):
+                    raise RuntimeError("TradeAgent returned an invalid recorded-evidence numeric metric")
+                numeric[key] = value
+        records.append({
+            "evidence_type": item["evidence_type"],
+            "passed": item["passed"],
+            "recorded_at_utc": created.astimezone(UTC).isoformat(),
+            "metrics": numeric,
+        })
+
+    return {
+        "source_route": _LIFECYCLE_ROUTE,
+        "strategy": strategy,
+        "version": version,
+        "version_hash": version_hash,
+        "stage": stage,
+        "current_source": current_source,
+        "latest_version_only": True,
+        "observed_evidence_count": len(evidence),
+        "returned_evidence_count": len(records),
+        "truncated": len(evidence) > limit,
+        "evidence": records,
+        "warning": (
+            "Previously stored lifecycle evidence only, not a complete backtest report, "
+            "profit guarantee or authorization to execute or trade."
+        ),
+    }
+
+
 def create_server():
     """Register only the approved read-only tools with MCP Python SDK v2."""
     # Import lazily: the SDK is an opt-in dependency, never needed to boot TradeAgent.
@@ -161,6 +268,7 @@ def create_server():
     server = MCPServer("TradeAgent Local Read-Only Research")
     server.tool()(get_ctrader_candles)
     server.tool()(list_studio_saved_strategies)
+    server.tool()(get_studio_recorded_evidence)
     return server
 
 
