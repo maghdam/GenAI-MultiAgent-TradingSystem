@@ -223,7 +223,204 @@ def test_catalog_does_not_accept_external_urls_or_strategy_names():
     assert list(inspect.signature(gateway.list_studio_saved_strategies).parameters) == []
 
 
-def test_mcp_sdk_v2_registers_exactly_two_approved_research_tools():
+
+def lifecycle_record(*, evidence_count=1, metrics=None, stage="backtested"):
+    metrics = metrics if metrics is not None else {
+        "Number of Trades": 40.0,
+        "Total Return [%]": 8.5,
+        "Max Drawdown [%]": -4.0,
+        "Fees [bps]": 1.5,
+        "Win Rate [%]": 52.5,
+        "private_note": "do not expose arbitrary metrics",
+    }
+    return {
+        "strategy": "sma",
+        "version": 2,
+        "version_hash": "a" * 64,
+        "stage": stage,
+        "current_source": True,
+        "hypothesis": "private research description",
+        "blockers": ["private blocker"],
+        "gates": {"private_policy": "do not expose"},
+        "transitions": [{"operator": "private operator", "reason": "private reason"}],
+        "evidence": [{
+            "evidence_type": "development_backtest",
+            "passed": i % 2 == 0,
+            "created_at": "2026-11-18T10:45:00",
+            "summary": "private summary not for MCP",
+            "context": {"broker_account": "private account", "symbol": "XAUUSD"},
+            "metrics": metrics,
+            "id": i + 1,
+            "lifecycle_id": 2222,
+        } for i in range(evidence_count)],
+    }
+
+
+def test_recorded_evidence_reads_only_fixed_loopback_get_and_projects_fields(monkeypatch):
+    seen = client_with_response(monkeypatch, httpx.Response(200, json=lifecycle_record()))
+    payload = gateway.get_studio_recorded_evidence("sma")
+    assert payload == {
+        "source_route": "/api/studio/lifecycle/{strategy}",
+        "strategy": "sma",
+        "version": 2,
+        "version_hash": "a" * 64,
+        "stage": "backtested",
+        "current_source": True,
+        "latest_version_only": True,
+        "observed_evidence_count": 1,
+        "returned_evidence_count": 1,
+        "truncated": False,
+        "evidence": [{
+            "evidence_type": "development_backtest",
+            "passed": True,
+            "recorded_at_utc": "2026-11-18T10:45:00+00:00",
+            "metrics": {
+                "Number of Trades": 40.0,
+                "Total Return [%]": 8.5,
+                "Max Drawdown [%]": -4.0,
+                "Fees [bps]": 1.5,
+                "Win Rate [%]": 52.5,
+            },
+        }],
+        "warning": (
+            "Previously stored lifecycle evidence only, not a complete backtest report, "
+            "profit guarantee or authorization to execute or trade."
+        ),
+    }
+    encoded = json.dumps(payload)
+    for forbidden in ("private", "context", "operator", "lifecycle_id", "hypothesis", "blockers", "source_code"):
+        assert forbidden not in encoded
+    assert len(seen) == 1
+    request = seen[0]
+    assert request.method == "GET"
+    assert (request.url.scheme, request.url.host, request.url.port, request.url.path) == (
+        "http", "127.0.0.1", 4000, "/api/studio/lifecycle/sma",
+    )
+    assert not request.url.params
+
+
+def test_recorded_evidence_empty_is_honestly_empty(monkeypatch):
+    client_with_response(monkeypatch, httpx.Response(200, json=lifecycle_record(evidence_count=0, stage="draft")))
+    result = gateway.get_studio_recorded_evidence("sma")
+    assert result["stage"] == "draft"
+    assert result["observed_evidence_count"] == 0
+    assert result["returned_evidence_count"] == 0
+    assert result["truncated"] is False
+    assert result["evidence"] == []
+
+
+def test_recorded_evidence_latest_only_limit_and_provenance(monkeypatch):
+    source = lifecycle_record(evidence_count=4)
+    source["evidence"][0]["created_at"] = "2026-11-18T11:45:00+01:00"
+    client_with_response(monkeypatch, httpx.Response(200, json=source))
+    result = gateway.get_studio_recorded_evidence("sma", limit=2)
+    assert result["latest_version_only"] is True
+    assert result["version"] == 2
+    assert result["observed_evidence_count"] == 4
+    assert result["returned_evidence_count"] == 2
+    assert result["truncated"] is True
+    assert [x["passed"] for x in result["evidence"]] == [True, False]
+    assert result["evidence"][0]["recorded_at_utc"] == "2026-11-18T10:45:00+00:00"
+
+
+@pytest.mark.parametrize("bad", [
+    "", "SMA", "sma.py", "x" * 65, "a/b", "../orders",
+    "http://evil", "sma?x=1", "a\\b", "a b", None, 33,
+])
+def test_recorded_evidence_rejects_unsafe_strategy_without_network(monkeypatch, bad):
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    with pytest.raises(ValueError):
+        gateway.get_studio_recorded_evidence(bad)
+
+
+@pytest.mark.parametrize("bad", [0, 6, -1, True, 2.0, "2", None])
+def test_recorded_evidence_rejects_invalid_limit_without_network(monkeypatch, bad):
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    with pytest.raises(ValueError):
+        gateway.get_studio_recorded_evidence("sma", bad)
+
+
+@pytest.mark.parametrize("override", [
+    {"strategy": "unrequested"},
+    {"version": True},
+    {"version": 0},
+    {"version_hash": "invalid"},
+    {"version_hash": "B" * 64},
+    {"stage": "live"},
+    {"stage": []},
+    {"current_source": 1},
+    {"evidence": None},
+    {"evidence": {}},
+])
+def test_recorded_evidence_rejects_bad_lifecycle_fields(monkeypatch, override):
+    body = lifecycle_record()
+    body.update(override)
+    client_with_response(monkeypatch, httpx.Response(200, json=body))
+    with pytest.raises(RuntimeError, match="invalid recorded-evidence lifecycle"):
+        gateway.get_studio_recorded_evidence("sma")
+
+
+@pytest.mark.parametrize("entry", [
+    None, 1, {},
+    {"evidence_type": []},
+    {"evidence_type": "unrecognized"},
+    {"passed": 1},
+    {"metrics": None},
+    {"metrics": "a string"},
+    {"created_at": "not a timestamp"},
+    {"created_at": None},
+])
+def test_recorded_evidence_rejects_malformed_entry(monkeypatch, entry):
+    body = lifecycle_record()
+    if isinstance(entry, dict) and entry:
+        body["evidence"][0].update(entry)
+    else:
+        body["evidence"][0] = entry
+    client_with_response(monkeypatch, httpx.Response(200, json=body))
+    with pytest.raises(RuntimeError, match="recorded-evidence"):
+        gateway.get_studio_recorded_evidence("sma")
+
+
+@pytest.mark.parametrize("bad", [True, "15", None, 1e10, 10**1000, float("inf"), float("nan")])
+def test_recorded_evidence_rejects_invalid_numeric_metric(monkeypatch, bad):
+    body = lifecycle_record()
+    body["evidence"][0]["metrics"]["Total Return [%]"] = bad
+    raw = json.dumps(body, allow_nan=True)
+    client_with_response(monkeypatch, httpx.Response(200, content=raw))
+    with pytest.raises(RuntimeError, match="invalid recorded-evidence numeric metric"):
+        gateway.get_studio_recorded_evidence("sma")
+
+
+def test_recorded_evidence_rejects_oversized_upstream_payload(monkeypatch):
+    body = lifecycle_record()
+    body["hypothesis"] = "private" * 40000
+    client_with_response(monkeypatch, httpx.Response(200, json=body))
+    with pytest.raises(RuntimeError, match="size limit"):
+        gateway.get_studio_recorded_evidence("sma")
+
+
+def test_recorded_evidence_rejects_too_many_entries(monkeypatch):
+    client_with_response(monkeypatch, httpx.Response(200, json=lifecycle_record(evidence_count=201)))
+    with pytest.raises(RuntimeError, match="observed-entry limit"):
+        gateway.get_studio_recorded_evidence("sma")
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(404, json={"detail": "private missing strategy details"}),
+    httpx.Response(503, json={"detail": "backend unavailable"}),
+    httpx.Response(302, headers={"Location": "http://evil.test/collect"}),
+    httpx.Response(200, content=b"not-json"),
+    httpx.Response(200, json={"unexpected": "envelope"}),
+])
+def test_recorded_evidence_http_redirect_invalid_json_fail_closed(monkeypatch, response):
+    seen = client_with_response(monkeypatch, response)
+    with pytest.raises(RuntimeError, match="TradeAgent"):
+        gateway.get_studio_recorded_evidence("sma")
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+
+
+def test_mcp_sdk_v2_registers_exactly_three_approved_research_tools():
     from mcp.server.mcpserver import MCPServer
 
     server = gateway.create_server()
@@ -232,6 +429,7 @@ def test_mcp_sdk_v2_registers_exactly_two_approved_research_tools():
     assert [tool.name for tool in tools] == [
         "get_ctrader_candles",
         "list_studio_saved_strategies",
+        "get_studio_recorded_evidence",
     ]
 
 
