@@ -4,6 +4,39 @@
 
 **Repository baseline and release state:** started from merged `main` `0daad454eb11d19d898efc2fd9af6c5eba0a93bc` after PR #157, with three existing read-only research tools. PR #158 implementation head `a50d6b4b8f495dee481c29e70ac1fc3008e8dfc7` passed operator Windows regression, exact-head GitHub CI #672, corrected installed-cache SHA256 verification and **native locally executing desktop plugin tool invocation** (12 saved strategies, no truncation). The final roadmap/runbook documentation-commit exact-head Windows/CI checks and merge remain pending.
 
+## Upcoming narrowly scoped extension — source-inspection preview (PR pending validation)
+
+The already verified private desktop plugin in PR #158 bundled exactly three
+research tools at installed version `0.1.0`. The separately reviewed next
+candidate increments the plugin manifest to `0.1.1` and registers **only one
+additional read-only MCP tool**: `inspect_studio_saved_strategy(strategy)`.
+It does not create, load into a runtime, save, backtest, optimize, or deploy a
+strategy. This is a limited, reconstructed **Python AST preview**, not raw source:
+the gateway strips comments and masks string/bytes literals and large numeric
+literals, requires strict lower-case saved names, enforces byte/line/output
+limits, and never executes source. Identifiers, code structure and smaller
+numbers can still be sensitive, so preview access requires an operator request
+and is not a guarantee of secret removal. The plugin remains localhost only,
+with no execution or cloud Work access.
+
+**Field check after exact-head Windows tests and GitHub CI, without any broker
+connection or restart of the backend:** refresh/reinstall the **supported
+desktop plugin cache** rather than editing cached files manually; verify the
+installed `plugin.json` version is `0.1.1`, and use only the process-owner-
+verified local gateway. A running gateway loaded before the new source code
+still registers three tools; stopping/restarting it is a **separately controlled,
+nontrading operator action** and must never kill a foreign PID. In a fresh
+local repo-scoped desktop task, verify the four-tool list, then explicitly
+request `inspect_studio_saved_strategy(strategy="us500_ny_orb_m15_v1")`.
+Check that returned preview is bounded, source SHA and field labels are present,
+no raw comments/literals are echoed, and no saved source, strategy lifecycle,
+backtest or account state changes occur. If a broker-free backend cannot serve
+that existing saved strategy, report blocked honestly.
+
+**No live-data, strategy-creation, simulation or trading powers are introduced
+by this candidate.** Merge only after actual local host MCP tool invocation and
+exact-head operator Windows/CI evidence; otherwise keep PR draft.
+
 ## Portable package and scope
 
 - `plugins/tradeagent-research/plugin.json`: portable manifest, version 0.1.0, `Read` capability only, local executor required.
