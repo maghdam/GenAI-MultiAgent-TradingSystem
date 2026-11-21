@@ -52,21 +52,107 @@ The API and MCP listener **must** be restricted to loopback. A failed listener/f
 ## Security and capability boundaries
 
 - Private market/strategy data remains on the user's Windows machine **until a local agent chooses to send retrieved values into its conversation**. Neither a localhost endpoint nor a private plugin prevents an AI cloud model from receiving data deliberately used in a chat. Avoid account secrets, client tokens, trade history, personal identifiers or raw source.
-- The local gateway uses `auth.type = none` only because it binds to `127.0.0.1`; **loopback is not authentication**. Other local processes may access it. This package is **not appropriate for sharing publicly** without replacing the authorization model.
+- The local gateway has no authentication and binds to `127.0.0.1`; **loopback is not authentication**. Its client manifest omits auth metadata and credential headers. Other local processes may access it. This package is **not appropriate for sharing publicly** without replacing the authorization model.
 - No ngrok, public reverse proxy, port forwarding, `0.0.0.0`, remote network bind, or cloud-hosted `ChatGPT Work` connections. Cloud Work cannot reach the user's Windows loopback through this manifest.
 - A Secure MCP Tunnel or private authenticated HTTPS endpoint is a **separate** item requiring threat modeling, explicit user approval, authenticated least-privilege exposure and rate limits. This PR does not provision one.
 - Read-only means no requested domain/strategy/trading mutation; backend API calls can still produce operational telemetry. Saved strategies and past backtest evidence are **not** evidence of live performance or authorization to trade.
 
 ## Acceptance and release
 
+### Connection diagnosis on PR #158 (2026-11-21; acceptance still pending)
+
+The task ran locally on Windows 11 build 26300 / PowerShell 7.6.9, with
+Codex Desktop 26.1117.4957.0 and CLI 0.171.0-alpha.13. The restricted shell's
+localhost requests timed out and CIM listener inspection was denied. An
+approved host-side inspection found the existing loopback listeners on 4000
+(PID 16532) and 8765 (PID 12308); neither process was restarted. The installed
+MCP v2 SDK, outside the sandbox, discovered exactly the three approved tools
+and returned 12 saved strategy names, `truncated=false`, without broker calls.
+
+The plugin was enabled and its skill was visible, but no TradeAgent tools were
+attached. The local host log (`codex_core_plugins::loader`) identifies the
+repository packaging defect before any MCP handshake:
+
+```text
+failed to parse plugin MCP server ... server="tradeagent-local-readonly"
+error="unknown field `extensions`, expected `url` or `headers`"
+```
+
+Remove only the server-level `extensions.com.openai.auth` metadata from
+`mcp.json`; retain `type=streamable-http` and the exact loopback URL. Plugin-level
+`extensions` in `plugin.json` remain required and unchanged. The package test
+now guards the host-compatible server keys. No stdio bridge, new server,
+public endpoint or user-wide MCP registration is justified by this failure.
+Sandbox network restrictions explain the failed shell probes separately; they
+do not establish that the desktop host is cloud-only or the gateway is down.
+
+The installed cache and user settings were not edited. After review, reload or
+reinstall through the supported local host UI and start a fresh local chat.
+Confirm the installed `mcp.json` matches the repository, then invoke the plugin
+to list tools and call `list_studio_saved_strategies`. Require exactly three
+tools and an actual successful catalog response. SDK success alone does not
+verify plugin attachment; keep roadmap §28 unverified until this host check
+and the exact-head Windows/CI gates pass.
+
+With the existing backend/gateway already running, this PowerShell check uses
+only the MCP catalog (no service start, broker connection or strategy write):
+
+```powershell
+conda activate tradeagent-v2
+Get-NetTCPConnection -State Listen |
+    Where-Object LocalPort -in 4000,8765 |
+    Select-Object LocalAddress,LocalPort,OwningProcess
+@'
+import asyncio, json, httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+async def main():
+    async with httpx.AsyncClient(trust_env=False, timeout=15) as client:
+        async with streamable_http_client(
+            "http://127.0.0.1:8765/mcp", http_client=client
+        ) as streams:
+            async with ClientSession(streams[0], streams[1]) as session:
+                await session.initialize()
+                names = [tool.name for tool in (await session.list_tools()).tools]
+                assert set(names) == {
+                    "get_ctrader_candles", "list_studio_saved_strategies",
+                    "get_studio_recorded_evidence",
+                } and len(names) == 3
+                print("Tools:", names)
+                result = await session.call_tool("list_studio_saved_strategies", {})
+                assert not result.is_error
+                payload = json.loads(result.content[0].text)
+                print("Strategies:", payload["strategies"])
+                print("Returned:", payload["returned_count"],
+                      "Truncated:", payload["truncated"])
+
+asyncio.run(main())
+'@ | python -
+if ($LASTEXITCODE -ne 0) { throw "Read-only MCP smoke failed" }
+```
+
 After the branch is pulled, run:
 
 ```powershell
+conda activate tradeagent-v2
+# Use a dedicated test shell; these variables affect only this shell/children.
+$env:APP_START_CTRADER_ON_BOOT = "0"
+$env:APP_WARM_OLLAMA_ON_BOOT = "0"
+$env:APP_START_EVENT_INTELLIGENCE_ON_BOOT = "0"
 python -m pytest backend/tests/test_tradeagent_desktop_plugin_package.py backend/tests/test_chatgpt_mcp_readonly.py -q
+if ($LASTEXITCODE -ne 0) { throw "Focused tests failed" }
 python scripts/validate.py
+if ($LASTEXITCODE -ne 0) { throw "Full regression failed" }
+git diff --check
 git diff --check origin/main...HEAD
 git status --porcelain
 ```
+
+Run the full suite in the normal Windows operator context: a restricted agent
+sandbox can fail collection with Credential Manager error 5 before tests run.
+This is distinct from the MCP manifest parser failure. Do not print credentials
+or change the credential store to work around it.
 
 Require exact local/remote PR head, reviewed file scope, clean tree, matching CI frontend/backend and operator **local desktop/plugin host field evidence** (or document honest feature unavailability and keep the item open). Do not mark this desktop connection verified from static manifests or Python MCP SDK tests alone. Review operator results **before** a final roadmap/work-log release commit, repeat exact-final-HEAD Windows/CI checks, merge and clean-sync local `main` before doing any subsequent work.
 

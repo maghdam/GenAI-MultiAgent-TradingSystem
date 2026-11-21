@@ -56,8 +56,10 @@ def test_mcp_manifest_has_exact_one_local_research_server() -> None:
     server = payload["mcpServers"]["tradeagent-local-readonly"]
     assert server["type"] == "streamable-http"
     assert server["url"] == LOCAL_MCP_URL
-    assert server["extensions"]["com.openai"]["auth"] == {"type": "none"}
-    assert set(server) == {"type", "url", "extensions"}
+    # Codex 0.171.0-alpha.13 rejects server-level extensions before attaching
+    # tools ("unknown field `extensions`, expected `url` or `headers`").
+    # The loopback gateway needs no auth metadata or credential headers.
+    assert set(server) == {"type", "url"}
     assert not any(key in server for key in ("command", "args", "headers", "env"))
 
 

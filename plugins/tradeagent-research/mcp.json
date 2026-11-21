@@ -3,14 +3,7 @@
   "mcpServers": {
     "tradeagent-local-readonly": {
       "type": "streamable-http",
-      "url": "http://127.0.0.1:8765/mcp",
-      "extensions": {
-        "com.openai": {
-          "auth": {
-            "type": "none"
-          }
-        }
-      }
+      "url": "http://127.0.0.1:8765/mcp"
     }
   }
 }
