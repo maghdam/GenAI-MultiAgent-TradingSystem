@@ -6,6 +6,7 @@ that a particular ChatGPT Desktop installation has loaded the plugin.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -108,5 +109,5 @@ def test_existing_gateway_keeps_exact_three_tools() -> None:
     from backend.chatgpt_mcp_readonly import create_server
 
     server = create_server()
-    names = [tool.name for tool in server._tool_manager.list_tools()]
+    names = [tool.name for tool in asyncio.run(server.list_tools())]
     assert names == list(ALLOWED_TOOL_NAMES)
