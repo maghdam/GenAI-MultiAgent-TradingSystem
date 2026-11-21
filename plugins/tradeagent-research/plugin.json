@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tradeagent-research",
+  "version": "0.1.0",
+  "description": "Private desktop-only, research-only TradeAgent market and saved-strategy evidence assistant.",
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "TradeAgent Research (Local)",
+        "shortDescription": "Disciplined local market research, with a NO TRADE option.",
+        "longDescription": "Read existing localhost TradeAgent market candles, saved strategy names and previously recorded lifecycle evidence. No execution, strategy changes, account access or cloud tunnel.",
+        "developerName": "TradeAgent",
+        "category": "Productivity",
+        "capabilities": [
+          "Read"
+        ],
+        "defaultPrompt": [
+          "Prepare a disciplined US30-first research briefing using only available TradeAgent read tools, with XAUUSD secondary and NO TRADE if evidence is insufficient."
+        ]
+      }
+    }
+  }
+}
