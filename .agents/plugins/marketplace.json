@@ -1,0 +1,20 @@
+{
+  "name": "tradeagent-local",
+  "interface": {
+    "displayName": "TradeAgent Local Research"
+  },
+  "plugins": [
+    {
+      "name": "tradeagent-research",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tradeagent-research"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
