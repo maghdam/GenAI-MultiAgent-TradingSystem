@@ -314,7 +314,11 @@ def inspect_studio_saved_strategy(strategy: str) -> dict:
         raise RuntimeError("TradeAgent returned an invalid strategy source envelope")
 
     source = payload["source"]
-    size = len(source.encode("utf-8"))
+    try:
+        raw_bytes = source.encode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError("TradeAgent strategy source has invalid UTF-8") from exc
+    size = len(raw_bytes)
     line_count = len(source.splitlines())
     if not source.strip() or size > _MAX_SOURCE_BYTES or line_count > _MAX_SOURCE_LINES:
         raise RuntimeError("TradeAgent strategy source exceeds preview limits or is empty")
@@ -340,7 +344,7 @@ def inspect_studio_saved_strategy(strategy: str) -> dict:
         "source_route": _STUDIO_SOURCE_ROUTE,
         "strategy": strategy,
         "filename": f"{strategy}.py",
-        "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "source_sha256": hashlib.sha256(raw_bytes).hexdigest(),
         "source_bytes": size,
         "source_lines": line_count,
         "signals_entrypoint_detected": signals_entrypoint,
