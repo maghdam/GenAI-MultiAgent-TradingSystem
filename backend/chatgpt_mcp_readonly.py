@@ -303,7 +303,7 @@ def inspect_studio_saved_strategy(strategy: str) -> dict:
                 raise RuntimeError("TradeAgent strategy preview upstream response exceeds size limit")
             payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        raise RuntimeError("Local TradeAgent strategy source read failed") from exc
+        raise RuntimeError("Local TradeAgent strategy source read failed") from None
 
     if (
         not isinstance(payload, dict)
@@ -317,7 +317,7 @@ def inspect_studio_saved_strategy(strategy: str) -> dict:
     try:
         raw_bytes = source.encode("utf-8")
     except UnicodeError as exc:
-        raise RuntimeError("TradeAgent strategy source has invalid UTF-8") from exc
+        raise RuntimeError("TradeAgent strategy source has invalid UTF-8") from None
     size = len(raw_bytes)
     line_count = len(source.splitlines())
     if not source.strip() or size > _MAX_SOURCE_BYTES or line_count > _MAX_SOURCE_LINES:
@@ -335,7 +335,7 @@ def inspect_studio_saved_strategy(strategy: str) -> dict:
         sanitized = _SourceLiteralRedactor().visit(tree)
         preview = ast.unparse(ast.fix_missing_locations(sanitized))
     except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
-        raise RuntimeError("TradeAgent strategy source cannot be safely previewed") from exc
+        raise RuntimeError("TradeAgent strategy source cannot be safely previewed") from None
 
     if not preview or len(preview.encode("utf-8")) > _MAX_SOURCE_PREVIEW_CHARS:
         raise RuntimeError("TradeAgent strategy source preview exceeds output limit")
