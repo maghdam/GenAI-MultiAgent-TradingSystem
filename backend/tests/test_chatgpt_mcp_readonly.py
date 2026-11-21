@@ -488,7 +488,7 @@ def test_source_preview_rejects_invalid_envelope(monkeypatch, body):
 
 
 @pytest.mark.parametrize("source", [
-    "print('broken'", "x=1\x00\ny=2", "x='x' * 20000",
+    "print('broken'", "x=1\x00\ny=2", "x='" + ("x" * 20000) + "'",
     "x=1\n" * 401,
 ])
 def test_source_preview_rejects_invalid_or_large_source(monkeypatch, source):
