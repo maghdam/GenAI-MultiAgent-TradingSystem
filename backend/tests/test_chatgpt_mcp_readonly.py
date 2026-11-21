@@ -514,7 +514,10 @@ def test_source_preview_http_errors_redirects_and_big_envelopes_fail_closed(monk
 
 
 def test_source_preview_rejects_invalid_unicode_without_leaking_raw_payload(monkeypatch):
-    client_with_response(monkeypatch, httpx.Response(200, json=strategy_source("x='" + chr(0xD800) + "'")))
+    # httpx JSON serialization itself rejects surrogates; supply escaped JSON
+    # to ensure the gateway's own UTF-8 validation is exercised.
+    upstream = json.dumps(strategy_source("x='" + chr(0xD800) + "'"), ensure_ascii=True)
+    client_with_response(monkeypatch, httpx.Response(200, content=upstream))
     with pytest.raises(RuntimeError, match="invalid UTF-8"):
         gateway.inspect_studio_saved_strategy("sma")
 
