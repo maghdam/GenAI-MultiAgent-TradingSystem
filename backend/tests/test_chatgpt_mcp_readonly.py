@@ -520,7 +520,7 @@ def test_source_preview_rejects_invalid_unicode_without_leaking_raw_payload(monk
 
 
 def test_source_preview_parses_but_does_not_execute_source(monkeypatch):
-    code = "raise RuntimeError('would be executed')\\ndef signals(df):\\n    return 1\\n"
+    code = "raise RuntimeError('would be executed')\ndef signals(df):\n    return 1\n"
     client_with_response(monkeypatch, httpx.Response(200, json=strategy_source(code)))
     result = gateway.inspect_studio_saved_strategy("sma")
     assert result["signals_entrypoint_detected"] is True
