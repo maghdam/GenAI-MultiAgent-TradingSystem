@@ -513,6 +513,21 @@ def test_source_preview_http_errors_redirects_and_big_envelopes_fail_closed(monk
     assert seen[0].url.path == "/api/studio/strategy-file/sma"
 
 
+def test_source_preview_rejects_invalid_unicode_without_leaking_raw_payload(monkeypatch):
+    client_with_response(monkeypatch, httpx.Response(200, json=strategy_source("x='" + chr(0xD800) + "'")))
+    with pytest.raises(RuntimeError, match="invalid UTF-8"):
+        gateway.inspect_studio_saved_strategy("sma")
+
+
+def test_source_preview_parses_but_does_not_execute_source(monkeypatch):
+    code = "raise RuntimeError('would be executed')\\ndef signals(df):\\n    return 1\\n"
+    client_with_response(monkeypatch, httpx.Response(200, json=strategy_source(code)))
+    result = gateway.inspect_studio_saved_strategy("sma")
+    assert result["signals_entrypoint_detected"] is True
+    assert "raise RuntimeError" in result["source_preview"]
+    assert "would be executed" not in result["source_preview"]
+
+
 def test_source_preview_drops_inline_fstring_secret_and_masks_large_numeric_literals(monkeypatch):
     raw = (
         "secret = f'private-credential-{1234}'\n"
