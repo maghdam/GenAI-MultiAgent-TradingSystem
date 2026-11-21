@@ -22,6 +22,7 @@ ALLOWED_TOOL_NAMES = (
     "get_ctrader_candles",
     "list_studio_saved_strategies",
     "get_studio_recorded_evidence",
+    "inspect_studio_saved_strategy",
 )
 
 
@@ -42,7 +43,7 @@ def test_portable_manifest_is_private_local_read_only() -> None:
     payload = load_json(PLUGIN / "plugin.json")
     assert payload["$schema"] == "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
     assert payload["name"] == "tradeagent-research"
-    assert payload["version"] == "0.1.0"
+    assert payload["version"] == "0.1.1"
     ext = payload["extensions"]["com.openai"]
     assert ext["requires_local_executor"] is True
     assert ext["interface"]["capabilities"] == ["Read"]
@@ -107,7 +108,7 @@ def test_skill_has_explicit_no_trade_provenance_and_risk_gates() -> None:
         assert required in skill
 
 
-def test_existing_gateway_keeps_exact_three_tools() -> None:
+def test_existing_gateway_keeps_exact_four_read_only_tools() -> None:
     from backend.chatgpt_mcp_readonly import create_server
 
     server = create_server()
