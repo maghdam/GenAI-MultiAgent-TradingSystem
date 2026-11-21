@@ -1,8 +1,8 @@
-# TradeAgent private desktop research plugin — first local package (draft)
+# TradeAgent private desktop research plugin — operator field verified (release pending)
 
 **Scope:** This repository's existing TradeAgent, **not** the historical standalone SMC assistant. This item packages existing, independently field-tested local MCP research capabilities and one disciplined daily-research skill for a **private, local desktop** plugin. It does **not** implement or claim ChatGPT Work/cloud access, broker execution, a new MCP service, plugin publishing or an installed personal account plugin.
 
-**Current repository baseline:** merged `main` `0daad454eb11d19d898efc2fd9af6c5eba0a93bc` after PR #157, with three research-only tools. The package is **draft** pending operator Windows focused/full tests, matching GitHub CI and a real local ChatGPT Desktop/Codex plugin discovery test before release verification.
+**Repository baseline and release state:** started from merged `main` `0daad454eb11d19d898efc2fd9af6c5eba0a93bc` after PR #157, with three existing read-only research tools. PR #158 implementation head `a50d6b4b8f495dee481c29e70ac1fc3008e8dfc7` passed operator Windows regression, exact-head GitHub CI #672, corrected installed-cache SHA256 verification and **native locally executing desktop plugin tool invocation** (12 saved strategies, no truncation). The final roadmap/runbook documentation-commit exact-head Windows/CI checks and merge remain pending.
 
 ## Portable package and scope
 
@@ -154,6 +154,16 @@ sandbox can fail collection with Credential Manager error 5 before tests run.
 This is distinct from the MCP manifest parser failure. Do not print credentials
 or change the credential store to work around it.
 
-Require exact local/remote PR head, reviewed file scope, clean tree, matching CI frontend/backend and operator **local desktop/plugin host field evidence** (or document honest feature unavailability and keep the item open). Do not mark this desktop connection verified from static manifests or Python MCP SDK tests alone. Review operator results **before** a final roadmap/work-log release commit, repeat exact-final-HEAD Windows/CI checks, merge and clean-sync local `main` before doing any subsequent work.
+### Native desktop plugin connection — operator field acceptance (2026-11-21)
+
+After Codex identified the exact host parse error `unknown field 'extensions', expected 'url' or 'headers'`, PR #158 dropped the unsupported **server-level** MCP `extensions` key without changing the Streamable HTTP transport, endpoint, plugin-level read-only permission, gateway implementation or security boundaries. Windows focused package/MCP tests, full backend validation and 707-module frontend production build passed on implementation commit `a50d6b4b8f495dee481c29e70ac1fc3008e8dfc7`. GitHub Actions CI **#672** (run `44934254438`) passed Python backend and Node frontend on that exact implementation head.
+
+The operator **uninstalled and reinstalled** TradeAgent Research (Local) through the supported desktop plugin UI. Installed `0.1.0/mcp.json` then exactly matched the corrected source (SHA256 `36B79D1DF6D2CE7DD0494F74DE2B2FE1385E4BA9F746F1710541A064A6755E7E`), with **`type,url`** keys; the previous cached `extensions,type,url` mismatch is resolved.
+
+Most importantly, the operator's new local desktop task reported **genuine direct attachment of the plugin's native MCP tool**: the three permitted read-only tools `get_ctrader_candles`, `get_studio_recorded_evidence` and `list_studio_saved_strategies` were exposed, and `list_studio_saved_strategies` returned **12** stored names, `truncated=false`, using the *attached plugin tool*, **not** a separate Python MCP SDK, PowerShell request or direct HTTP client. No broker connections, backtests, strategy edits or trades were initiated. This completes **§28 functional plugin-host acceptance**; it does not establish live market data, broker readiness, cloud ChatGPT Work connectivity or public plugin distribution.
+
+**Remaining release requirements:** verify final documentation-status commit with exact-head Windows focused and full regression, clean worktree/diff and new exact-head GitHub CI, then merge PR #158 and fast-forward synchronize a clean local `main`. Do not merge before that final checkpoint or introduce a localhost tunnel.
+
+Operator native desktop plugin-host field evidence is now recorded above; this is **separate** from SDK-only validation. Before merging, require exact local/remote documentation-status HEAD, expected file scope, clean diff/worktree, final Windows focused and full regression, and matching final-head GitHub CI frontend/backend. Then merge PR #158 and clean-sync local `main` before starting another roadmap item.
 
 Authoritative interface docs: `docs/CHATGPT_READONLY_MCP.md` and `docs/TRADEAGENT_ROADMAP.md` §21 and §28.
