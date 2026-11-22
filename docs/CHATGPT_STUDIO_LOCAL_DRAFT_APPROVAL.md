@@ -9,17 +9,17 @@ promotion is permitted by this module.
 ## Purpose and trust boundary
 
 The v0.1.2 private desktop plugin has **five read-only tools**, including
-\`validate_studio_strategy_draft(strategy, source)\`. A successful preflight
+`validate_studio_strategy_draft(strategy, source)`. A successful preflight
 is a non-atomic snapshot and **is not permission to save**. The localhost
 MCP gateway has no per-client authorization, so it **must not** receive a
-\`save_strategy\` / \`approved=true\` tool.
+`save_strategy` / `approved=true` tool.
 
 This smallest independently scoped **create-only implementation** deliberately
 uses a separate Python CLI launched by the human operator in an interactive
 local terminal. The operator first independently reviews the entire source
 file (outside an MCP tool response), then must type the **exact lower-case
 new name + space + full SHA256 of canonical bytes** displayed by the CLI
-within 120 seconds. There is no \`--yes\` override or externally supplied
+within 120 seconds. There is no `--yes` override or externally supplied
 approval flag/token. A redirected or noninteractive standard input/output is
 rejected.
 
@@ -33,22 +33,22 @@ approval service and must never be wired to an unattended agent.
 
 ## Operator-only usage — do NOT run for field tests before acceptance
 
-From repository root with the \`tradeagent-v2\` environment:
+From repository root with the `tradeagent-v2` environment:
 
-\`\`\`powershell
+```powershell
 cd "C:\Users\mohag\Documents\Software\GenAI-MultiAgent-TradingSystem"
 conda activate tradeagent-v2
 # Make and inspect the proposed .py source yourself at a private local path.
 # Run only after you explicitly decide to save an entirely NEW draft.
 python -m scripts.approve_studio_draft --name new_unique_research_draft --source-file "C:\path\reviewed_source.py"
-\`\`\`
+```
 
 The CLI prints the proposed name, canonical UTF-8 bytes and lines, and
 full SHA256. It asks for:
 
-\`\`\`text
+```text
 new_unique_research_draft <full-64-character-source-sha256>
-\`\`\`
+```
 
 **Never copy a model assertion like "already approved" as authorization**.
 This CLI must run visibly in the human operator's console; the operator may
@@ -56,7 +56,7 @@ decline, close the prompt or let it expire. No strategy is created until the
 exact interactive confirmation is provided and the create succeeds.
 
 Before write, the module applies the same v0.1.2 limits: name must exactly
-match \`[a-z0-9_-]{1,64}\`, source must be valid UTF-8 Python with ≤16 KiB /
+match `[a-z0-9_-]{1,64}`, source must be valid UTF-8 Python with ≤16 KiB /
 ≤400 lines, no unsupported controls, and the existing deterministic Studio
 AST import/name policy. No source code is imported or executed. The source is
 policy-normalized, stripped at both ends, and given a single final LF;
@@ -66,26 +66,26 @@ paths as part of a success/error result.
 
 ## Create-only persistence contract
 
-- Fixed repo path: \`backend/strategies_generated/<exact_name>.py\`.
+- Fixed repo path: `backend/strategies_generated/<exact_name>.py`.
   The directory must already exist and may not itself be a symlink;
   no user-supplied destination or sanitizing rename is accepted.
-- SQLite \`BEGIN IMMEDIATE\` first checks there are **no existing**
-  \`strategy_lifecycles\` rows for that exact name. No reuse of a prior name
+- SQLite `BEGIN IMMEDIATE` first checks there are **no existing**
+  `strategy_lifecycles` rows for that exact name. No reuse of a prior name
   even when its original file is missing.
-- \`os.open(..., O_CREAT | O_EXCL | O_WRONLY)\` atomically refuses files
+- `os.open(..., O_CREAT | O_EXCL | O_WRONLY)` atomically refuses files
   that already exist, including symlinks and concurrent creators. No
   overwrite, replacement, delete or rename of another user's file.
 - Only after durable file write does the DB insert a **single version 1**
-  \`stage='draft'\` lifecycle record with the same source SHA256, empty
+  `stage='draft'` lifecycle record with the same source SHA256, empty
   hypothesis and current default gates, then commit. No calling the generic
-  \`POST /api/studio/tasks\`, no \`ensure_lifecycle\` reuse, backtest, optimization,
+  `POST /api/studio/tasks`, no `ensure_lifecycle` reuse, backtest, optimization,
   lifecycle promotion, runtime loader, account access, broker or orders.
 - A failed file write/DB insert **before COMMIT** rolls back SQLite and
   removes only the new file if its original inode is still present.
   Existing files/rows remain untouched.
 - If COMMIT has been attempted and the result is uncertain, the file is
   deliberately **left in place** and the operator receives only
-  \`manual_reconciliation_required\`. There is no blind retry, file cleanup
+  `manual_reconciliation_required`. There is no blind retry, file cleanup
   or duplicate draft; a human must inspect the saved file and lifecycle
   before proceeding. Filesystem and SQLite have no common atomic transaction;
   a process crash between file creation and DB commit can leave an orphan,
@@ -101,7 +101,7 @@ backtested, validated, paper/eligible or live trading authorization.
 ## Automated and release acceptance
 
 The dedicated isolated test module
-\`backend/tests/test_studio_draft_create.py\` tests strict
+`backend/tests/test_studio_draft_create.py` tests strict
 policy/hash/limits, no-TTY/wrong/expired interactive approval, successful
 exact-tuple first-draft save, no overwrites, missing-file lifecycle collisions,
 concurrent create races, rollback/owned-file compensation, simulated
@@ -112,12 +112,12 @@ saved strategies or the real lifecycle DB**.
 
 Focused Windows:
 
-\`\`\`powershell
+```powershell
 python -m pytest backend/tests/test_studio_draft_create.py backend/tests/test_strategy_lifecycle.py backend/tests/test_chatgpt_mcp_readonly.py backend/tests/test_tradeagent_desktop_plugin_package.py -q
 python scripts/validate.py
 git diff --check origin/main...HEAD
 git status -sb
-\`\`\`
+```
 
 Require exact PR head/local SHA, scoped file list, clean worktree, focused
 tests/full backend/frontend build, matching exact-head GitHub CI before
