@@ -197,11 +197,20 @@ def test_two_simultaneous_create_attempts_have_single_winner(local_drafts):
 
 
 def _try_commit(c):
+    from backend.storage import db as db_module
+
     try:
-        drafts._create_exclusively(c)
-        return "created"
-    except drafts.DraftCreateError:
-        return "rejected"
+        try:
+            drafts._create_exclusively(c)
+            return "created"
+        except drafts.DraftCreateError:
+            return "rejected"
+    finally:
+        # Worker-thread SQLite connections must not hold a Windows test DB open.
+        conn = getattr(db_module._LOCAL, "connection", None)
+        if conn is not None:
+            conn.close()
+            db_module._LOCAL.connection = None
 
 
 def test_database_insert_failure_rolls_back_and_removes_owned_file(monkeypatch, local_drafts):
