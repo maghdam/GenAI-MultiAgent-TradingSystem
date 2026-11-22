@@ -546,7 +546,144 @@ def test_source_preview_drops_inline_fstring_secret_and_masks_large_numeric_lite
     assert "source_sha256" in result
 
 
-def test_mcp_sdk_v2_registers_exactly_four_approved_research_tools():
+
+PREFLIGHT_CODE = (
+    "import pandas as pd\n\n"
+    "def signals(df):\n"
+    "    return pd.Series(0, index=df.index)\n"
+)
+
+
+def test_draft_preflight_only_get_catalog_and_never_echo_source(monkeypatch):
+    secret = "# private operator notes\n" + PREFLIGHT_CODE
+    seen = client_with_response(monkeypatch, httpx.Response(200, json={
+        "files": ["sma.py", "rsi.py"],
+        "cwd": "C:\\Sensitive\\private",
+        "private_token": "never expose",
+    }))
+    result = gateway.validate_studio_strategy_draft("us30_ema_research", secret)
+    canonical = secret.strip() + "\n"
+    assert result == {
+        "strategy": "us30_ema_research",
+        "ready_for_operator_review": True,
+        "source_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+        "canonical_source_bytes": len(canonical.encode()),
+        "canonical_source_lines": len(canonical.splitlines()),
+        "catalog_checked": True,
+        "blockers": [],
+        "warning": gateway._DRAFT_PREFLIGHT_WARNING,
+    }
+    assert "operator notes" not in json.dumps(result)
+    assert "Sensitive" not in json.dumps(result)
+    assert "never expose" not in json.dumps(result)
+    assert "No " not in result["warning"] or "saved draft" in result["warning"]
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+    assert (seen[0].url.scheme, seen[0].url.host, seen[0].url.port, seen[0].url.path) == (
+        "http", "127.0.0.1", 4000, "/api/studio/strategy-files",
+    )
+
+
+def test_draft_preflight_detects_existing_name_without_saving(monkeypatch):
+    seen = client_with_response(monkeypatch, httpx.Response(200, json={
+        "files": ["sma.py", "us30_ema_research.py"],
+    }))
+    result = gateway.validate_studio_strategy_draft("us30_ema_research", PREFLIGHT_CODE)
+    assert not result["ready_for_operator_review"]
+    assert result["catalog_checked"] is True
+    assert result["blockers"] == ["strategy_name_already_exists"]
+    assert result["source_sha256"] is not None
+    assert len(seen) == 1 and seen[0].method == "GET"
+
+
+@pytest.mark.parametrize("bad", [
+    "", "SMA", "sma.py", "../orders", "/tmp/file", "a/b",
+    "C:\\Users\\test", "abc?next", "https://remote",
+    "a" * 65, None, 3, True,
+])
+def test_draft_preflight_rejects_bad_name_before_io(monkeypatch, bad):
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    with pytest.raises(ValueError):
+        gateway.validate_studio_strategy_draft(bad, PREFLIGHT_CODE)
+
+
+@pytest.mark.parametrize("bad", [
+    None, 5, True, "", "    \n",
+    "x='" + ("x" * 16400) + "'\ndef signals(df):\n    return 0\n",
+    ("# one comment\n" * 401) + PREFLIGHT_CODE,
+    "x=1\x00\ndef signals(df):\n    return 0\n",
+    "x='" + chr(0xD800) + "'\ndef signals(df):\n    return 0\n",
+])
+def test_draft_preflight_rejects_bad_code_input_before_io(monkeypatch, bad):
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    with pytest.raises(ValueError):
+        gateway.validate_studio_strategy_draft("fresh_idea", bad)
+
+
+@pytest.mark.parametrize("source", [
+    "x = 1\n",
+    "def signals(df):\n    return df['close'\n",
+    "def signals(df):\n    open('secret')\n    return 0\n",
+    "import os\ndef signals(df):\n    return 0\n",
+    "async def signals(df):\n    return 0\n",
+])
+def test_draft_preflight_fails_closed_on_policy_without_network(monkeypatch, source):
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    result = gateway.validate_studio_strategy_draft("fresh_idea", source)
+    assert result["ready_for_operator_review"] is False
+    assert result["blockers"] == ["source_policy_rejected"]
+    assert result["source_sha256"] is None
+    assert result["catalog_checked"] is False
+    assert source not in json.dumps(result)
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(503, json={"detail": "C:\\private\\server.error"}),
+    httpx.Response(302, headers={"Location": "https://external.example/"}),
+    httpx.Response(200, content=b"not-json"),
+    httpx.Response(200, json={"files": ["sma.py"], "cwd": "x" * 64000}),
+    httpx.Response(200, json={"files": ["../private.py"]}),
+])
+def test_draft_preflight_catalog_errors_block_without_raw_data(monkeypatch, response):
+    seen = client_with_response(monkeypatch, response)
+    result = gateway.validate_studio_strategy_draft("new_clean_name", PREFLIGHT_CODE)
+    assert not result["ready_for_operator_review"]
+    assert result["catalog_checked"] is False
+    assert result["blockers"] == ["catalog_unavailable"]
+    assert "private" not in json.dumps(result).lower()
+    assert len(seen) == 1 and seen[0].method == "GET"
+
+
+def test_draft_preflight_rejects_truncated_catalog(monkeypatch):
+    names = [f"existing_{i:03d}.py" for i in range(51)]
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": names}))
+    result = gateway.validate_studio_strategy_draft("new_clean_name", PREFLIGHT_CODE)
+    assert not result["ready_for_operator_review"]
+    assert result["catalog_checked"] is False
+    assert result["blockers"] == ["catalog_incomplete"]
+
+
+def test_draft_preflight_hash_matches_lifecycle_canonicalization(monkeypatch):
+    from backend.services.strategy_lifecycle import source_hash
+    code = "\n\n" + PREFLIGHT_CODE.replace("\n", "\r\n") + "\r\n"
+    client_with_response(monkeypatch, httpx.Response(200, json={"files": []}))
+    result = gateway.validate_studio_strategy_draft("new_clean_name", code)
+    assert result["ready_for_operator_review"]
+    assert result["source_sha256"] == source_hash(code)
+    assert result["canonical_source_lines"] == len(PREFLIGHT_CODE.splitlines())
+
+
+def test_draft_preflight_does_not_need_backend_or_studio_task_router(monkeypatch):
+    # Policy rejection must not access filesystem, launch LLMs, or even list strategies.
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    result = gateway.validate_studio_strategy_draft(
+        "draft_only", "def signals(df):\n    exec('danger')\n"
+    )
+    assert result["blockers"] == ["source_policy_rejected"]
+    assert result["ready_for_operator_review"] is False
+
+
+def test_mcp_sdk_v2_registers_exactly_five_approved_research_tools():
     from mcp.server.mcpserver import MCPServer
 
     server = gateway.create_server()
@@ -557,6 +694,7 @@ def test_mcp_sdk_v2_registers_exactly_four_approved_research_tools():
         "list_studio_saved_strategies",
         "get_studio_recorded_evidence",
         "inspect_studio_saved_strategy",
+        "validate_studio_strategy_draft",
     ]
 
 
