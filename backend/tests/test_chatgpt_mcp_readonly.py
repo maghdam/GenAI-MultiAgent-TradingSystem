@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -420,7 +421,132 @@ def test_recorded_evidence_http_redirect_invalid_json_fail_closed(monkeypatch, r
     assert seen[0].method == "GET"
 
 
-def test_mcp_sdk_v2_registers_exactly_three_approved_research_tools():
+
+def strategy_source(source="def signals(df):\n    return df['close'] > 20\n", **overrides):
+    return dict({"strategy": "sma", "filename": "sma.py", "source": source}, **overrides)
+
+
+def test_source_preview_fixed_get_and_never_leaks_literals_comments_or_other_fields(monkeypatch):
+    raw_source = (
+        "# hidden private account note\n"
+        "API_KEY = 'very-secret-token'\n"
+        "period = 20\n"
+        "def signals(df):\n"
+        "    return df['close'] > 20\n"
+    )
+    payload = strategy_source(raw_source)
+    payload["cwd"] = "C:\\\\Users\\\\operator\\\\hidden-folder"
+    payload["account_token"] = "hidden account"
+    seen = client_with_response(monkeypatch, httpx.Response(200, json=payload))
+    result = gateway.inspect_studio_saved_strategy("sma")
+    assert set(result) == {
+        "source_route", "strategy", "filename", "source_sha256", "source_bytes",
+        "source_lines", "signals_entrypoint_detected", "preview_mode",
+        "source_preview", "warning",
+    }
+    assert result["source_route"] == "/api/studio/strategy-file/{strategy}"
+    assert result["strategy"] == "sma"
+    assert result["source_sha256"] == hashlib.sha256(raw_source.encode()).hexdigest()
+    assert result["signals_entrypoint_detected"] is True
+    assert "def signals(df):" in result["source_preview"]
+    assert "period = 20" in result["source_preview"]
+    assert "REDACTED_LITERAL" in result["source_preview"]
+    assert "very-secret-token" not in json.dumps(result)
+    assert "private account" not in json.dumps(result)
+    assert "hidden-folder" not in json.dumps(result)
+    assert "'close'" not in json.dumps(result)
+    assert "source execution" in result["warning"]
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+    assert (seen[0].url.scheme, seen[0].url.host, seen[0].url.port, seen[0].url.path) == (
+        "http", "127.0.0.1", 4000, "/api/studio/strategy-file/sma"
+    )
+    assert not seen[0].url.params
+
+
+@pytest.mark.parametrize("bad", [
+    "", "SMA", "sma.py", "../orders", "a/b", "a\\\\b", "abc?next",
+    "https://remote", "x" * 65, 0, None, True,
+])
+def test_source_preview_rejects_unsafe_names_before_network(monkeypatch, bad):
+    monkeypatch.setattr(gateway.httpx, "Client", lambda **kw: pytest.fail("network attempted"))
+    with pytest.raises(ValueError):
+        gateway.inspect_studio_saved_strategy(bad)
+
+
+@pytest.mark.parametrize("body", [
+    {}, [], None, {"strategy": "sma", "filename": "sma.py", "source": None},
+    {"strategy": "sma", "filename": "sma.py", "source": 23},
+    {"strategy": "wrong", "filename": "sma.py", "source": "x=1"},
+    {"strategy": "sma", "filename": "../sma.py", "source": "x=1"},
+    {"strategy": "sma", "filename": "sma.py", "source": ""},
+])
+def test_source_preview_rejects_invalid_envelope(monkeypatch, body):
+    client_with_response(monkeypatch, httpx.Response(200, json=body))
+    with pytest.raises(RuntimeError):
+        gateway.inspect_studio_saved_strategy("sma")
+
+
+@pytest.mark.parametrize("source", [
+    "print('broken'", "x=1\x00\ny=2", "x='" + ("x" * 20000) + "'",
+    "x=1\n" * 401,
+])
+def test_source_preview_rejects_invalid_or_large_source(monkeypatch, source):
+    client_with_response(monkeypatch, httpx.Response(200, json=strategy_source(source)))
+    with pytest.raises(RuntimeError):
+        gateway.inspect_studio_saved_strategy("sma")
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(404, json={"detail": "private server directory"}),
+    httpx.Response(503, json={"detail": "backend unavailable"}),
+    httpx.Response(302, headers={"Location": "https://example.org/exfiltrate"}),
+    httpx.Response(200, content=b"not-json"),
+    httpx.Response(200, json={"strategy": "sma", "filename": "sma.py", "source": "x=1", "private": "a" * 49000}),
+])
+def test_source_preview_http_errors_redirects_and_big_envelopes_fail_closed(monkeypatch, response):
+    seen = client_with_response(monkeypatch, response)
+    with pytest.raises(RuntimeError, match="TradeAgent"):
+        gateway.inspect_studio_saved_strategy("sma")
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/api/studio/strategy-file/sma"
+
+
+def test_source_preview_rejects_invalid_unicode_without_leaking_raw_payload(monkeypatch):
+    # httpx JSON serialization itself rejects surrogates; supply escaped JSON
+    # to ensure the gateway's own UTF-8 validation is exercised.
+    upstream = json.dumps(strategy_source("x='" + chr(0xD800) + "'"), ensure_ascii=True)
+    client_with_response(monkeypatch, httpx.Response(200, content=upstream))
+    with pytest.raises(RuntimeError, match="invalid UTF-8"):
+        gateway.inspect_studio_saved_strategy("sma")
+
+
+def test_source_preview_parses_but_does_not_execute_source(monkeypatch):
+    code = "raise RuntimeError('would be executed')\ndef signals(df):\n    return 1\n"
+    client_with_response(monkeypatch, httpx.Response(200, json=strategy_source(code)))
+    result = gateway.inspect_studio_saved_strategy("sma")
+    assert result["signals_entrypoint_detected"] is True
+    assert "raise RuntimeError" in result["source_preview"]
+    assert "would be executed" not in result["source_preview"]
+
+
+def test_source_preview_drops_inline_fstring_secret_and_masks_large_numeric_literals(monkeypatch):
+    raw = (
+        "secret = f'private-credential-{1234}'\n"
+        "position_id = 999999999\n"
+        "def helper():\n    return secret\n"
+    )
+    client_with_response(monkeypatch, httpx.Response(200, json=strategy_source(raw)))
+    result = gateway.inspect_studio_saved_strategy("sma")
+    assert "private-credential" not in json.dumps(result)
+    assert "999999999" not in json.dumps(result)
+    assert "999999999" not in result["source_preview"]
+    assert result["signals_entrypoint_detected"] is False
+    assert "source_sha256" in result
+
+
+def test_mcp_sdk_v2_registers_exactly_four_approved_research_tools():
     from mcp.server.mcpserver import MCPServer
 
     server = gateway.create_server()
@@ -430,6 +556,7 @@ def test_mcp_sdk_v2_registers_exactly_three_approved_research_tools():
         "get_ctrader_candles",
         "list_studio_saved_strategies",
         "get_studio_recorded_evidence",
+        "inspect_studio_saved_strategy",
     ]
 
 

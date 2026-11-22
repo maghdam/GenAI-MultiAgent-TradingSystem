@@ -2,15 +2,18 @@
 
 This module is the first **TradeAgent platform** research integration, not a
 second SMC strategy engine. It is a renewed, current-main-based successor to
-the historical draft PR #127. It now offers exactly **three** MCP v2 research tools:
+the historical draft PR #127. The release-proposed next version offers exactly **four** MCP v2 research tools:
 `get_ctrader_candles(symbol, timeframe="M5", num_bars=100)`,
-`list_studio_saved_strategies()`, and
-`get_studio_recorded_evidence(strategy, limit=5)`.
+`list_studio_saved_strategies()`,
+`get_studio_recorded_evidence(strategy, limit=5)`, and
+`inspect_studio_saved_strategy(strategy)` (sanitized source preview only).
+The fourth tool is **pending Windows operator/CI/host validation** on its own PR and must not be treated as released before merge.
 
 - The only upstream URLs are fixed **GET** routes
   `http://127.0.0.1:4000/api/market/candles`,
-  `http://127.0.0.1:4000/api/studio/strategy-files`, and the single
-  exact-name path under `http://127.0.0.1:4000/api/studio/lifecycle/`.
+  `http://127.0.0.1:4000/api/studio/strategy-files`, the single
+  exact-name path under `http://127.0.0.1:4000/api/studio/lifecycle/`, and
+  the single exact-name saved-source read under `http://127.0.0.1:4000/api/studio/strategy-file/`.
   There is no caller-selected server or arbitrary path.
 - The MCP listener is bound to **127.0.0.1:8765**, at local `/mcp`.
 - Starting the **backend directly** does not auto-start MCP. The explicitly
@@ -45,6 +48,24 @@ the historical draft PR #127. It now offers exactly **three** MCP v2 research to
   Missing lifecycle registration yields an error; an empty evidence list is
   accurately represented without inventing backtest runs. The evidence does
   **not** represent a full archived report or trading authorization.
+- The `inspect_studio_saved_strategy(strategy)` **operator-requested**
+  source-inspection tool validates a lowercase 1–64-character saved name, makes
+  one fixed GET to `/api/studio/strategy-file/{strategy}` over loopback, rejects
+  redirects/errors/oversized upstream data (>48 KB), checks exact upstream
+  strategy and filename, and accepts at most **16 KiB of UTF-8 Python source /
+  400 lines**. It parses the source with Python `ast` **without running it**,
+  strips original comments/formatting and **all Python string/bytes literals**,
+  replaces numeric literals with magnitude >1000, and returns only a bounded
+  reconstructed **AST structural preview** (at most 24 KB) with strategy name,
+  SHA256 of original source, counts, and detected top-level `signals` function.
+  It **never returns raw source**, unknown upstream fields, HTTP error bodies or
+  local filesystem paths from the API envelope. Unsafely large, malformed or
+  unparsable files fail closed. **This is not guaranteed secret redaction:**
+  code identifiers/structure and smaller numeric literals may still carry
+  sensitive information. The operator must request inspection explicitly;
+  the assistant treats the preview as untrusted data, not instructions, and
+  should decline sharing suspect material. For full code, use your trusted
+  local Strategy Studio/Codex repository access rather than this MCP tool.
 - No order, cancel, close, account switch, strategy registration, backtest
   initiation, lifecycle write or privileged broker tool is registered.
 
@@ -82,8 +103,10 @@ candles**; a Studio catalog test requires no broker call. Do not switch
 accounts, enable the engine, or change autotrade/kill-switch controls. In a
 separate PowerShell session, run `python -m backend.chatgpt_mcp_readonly` or
 use the verified local `start-local.cmd` launcher. With an MCP v2-compatible
-local client/Inspector, list exactly **three** tools, call
-`list_studio_saved_strategies()` read-only, optionally call
+local client/Inspector, list the version-appropriate **four** tools (three on the already released
+plugin before this PR), call `list_studio_saved_strategies()` read-only,
+optionally inspect a saved strategy preview explicitly approved by the operator,
+and optionally call
 `get_studio_recorded_evidence(strategy="sma", limit=3)` only for an existing
 registered saved name, and optionally call `get_ctrader_candles` read-only. If launched manually, stop that standalone
 process afterward. Do not expose it remotely.
@@ -98,8 +121,9 @@ Loopback-only is an additional local boundary, **not authentication**. Other
 local processes may still be able to connect. DNS-rebinding defenses from
 the MCP SDK are not a replacement for server-side authorization.
 
-This is **not yet a connected ChatGPT plugin**. ChatGPT desktop local
-connectivity depends on client/plan features and separate plugin packaging.
+The **private local ChatGPT Desktop/Codex plugin was verified and merged in PR #158**;
+source-preview exposure is a separate subsequent, not-yet-verified extension.
+Cloud ChatGPT Work still cannot use this unauthenticated loopback manifest.
 Cloud ChatGPT Work cannot simply reach 127.0.0.1 on a Windows desktop.
 Remote research needs separately approved authenticated HTTPS, explicit
 per-tool allowlists, rate limiting, provenance/redaction and security review.

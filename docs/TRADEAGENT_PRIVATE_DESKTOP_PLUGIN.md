@@ -1,8 +1,76 @@
-# TradeAgent private desktop research plugin — operator field verified (release pending)
+# TradeAgent private desktop research plugin — v0.1.0 released; v0.1.1 host verified (release pending)
 
 **Scope:** This repository's existing TradeAgent, **not** the historical standalone SMC assistant. This item packages existing, independently field-tested local MCP research capabilities and one disciplined daily-research skill for a **private, local desktop** plugin. It does **not** implement or claim ChatGPT Work/cloud access, broker execution, a new MCP service, plugin publishing or an installed personal account plugin.
 
-**Repository baseline and release state:** started from merged `main` `0daad454eb11d19d898efc2fd9af6c5eba0a93bc` after PR #157, with three existing read-only research tools. PR #158 implementation head `a50d6b4b8f495dee481c29e70ac1fc3008e8dfc7` passed operator Windows regression, exact-head GitHub CI #672, corrected installed-cache SHA256 verification and **native locally executing desktop plugin tool invocation** (12 saved strategies, no truncation). The final roadmap/runbook documentation-commit exact-head Windows/CI checks and merge remain pending.
+**Repository baseline and release state:** the original private research plugin (v0.1.0, three read-only tools) was verified through an actual native desktop invocation in PR #158, then final Windows tests and GitHub CI #674 passed; it was squash-merged to `main` `a4ba1486ba470bdf95174ea0bddeca5a8528749e` and the operator clean-synchronized local `main`. Post-merge CI #675 passed. The narrowly scoped v0.1.1 fourth-tool extension in PR #159 has **passed its implementation and genuine desktop-host field tests**, but remains **unmerged** until exact-final-status-head Windows and GitHub CI succeed.
+
+## Upcoming narrowly scoped extension — source-inspection preview (PR pending validation)
+
+The already verified private desktop plugin in PR #158 bundled exactly three
+research tools at installed version `0.1.0`. The separately reviewed next
+candidate increments the plugin manifest to `0.1.1` and registers **only one
+additional read-only MCP tool**: `inspect_studio_saved_strategy(strategy)`.
+It does not create, load into a runtime, save, backtest, optimize, or deploy a
+strategy. This is a limited, reconstructed **Python AST preview**, not raw source:
+the gateway strips comments and masks string/bytes literals and large numeric
+literals, requires strict lower-case saved names, enforces byte/line/output
+limits, and never executes source. Identifiers, code structure and smaller
+numbers can still be sensitive, so preview access requires an operator request
+and is not a guarantee of secret removal. The plugin remains localhost only,
+with no execution or cloud Work access.
+
+**Field check after exact-head Windows tests and GitHub CI, without any broker
+connection or restart of the backend:** refresh/reinstall the **supported
+desktop plugin cache** rather than editing cached files manually; verify the
+installed `plugin.json` version is `0.1.1`, and use only the process-owner-
+verified local gateway. A running gateway loaded before the new source code
+still registers three tools; stopping/restarting it is a **separately controlled,
+nontrading operator action** and must never kill a foreign PID. In a fresh
+local repo-scoped desktop task, verify the four-tool list, then explicitly
+request `inspect_studio_saved_strategy(strategy="us500_ny_orb_m15_v1")`.
+Check that returned preview is bounded, source SHA and field labels are present,
+no raw comments/literals are echoed, and no saved source, strategy lifecycle,
+backtest or account state changes occur. If a broker-free backend cannot serve
+that existing saved strategy, report blocked honestly.
+
+**No live-data, strategy-creation, simulation or trading powers are introduced
+by this candidate.** Merge only after actual local host MCP tool invocation and
+exact-head operator Windows/CI evidence; otherwise keep PR draft.
+
+### v0.1.1 source-preview native desktop acceptance (2026-11-22)
+
+The operator ran the focused MCP/Studio/plugin tests and full backend regression
+with **707-module frontend Vite/TypeScript build** on PR #159 implementation
+head `381c5ed56923383549d7627c178bb88b3cf237c6`, with exact SHA,
+expected eight-file scope, `git diff --check` and clean worktree. Matching
+GitHub Actions **CI #682** (`44945941684`) passed both jobs.
+
+After a supported desktop plugin reinstall, local PowerShell confirmed that
+the installed v`0.1.1` `plugin.json` SHA256 matched the repository. The
+operator verified an existing loopback-only TradeAgent backend on port 4000,
+then used the process-owner-checked local MCP lifecycle script to stop owned
+gateway PID **22856** and restart it on loopback `127.0.0.1:8765/mcp`
+(PID **12360**). This was a gateway-only restart, not a broker startup.
+
+A fresh local desktop task then used the **native attached TradeAgent plugin MCP
+tool**, not a standalone SDK or direct HTTP request, and discovered exactly
+four read tools: `get_ctrader_candles`, `get_studio_recorded_evidence`,
+`inspect_studio_saved_strategy`, `list_studio_saved_strategies`. Native
+`inspect_studio_saved_strategy(strategy="us500_ny_orb_m15_v1")` succeeded
+(`isError: false`). Returned metadata identified **2,320 bytes / 63 lines**,
+source hash `77f6b978e19754e92c0ece72576f04a0ff38e1b5a7db7c1b0dffcf5afb70b633`,
+a detected top-level `signals` function and
+`preview_mode=python_ast_without_comments_or_string_literals`; the sanitized
+preview was reported as successfully returned, without sharing its body. No
+source execution, mutation, backtest, broker connection or trade occurred.
+**Native host tool attachment is verified; confidentiality is still bounded
+by the documented limits and is not a general secret-scanning guarantee.**
+
+**Pending final release:** this documentation acceptance commit must pass
+fresh exact-HEAD Windows focused/full regression, clean scope/tree and matching
+GitHub CI. PR #159 remains draft until those checks pass. Only after merge
+may the operator clean-sync `main` and start planning separately permissioned
+strategy draft creation and backtesting.
 
 ## Portable package and scope
 
