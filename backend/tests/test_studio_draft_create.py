@@ -117,7 +117,8 @@ def test_expired_operator_approval_denies_without_write(monkeypatch, local_draft
     c = candidate()
     _fake_console(monkeypatch, c.name + " " + c.source_sha256)
     timestamps = iter([0.0, float(drafts.APPROVAL_SECONDS + 1)])
-    monkeypatch.setattr(drafts.time, "monotonic", lambda: next(timestamps))
+    # Do not patch global time.monotonic (used by pytest/asyncio internals).
+    monkeypatch.setattr(drafts, "time", SimpleNamespace(monotonic=lambda: next(timestamps)))
     with pytest.raises(drafts.DraftCreateError, match="operator_approval_expired"):
         drafts.create_from_interactive_console(c)
     assert list(local_drafts.iterdir()) == []
