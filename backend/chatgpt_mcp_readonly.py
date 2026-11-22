@@ -388,7 +388,7 @@ def validate_studio_strategy_draft(strategy: str, source: str) -> dict:
         raise ValueError("source must be nonempty and at most 16 KiB")
     if len(source.splitlines()) > _MAX_DRAFT_PREFLIGHT_SOURCE_LINES:
         raise ValueError("source exceeds the 400-line preflight limit")
-    if any(ord(char) < 32 and char not in "\\t\\n\\r" for char in source):
+    if any(ord(char) < 32 and char not in "\t\n\r" for char in source):
         raise ValueError("source contains unsupported control characters")
 
     def result(*, ready: bool, blockers: list[str], digest: str | None,
@@ -411,7 +411,7 @@ def validate_studio_strategy_draft(strategy: str, source: str) -> dict:
     # canonical bytes at commit time and can never trust this observation alone.
     try:
         normalized = validate_strategy_source(source)
-        canonical = normalized.strip() + "\\n"
+        canonical = normalized.strip() + "\n"
         if len(canonical.splitlines()) > _MAX_DRAFT_PREFLIGHT_SOURCE_LINES:
             raise StrategyPolicyError("Canonical source exceeds line limit")
         encoded = canonical.encode("utf-8")
