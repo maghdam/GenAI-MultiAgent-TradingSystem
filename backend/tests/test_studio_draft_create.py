@@ -304,6 +304,30 @@ def test_cli_refuses_automation_without_tty(monkeypatch, tmp_path, local_drafts,
     assert not list(local_drafts.iterdir())
 
 
+def test_cli_interactive_happy_path_uses_exact_reviewed_file(monkeypatch, tmp_path, local_drafts, capsys):
+    from scripts import approve_studio_draft as cli
+
+    file = tmp_path / "reviewed.py"
+    file.write_text(CODE, encoding="utf-8")
+    c = candidate()
+    fake_io = SimpleNamespace(
+        stdin=SimpleNamespace(isatty=lambda: True),
+        stdout=SimpleNamespace(isatty=lambda: True),
+    )
+    monkeypatch.setattr(cli, "sys", fake_io)
+    monkeypatch.setattr(drafts, "sys", fake_io)
+    monkeypatch.setattr("builtins.input", lambda prompt: c.name + " " + c.source_sha256)
+
+    assert cli.main(["--name", c.name, "--source-file", str(file)]) == 0
+    output = capsys.readouterr().out
+    assert '"saved": true' in output
+    assert c.source_sha256 in output
+    assert "import pandas as pd" not in output
+    assert str(file) not in output
+    assert (local_drafts / (c.name + ".py")).read_bytes() == CODE.encode()
+    assert _row(c.name)["stage"] == "draft"
+
+
 def test_no_gateway_tool_or_generic_studio_route_is_added():
     from backend.chatgpt_mcp_readonly import create_server
     import asyncio
