@@ -393,7 +393,7 @@ def validate_studio_strategy_draft(strategy: str, source: str) -> dict:
 
     def result(*, ready: bool, blockers: list[str], digest: str | None,
                canonical_bytes: int | None, canonical_lines: int | None,
-               catalog_checked: bool) -> dict:
+               catalog_checked: bool, lifecycle_checked: bool = False) -> dict:
         return {
             "strategy": strategy,
             "ready_for_operator_review": ready,
@@ -401,6 +401,7 @@ def validate_studio_strategy_draft(strategy: str, source: str) -> dict:
             "canonical_source_bytes": canonical_bytes,
             "canonical_source_lines": canonical_lines,
             "catalog_checked": catalog_checked,
+            "lifecycle_checked": lifecycle_checked,
             "blockers": blockers,
             "warning": _DRAFT_PREFLIGHT_WARNING,
         }
@@ -443,9 +444,35 @@ def validate_studio_strategy_draft(strategy: str, source: str) -> dict:
         return result(ready=False, blockers=["strategy_name_already_exists"],
                       digest=digest, canonical_bytes=size,
                       canonical_lines=lines, catalog_checked=True)
+
+    # A name may have a prior persisted lifecycle but no current .py file.
+    # Only 404 is treated as absence; 2xx means the name is already registered.
+    # Fail closed on redirect/other responses, and never parse or return the
+    # lifecycle's private body. This remains a non-atomic observation only.
+    try:
+        with httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False) as client:
+            response = client.get(_LIFECYCLE_BASE_URL + strategy)
+            if len(response.content) > _MAX_LIFECYCLE_RESPONSE_BYTES:
+                raise RuntimeError("Lifecycle existence response exceeds size limit")
+            if response.status_code == 404:
+                lifecycle_exists = False
+            elif response.status_code == 200:
+                lifecycle_exists = True
+            else:
+                raise RuntimeError("Lifecycle existence could not be verified")
+    except (httpx.HTTPError, ValueError, RuntimeError):
+        return result(ready=False, blockers=["lifecycle_unavailable"],
+                      digest=digest, canonical_bytes=size,
+                      canonical_lines=lines, catalog_checked=True)
+
+    if lifecycle_exists:
+        return result(ready=False, blockers=["strategy_lifecycle_already_exists"],
+                      digest=digest, canonical_bytes=size,
+                      canonical_lines=lines, catalog_checked=True,
+                      lifecycle_checked=True)
     return result(ready=True, blockers=[], digest=digest,
                   canonical_bytes=size, canonical_lines=lines,
-                  catalog_checked=True)
+                  catalog_checked=True, lifecycle_checked=True)
 
 
 def create_server():
