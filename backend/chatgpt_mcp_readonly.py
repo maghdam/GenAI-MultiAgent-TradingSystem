@@ -24,6 +24,13 @@ _MAX_SOURCE_RESPONSE_BYTES = 48_000
 _MAX_SOURCE_BYTES = 16_384
 _MAX_SOURCE_LINES = 400
 _MAX_SOURCE_PREVIEW_CHARS = 24_000
+_MAX_DRAFT_PREFLIGHT_SOURCE_BYTES = 16_384
+_MAX_DRAFT_PREFLIGHT_SOURCE_LINES = 400
+_DRAFT_PREFLIGHT_WARNING = (
+    "Non-mutating syntax/policy preflight only, not a saved draft, backtest, "
+    "proof of trading safety or approval to trade. A free name is a snapshot, "
+    "not a reservation. Do not share sensitive source code with an AI model."
+)
 _MAX_STUDIO_RESPONSE_BYTES = 64_000
 _MAX_STUDIO_OBSERVED_FILES = 512
 _MAX_STUDIO_RETURNED_FILES = 50
@@ -358,6 +365,89 @@ def inspect_studio_saved_strategy(strategy: str) -> dict:
     }
 
 
+def validate_studio_strategy_draft(strategy: str, source: str) -> dict:
+    """Preflight operator-supplied code for a *new* Studio name without saving.
+
+    Reuses the existing deterministic Strategy Studio policy, not an LLM.
+    Does not execute the code, create a directory, register a lifecycle,
+    reserve a name, write a file or contact any mutating API.
+    """
+    from backend.services.strategy_policy import StrategyPolicyError, validate_strategy_source
+
+    if not isinstance(strategy, str) or not _STRATEGY_NAME_RE.fullmatch(strategy):
+        raise ValueError("strategy must be a new lower-case saved name (1-64 letters, digits, _ or -)")
+    if type(source) is not str:
+        raise ValueError("source must be a Python source string")
+
+    # No source content is included in errors, logs, or MCP output.
+    try:
+        raw = source.encode("utf-8")
+    except UnicodeError:
+        raise ValueError("source is not valid UTF-8") from None
+    if not source.strip() or len(raw) > _MAX_DRAFT_PREFLIGHT_SOURCE_BYTES:
+        raise ValueError("source must be nonempty and at most 16 KiB")
+    if len(source.splitlines()) > _MAX_DRAFT_PREFLIGHT_SOURCE_LINES:
+        raise ValueError("source exceeds the 400-line preflight limit")
+    if any(ord(char) < 32 and char not in "\\t\\n\\r" for char in source):
+        raise ValueError("source contains unsupported control characters")
+
+    def result(*, ready: bool, blockers: list[str], digest: str | None,
+               canonical_bytes: int | None, canonical_lines: int | None,
+               catalog_checked: bool) -> dict:
+        return {
+            "strategy": strategy,
+            "ready_for_operator_review": ready,
+            "source_sha256": digest,
+            "canonical_source_bytes": canonical_bytes,
+            "canonical_source_lines": canonical_lines,
+            "catalog_checked": catalog_checked,
+            "blockers": blockers,
+            "warning": _DRAFT_PREFLIGHT_WARNING,
+        }
+
+    # Validate only syntax/policy and compute an explicitly canonicalized hash.
+    # This matches the current lifecycle source_hash convention (strip + LF);
+    # a later separately approved create-only tool must re-validate the exact
+    # canonical bytes at commit time and can never trust this observation alone.
+    try:
+        normalized = validate_strategy_source(source)
+        canonical = normalized.strip() + "\\n"
+        if len(canonical.splitlines()) > _MAX_DRAFT_PREFLIGHT_SOURCE_LINES:
+            raise StrategyPolicyError("Canonical source exceeds line limit")
+        encoded = canonical.encode("utf-8")
+        if len(encoded) > _MAX_DRAFT_PREFLIGHT_SOURCE_BYTES:
+            raise StrategyPolicyError("Canonical source exceeds byte limit")
+        validate_strategy_source(canonical)
+    except (StrategyPolicyError, SyntaxError, UnicodeError, RecursionError, MemoryError, ValueError):
+        return result(ready=False, blockers=["source_policy_rejected"],
+                      digest=None, canonical_bytes=None,
+                      canonical_lines=None, catalog_checked=False)
+
+    digest = hashlib.sha256(encoded).hexdigest()
+    size = len(encoded)
+    lines = len(canonical.splitlines())
+    try:
+        catalog = list_studio_saved_strategies()
+    except (RuntimeError, ValueError):
+        return result(ready=False, blockers=["catalog_unavailable"],
+                      digest=digest, canonical_bytes=size,
+                      canonical_lines=lines, catalog_checked=False)
+
+    # Names-only catalog is capped at 50 and can be truncated. Refuse to
+    # claim a new name is free without a complete catalog snapshot.
+    if catalog["truncated"]:
+        return result(ready=False, blockers=["catalog_incomplete"],
+                      digest=digest, canonical_bytes=size,
+                      canonical_lines=lines, catalog_checked=False)
+    if strategy in catalog["strategies"]:
+        return result(ready=False, blockers=["strategy_name_already_exists"],
+                      digest=digest, canonical_bytes=size,
+                      canonical_lines=lines, catalog_checked=True)
+    return result(ready=True, blockers=[], digest=digest,
+                  canonical_bytes=size, canonical_lines=lines,
+                  catalog_checked=True)
+
+
 def create_server():
     """Register only the approved read-only tools with MCP Python SDK v2."""
     # Import lazily: the SDK is an opt-in dependency, never needed to boot TradeAgent.
@@ -368,6 +458,7 @@ def create_server():
     server.tool()(list_studio_saved_strategies)
     server.tool()(get_studio_recorded_evidence)
     server.tool()(inspect_studio_saved_strategy)
+    server.tool()(validate_studio_strategy_draft)
     return server
 
 
