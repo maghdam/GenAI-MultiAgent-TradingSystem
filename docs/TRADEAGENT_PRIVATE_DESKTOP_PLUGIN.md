@@ -1,10 +1,10 @@
-# TradeAgent private desktop research plugin — v0.1.0 released; v0.1.1 host verified (release pending)
+# TradeAgent private desktop research plugin — v0.1.1 released; v0.1.2 draft preflight awaiting host validation
 
 **Scope:** This repository's existing TradeAgent, **not** the historical standalone SMC assistant. This item packages existing, independently field-tested local MCP research capabilities and one disciplined daily-research skill for a **private, local desktop** plugin. It does **not** implement or claim ChatGPT Work/cloud access, broker execution, a new MCP service, plugin publishing or an installed personal account plugin.
 
-**Repository baseline and release state:** the original private research plugin (v0.1.0, three read-only tools) was verified through an actual native desktop invocation in PR #158, then final Windows tests and GitHub CI #674 passed; it was squash-merged to `main` `a4ba1486ba470bdf95174ea0bddeca5a8528749e` and the operator clean-synchronized local `main`. Post-merge CI #675 passed. The narrowly scoped v0.1.1 fourth-tool extension in PR #159 has **passed its implementation and genuine desktop-host field tests**, but remains **unmerged** until exact-final-status-head Windows and GitHub CI succeed.
+**Repository baseline and release state:** the original private research plugin (v0.1.0, three read-only tools) was verified through an actual native desktop invocation in PR #158, then final Windows tests and GitHub CI #674 passed; it was squash-merged to `main` `a4ba1486ba470bdf95174ea0bddeca5a8528749e` and the operator clean-synchronized local `main`. Post-merge CI #675 passed. The narrowly scoped v0.1.1 fourth-tool extension passed native desktop field tests, exact final-head Windows validation and CI #684; PR #159 merged as `69ed806e4338743a9de23bd7135560bd64926b62`, operator clean-synchronized main and post-merge CI #685 passed. PR #160 separately released a documentation-only contract audit for draft creation, merged as `8828496d7e3aa12a67fe16edd9f9d5f8cc9cc5f2` after final local/CI validation and clean Windows main sync. The new v0.1.2 proposal is non-mutating draft preflight only, not draft saving or execution.
 
-## Upcoming narrowly scoped extension — source-inspection preview (PR pending validation)
+## Released extension — source-inspection preview (PR #159)
 
 The already verified private desktop plugin in PR #158 bundled exactly three
 research tools at installed version `0.1.0`. The separately reviewed next
@@ -33,9 +33,8 @@ no raw comments/literals are echoed, and no saved source, strategy lifecycle,
 backtest or account state changes occur. If a broker-free backend cannot serve
 that existing saved strategy, report blocked honestly.
 
-**No live-data, strategy-creation, simulation or trading powers are introduced
-by this candidate.** Merge only after actual local host MCP tool invocation and
-exact-head operator Windows/CI evidence; otherwise keep PR draft.
+**No source mutation, simulation or trading power was introduced by v0.1.1.**
+PR #159 subsequently passed the native host, final Windows/CI, merge and clean-main gates.
 
 ### v0.1.1 source-preview native desktop acceptance (2026-11-22)
 
@@ -71,6 +70,64 @@ fresh exact-HEAD Windows focused/full regression, clean scope/tree and matching
 GitHub CI. PR #159 remains draft until those checks pass. Only after merge
 may the operator clean-sync `main` and start planning separately permissioned
 strategy draft creation and backtesting.
+
+
+## v0.1.2 proposal — operator-requested non-mutating draft preflight (PR pending validation)
+
+The fifth read-only MCP tool is `validate_studio_strategy_draft(strategy, source)`.
+It takes an **explicitly operator-reviewed new lower-case strategy name** and
+the proposed Python source, validates the syntax and existing Strategy Studio
+policy **without executing the code**, checks both the complete available
+saved-strategy file catalogue and the existing persisted lifecycle-name status
+using only fixed loopback GET routes, and returns a fixed compact result:
+`strategy`, `ready_for_operator_review`, `source_sha256` (over canonical
+normalized code), canonical bytes/lines, `catalog_checked`,
+`lifecycle_checked`, blocker codes and a warning. A successful result
+**does not reserve the name or save anything**. Failed checks return only
+bounded blocker codes, never raw code, traceback or sensitive backend text.
+No source file, strategy lifecycle, backtest evidence or account state should
+change. The existing plugin remains local/unauthenticated `Read`-only;
+v0.1.2 deliberately does not introduce an agent write permission.
+
+### Broker-free desktop field check after exact-head Windows/CI tests
+
+1. Through the supported local Plugins Directory, refresh/reinstall the
+   private plugin as **v0.1.2**, restart the local desktop client as necessary
+   and verify the installed `plugin.json` SHA256 matches the repo. Do **not**
+   edit the client cache manually or change MCP host binding.
+2. With the existing research-only backend healthy on loopback port 4000,
+   restart **only** the verified-owner MCP listener on 8765 using the existing
+   `scripts/local-mcp-lifecycle.ps1` Stop/Start helper. A foreign owner or
+   non-loopback listener is a hard stop. Do not run a normal broker-starting
+   launcher, connect cTrader or change the trading engine.
+3. Open a fresh local repo-scoped desktop task. Confirm exactly **five native
+   plugin-attached MCP tools**, including `validate_studio_strategy_draft`,
+   and invoke it **once** with a deliberately synthetic, non-sensitive name
+   such as `mcp_preflight_us30_demo_20261122` and the following research-only
+   minimal code (no external APIs, credentials or orders):
+
+   ```python
+   import pandas as pd
+
+   def signals(df):
+       return pd.Series(0, index=df.index)
+   ```
+
+4. Expect `ready_for_operator_review=True` **only if** the specified name is
+   not already a saved strategy and has no persisted lifecycle. Check returned
+   SHA256 is 64 lowercase hex, both catalogue and lifecycle checks succeeded,
+   returned counts are sensible, source code is **not echoed**, and no file
+   or lifecycle was created. If the candidate name is already registered,
+   expect an explicit name-collision blocker rather than inventing success.
+5. Use the **native attached MCP tool** in the desktop plugin, not a standalone
+   Python SDK or direct HTTP fallback. Report any blocked response honestly.
+   Do not ask the model to write, save, backtest, promote or execute the code.
+
+This preflight receives user-supplied code. A cloud-backed model/chat may see
+that code even though the MCP gateway itself is loopback-only; **never send
+real secrets, broker account data or proprietary source snippets** for this
+field test. The future create-exclusive, human-authorized save feature is
+a **different item**, not part of the read-only plugin.
 
 ## Portable package and scope
 
