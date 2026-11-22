@@ -554,13 +554,26 @@ PREFLIGHT_CODE = (
 )
 
 
+def preflight_catalog_and_missing_lifecycle(request):
+    if request.url.path == "/api/studio/strategy-files":
+        return httpx.Response(200, json={"files": ["sma.py", "rsi.py"]})
+    assert request.url.path.startswith("/api/studio/lifecycle/")
+    return httpx.Response(404, json={"detail": "No registered lifecycle"})
+
+
 def test_draft_preflight_only_get_catalog_and_never_echo_source(monkeypatch):
     secret = "# private operator notes\n" + PREFLIGHT_CODE
-    seen = client_with_response(monkeypatch, httpx.Response(200, json={
-        "files": ["sma.py", "rsi.py"],
-        "cwd": "C:\\Sensitive\\private",
-        "private_token": "never expose",
-    }))
+    def responder(request):
+        if request.url.path == "/api/studio/strategy-files":
+            return httpx.Response(200, json={
+                "files": ["sma.py", "rsi.py"],
+                "cwd": "C:\\Sensitive\\private",
+                "private_token": "never expose",
+            })
+        assert request.url.path == "/api/studio/lifecycle/us30_ema_research"
+        return httpx.Response(404, json={"detail": "No lifecycle"})
+
+    seen = client_with_response(monkeypatch, responder)
     result = gateway.validate_studio_strategy_draft("us30_ema_research", secret)
     canonical = secret.strip() + "\n"
     assert result == {
@@ -570,6 +583,7 @@ def test_draft_preflight_only_get_catalog_and_never_echo_source(monkeypatch):
         "canonical_source_bytes": len(canonical.encode()),
         "canonical_source_lines": len(canonical.splitlines()),
         "catalog_checked": True,
+        "lifecycle_checked": True,
         "blockers": [],
         "warning": gateway._DRAFT_PREFLIGHT_WARNING,
     }
@@ -577,11 +591,15 @@ def test_draft_preflight_only_get_catalog_and_never_echo_source(monkeypatch):
     assert "Sensitive" not in json.dumps(result)
     assert "never expose" not in json.dumps(result)
     assert "not a saved draft" in result["warning"]
-    assert len(seen) == 1
-    assert seen[0].method == "GET"
-    assert (seen[0].url.scheme, seen[0].url.host, seen[0].url.port, seen[0].url.path) == (
-        "http", "127.0.0.1", 4000, "/api/studio/strategy-files",
-    )
+    assert len(seen) == 2
+    assert all(request.method == "GET" for request in seen)
+    assert [
+        (request.url.scheme, request.url.host, request.url.port, request.url.path)
+        for request in seen
+    ] == [
+        ("http", "127.0.0.1", 4000, "/api/studio/strategy-files"),
+        ("http", "127.0.0.1", 4000, "/api/studio/lifecycle/us30_ema_research"),
+    ]
 
 
 def test_draft_preflight_detects_existing_name_without_saving(monkeypatch):
@@ -591,6 +609,7 @@ def test_draft_preflight_detects_existing_name_without_saving(monkeypatch):
     result = gateway.validate_studio_strategy_draft("us30_ema_research", PREFLIGHT_CODE)
     assert not result["ready_for_operator_review"]
     assert result["catalog_checked"] is True
+    assert result["lifecycle_checked"] is False
     assert result["blockers"] == ["strategy_name_already_exists"]
     assert result["source_sha256"] is not None
     assert len(seen) == 1 and seen[0].method == "GET"
@@ -666,11 +685,55 @@ def test_draft_preflight_rejects_truncated_catalog(monkeypatch):
 def test_draft_preflight_hash_matches_lifecycle_canonicalization(monkeypatch):
     from backend.services.strategy_lifecycle import source_hash
     code = "\n\n" + PREFLIGHT_CODE.replace("\n", "\r\n") + "\r\n"
-    client_with_response(monkeypatch, httpx.Response(200, json={"files": []}))
+    client_with_response(monkeypatch, preflight_catalog_and_missing_lifecycle)
     result = gateway.validate_studio_strategy_draft("new_clean_name", code)
     assert result["ready_for_operator_review"]
     assert result["source_sha256"] == source_hash(code)
     assert result["canonical_source_lines"] == len(PREFLIGHT_CODE.splitlines())
+
+
+def test_draft_preflight_blocks_existing_lifecycle_without_saved_file(monkeypatch):
+    def responder(request):
+        if request.url.path == "/api/studio/strategy-files":
+            return httpx.Response(200, json={"files": []})
+        assert request.url.path == "/api/studio/lifecycle/new_clean_name"
+        return httpx.Response(200, json={"hypothesis": "sensitive notes", "stage": "draft"})
+
+    seen = client_with_response(monkeypatch, responder)
+    result = gateway.validate_studio_strategy_draft("new_clean_name", PREFLIGHT_CODE)
+    assert result["ready_for_operator_review"] is False
+    assert result["blockers"] == ["strategy_lifecycle_already_exists"]
+    assert result["catalog_checked"] is True
+    assert result["lifecycle_checked"] is True
+    assert "sensitive" not in json.dumps(result)
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize("status", [301, 302, 401, 403, 500, 503])
+def test_draft_preflight_fails_closed_on_lifecycle_unknown_status(monkeypatch, status):
+    def responder(request):
+        if request.url.path == "/api/studio/strategy-files":
+            return httpx.Response(200, json={"files": []})
+        return httpx.Response(status, json={"detail": "sensitive internal state"})
+
+    seen = client_with_response(monkeypatch, responder)
+    result = gateway.validate_studio_strategy_draft("new_clean_name", PREFLIGHT_CODE)
+    assert result["ready_for_operator_review"] is False
+    assert result["blockers"] == ["lifecycle_unavailable"]
+    assert result["catalog_checked"] is True
+    assert result["lifecycle_checked"] is False
+    assert "sensitive" not in json.dumps(result)
+    assert len(seen) == 2
+
+
+def test_draft_preflight_rejects_oversized_lifecycle_payload(monkeypatch):
+    def responder(request):
+        if request.url.path == "/api/studio/strategy-files":
+            return httpx.Response(200, json={"files": []})
+        return httpx.Response(200, content=b"x" * 260_000)
+    client_with_response(monkeypatch, responder)
+    result = gateway.validate_studio_strategy_draft("new_clean_name", PREFLIGHT_CODE)
+    assert result["blockers"] == ["lifecycle_unavailable"]
 
 
 def test_draft_preflight_does_not_need_backend_or_studio_task_router(monkeypatch):
