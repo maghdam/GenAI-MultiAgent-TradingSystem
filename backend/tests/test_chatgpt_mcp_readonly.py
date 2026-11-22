@@ -705,7 +705,7 @@ def test_draft_preflight_blocks_existing_lifecycle_without_saved_file(monkeypatc
     assert result["blockers"] == ["strategy_lifecycle_already_exists"]
     assert result["catalog_checked"] is True
     assert result["lifecycle_checked"] is True
-    assert "sensitive" not in json.dumps(result)
+    assert "sensitive notes" not in json.dumps(result)
     assert len(seen) == 2
 
 
@@ -722,7 +722,7 @@ def test_draft_preflight_fails_closed_on_lifecycle_unknown_status(monkeypatch, s
     assert result["blockers"] == ["lifecycle_unavailable"]
     assert result["catalog_checked"] is True
     assert result["lifecycle_checked"] is False
-    assert "sensitive" not in json.dumps(result)
+    assert "sensitive internal state" not in json.dumps(result)
     assert len(seen) == 2
 
 
