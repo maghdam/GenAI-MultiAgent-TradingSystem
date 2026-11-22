@@ -576,7 +576,7 @@ def test_draft_preflight_only_get_catalog_and_never_echo_source(monkeypatch):
     assert "operator notes" not in json.dumps(result)
     assert "Sensitive" not in json.dumps(result)
     assert "never expose" not in json.dumps(result)
-    assert "No " not in result["warning"] or "saved draft" in result["warning"]
+    assert "not a saved draft" in result["warning"]
     assert len(seen) == 1
     assert seen[0].method == "GET"
     assert (seen[0].url.scheme, seen[0].url.host, seen[0].url.port, seen[0].url.path) == (
