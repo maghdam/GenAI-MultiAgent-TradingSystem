@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "tradeagent-research",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Private desktop-only, research-only TradeAgent market and saved-strategy evidence assistant.",
   "extensions": {
     "com.openai": {
@@ -9,7 +9,7 @@
       "interface": {
         "displayName": "TradeAgent Research (Local)",
         "shortDescription": "Disciplined local market research, with a NO TRADE option.",
-        "longDescription": "Read existing localhost TradeAgent market candles, saved strategy names, previously recorded evidence, and operator-requested redacted source previews. No source execution, strategy changes, account access or cloud tunnel.",
+        "longDescription": "Read localhost market candles, saved strategy names, previously recorded evidence, redacted source previews, and operator-supplied non-mutating draft syntax/name preflight. No draft saving, code execution, backtests, account access, trading or cloud tunnel.",
         "developerName": "TradeAgent",
         "category": "Productivity",
         "capabilities": [
