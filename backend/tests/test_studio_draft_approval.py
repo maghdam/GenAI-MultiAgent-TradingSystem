@@ -77,6 +77,14 @@ def test_proposal_stores_only_bounded_metadata_not_raw_source(monkeypatch):
     ("fine", CODE * 400),
     (None, CODE),
     ("fine", None),
+], ids=[
+    "uppercase-name",
+    "path-traversal-name",
+    "disallowed-source-call",
+    "missing-signals-function",
+    "oversized-source",
+    "null-name",
+    "null-source",
 ])
 def test_bad_proposal_never_creates_row(name, source):
     with pytest.raises(approval.DraftApprovalError, match="invalid_candidate"):
