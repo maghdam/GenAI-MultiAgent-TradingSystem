@@ -588,6 +588,28 @@ def init_db() -> None:
             ON strategy_lifecycle_evidence(lifecycle_id, id DESC)
             """
         )
+        # Local operator-approval metadata only: never persist strategy source,
+        # bearer secrets or a model-provided 'approved' flag in this table.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_draft_approval_requests (
+                request_id TEXT PRIMARY KEY,
+                strategy TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                created_at_epoch INTEGER NOT NULL,
+                expires_at_epoch INTEGER NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('pending', 'approved', 'consumed')),
+                approved_at_epoch INTEGER,
+                consumed_at_epoch INTEGER
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_studio_draft_approval_expires
+            ON studio_draft_approval_requests(state, expires_at_epoch)
+            """
+        )
         db.commit()
 
 
