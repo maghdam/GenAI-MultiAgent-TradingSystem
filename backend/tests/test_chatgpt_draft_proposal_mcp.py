@@ -130,6 +130,24 @@ def test_weak_or_malformed_config_token_refused(bad):
         gateway._validate_token(bad)
 
 
+def test_real_mcp_http_app_is_wrapped_by_transport_auth_gate():
+    # Build the actual SDK app, but send an unauthorized request only. That
+    # must be denied by the outer ASGI gate before SDK initialization or DB.
+    app = gateway.create_app(TOKEN)
+    assert isinstance(app, gateway._TokenGate)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 40101))
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1:8766"
+        ) as client:
+            return await client.post("/mcp", json={"method": "tools/list"})
+
+    response = asyncio.run(run())
+    assert response.status_code == 401
+    assert _count("studio_draft_approval_requests") == 0
+
+
 def test_proposal_writes_only_pending_hash_metadata_not_source_or_lifecycle():
     response = gateway.propose_studio_draft_for_review("us30_mcp_research", CODE)
     assert response["status"] == "pending"
