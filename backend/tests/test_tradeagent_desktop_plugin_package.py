@@ -68,8 +68,14 @@ def test_mcp_manifest_has_exact_one_local_research_server() -> None:
 def test_marketplace_points_only_to_this_repo_local_package() -> None:
     payload = load_json(MARKETPLACE)
     assert payload["name"] == "tradeagent-local"
-    assert len(payload["plugins"]) == 1
-    entry = payload["plugins"][0]
+    assert len(payload["plugins"]) == 2
+    assert {entry["name"] for entry in payload["plugins"]} == {
+        "tradeagent-research", "tradeagent-proposal"
+    }
+    entry = next(
+        entry for entry in payload["plugins"]
+        if entry["name"] == "tradeagent-research"
+    )
     assert entry["name"] == load_json(PLUGIN / "plugin.json")["name"]
     assert entry["source"] == {"source": "local", "path": "./plugins/tradeagent-research"}
     assert entry["policy"] == {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tradeagent-proposal",
+  "version": "0.1.0",
+  "description": "Private, opt-in, local Strategy Studio research draft proposal submission; pending metadata only, never approval or saving.",
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "TradeAgent Draft Proposal (Local)",
+        "shortDescription": "Submit an unapproved draft proposal to your local TradeAgent review ledger.",
+        "longDescription": "Separate token-gated local proposal MCP only. Creates pending research-draft name and source-hash metadata; requires independent offline operator approval and commit. Cannot save code, backtest, use a broker or trade. No cloud tunnel.",
+        "developerName": "TradeAgent",
+        "category": "Productivity",
+        "capabilities": [
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Prepare a new Strategy Studio research draft proposal for my explicit review. Never claim a strategy has been saved, backtested or traded."
+        ]
+      }
+    }
+  }
+}
