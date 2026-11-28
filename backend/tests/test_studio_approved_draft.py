@@ -192,6 +192,58 @@ def test_owned_file_write_failure_rolls_back_approval_and_lifecycle(
     assert _lifecycle("new_research_strategy") is None
 
 
+def test_lifecycle_insert_failure_restores_approval_and_removes_new_file(
+    monkeypatch, generated_dir
+):
+    proposal, _ = _approved(monkeypatch)
+    actual_db = drafts.get_db
+
+    @contextmanager
+    def fail_insert_db():
+        with actual_db() as conn:
+            class Failing:
+                def execute(self, sql, *args):
+                    if sql.strip().startswith("INSERT INTO strategy_lifecycles"):
+                        raise sqlite3.IntegrityError("simulated insertion failure")
+                    return conn.execute(sql, *args)
+
+                def rollback(self):
+                    return conn.rollback()
+
+                def commit(self):
+                    return conn.commit()
+
+            yield Failing()
+
+    monkeypatch.setattr(drafts, "get_db", fail_insert_db)
+    with pytest.raises(drafts.DraftCreateError, match="strategy_lifecycle_already_exists"):
+        drafts.create_from_approved_local_request(
+            proposal["request_id"], "new_research_strategy", CODE
+        )
+    assert list(generated_dir.iterdir()) == []
+    assert _approval_state(proposal["request_id"])["state"] == "approved"
+    assert _lifecycle("new_research_strategy") is None
+
+
+def test_preexisting_symlink_cannot_be_replaced(monkeypatch, generated_dir):
+    proposal, _ = _approved(monkeypatch)
+    original = generated_dir / "original.py"
+    original.write_bytes(b"DO NOT CHANGE\n")
+    link = generated_dir / "new_research_strategy.py"
+    try:
+        link.symlink_to(original)
+    except (OSError, NotImplementedError):
+        pytest.skip("Windows symlink creation permission unavailable")
+    with pytest.raises(drafts.DraftCreateError, match="strategy_name_already_exists"):
+        drafts.create_from_approved_local_request(
+            proposal["request_id"], "new_research_strategy", CODE
+        )
+    assert original.read_bytes() == b"DO NOT CHANGE\n"
+    assert link.is_symlink()
+    assert _approval_state(proposal["request_id"])["state"] == "approved"
+    assert _lifecycle("new_research_strategy") is None
+
+
 def test_approval_expiring_after_file_write_rolls_back_atomically(
     monkeypatch, generated_dir
 ):
@@ -307,6 +359,28 @@ def test_cli_propose_requires_interactive_console(monkeypatch, generated_dir, tm
         "--source-file", str(source_path),
     ]) == 2
     assert "interactive_operator_required" in capsys.readouterr().out
+    assert not list(generated_dir.iterdir())
+
+
+def test_cli_commit_requires_interactive_console(monkeypatch, generated_dir, tmp_path, capsys):
+    from scripts import studio_approved_draft as cli
+
+    proposal, _ = _approved(monkeypatch)
+    source_path = tmp_path / "reviewed.py"
+    source_path.write_text(CODE, encoding="utf-8")
+    monkeypatch.setattr(
+        cli, "sys",
+        SimpleNamespace(
+            stdin=SimpleNamespace(isatty=lambda: False),
+            stdout=SimpleNamespace(isatty=lambda: True),
+        ),
+    )
+    assert cli.main([
+        "commit", "--request-id", proposal["request_id"],
+        "--name", "new_research_strategy", "--source-file", str(source_path),
+    ]) == 2
+    assert "interactive_operator_required" in capsys.readouterr().out
+    assert _approval_state(proposal["request_id"])["state"] == "approved"
     assert not list(generated_dir.iterdir())
 
 
