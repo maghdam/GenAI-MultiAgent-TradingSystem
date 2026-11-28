@@ -197,6 +197,54 @@ def approve_from_local_console(request_id: str, reviewed_source: str) -> dict:
     }
 
 
+def _consume_in_transaction(db, request_id: str, candidate: DraftCandidate, now: int) -> None:
+    """Require exact human-approved tuple and consume it in caller's transaction.
+
+    INTERNAL ONLY. Do not expose as an HTTP/MCP tool or treat the request ID
+    as a bearer authorization secret. A future network service needs its own
+    independently authenticated write authority.
+    """
+    request_id = _request_id(request_id)
+    row = db.execute(
+        """SELECT strategy, source_sha256, state, expires_at_epoch
+           FROM studio_draft_approval_requests WHERE request_id = ?""",
+        (request_id,),
+    ).fetchone()
+    if row is None or row["state"] != "approved":
+        raise DraftApprovalError("approval_not_available")
+    if int(row["expires_at_epoch"]) <= now:
+        raise DraftApprovalError("approval_expired")
+    if (row["strategy"], row["source_sha256"]) != (
+        candidate.name, candidate.source_sha256
+    ):
+        raise DraftApprovalError("approval_tuple_mismatch")
+    changed = db.execute(
+        """UPDATE studio_draft_approval_requests
+           SET state='consumed', consumed_at_epoch=?
+           WHERE request_id=? AND state='approved'""",
+        (now, request_id),
+    ).rowcount
+    if changed != 1:
+        raise DraftApprovalError("approval_not_available")
+
+
+def _verify_consumed_before_commit(db, request_id: str, candidate: DraftCandidate) -> None:
+    """Recheck tuple and expiry immediately before a file/DB commit."""
+    row = db.execute(
+        """SELECT strategy, source_sha256, state, expires_at_epoch
+           FROM studio_draft_approval_requests WHERE request_id = ?""",
+        (_request_id(request_id),),
+    ).fetchone()
+    if row is None or row["state"] != "consumed":
+        raise DraftApprovalError("approval_not_available")
+    if int(row["expires_at_epoch"]) <= _now():
+        raise DraftApprovalError("approval_expired")
+    if (row["strategy"], row["source_sha256"]) != (
+        candidate.name, candidate.source_sha256
+    ):
+        raise DraftApprovalError("approval_tuple_mismatch")
+
+
 def consume_approved_once(request_id: str, name: str, source: str) -> dict:
     """Test-only integration primitive, NOT called by any live write endpoint.
 
@@ -206,30 +254,9 @@ def consume_approved_once(request_id: str, name: str, source: str) -> dict:
     """
     request_id = _request_id(request_id)
     candidate = _validated(name, source)
-    now = _now()
     try:
         with _write_transaction() as db:
-            row = db.execute(
-                """SELECT strategy, source_sha256, state, expires_at_epoch
-                   FROM studio_draft_approval_requests WHERE request_id = ?""",
-                (request_id,),
-            ).fetchone()
-            if row is None or row["state"] != "approved":
-                raise DraftApprovalError("approval_not_available")
-            if int(row["expires_at_epoch"]) <= now:
-                raise DraftApprovalError("approval_expired")
-            if (row["strategy"], row["source_sha256"]) != (
-                candidate.name, candidate.source_sha256
-            ):
-                raise DraftApprovalError("approval_tuple_mismatch")
-            changed = db.execute(
-                """UPDATE studio_draft_approval_requests
-                   SET state='consumed', consumed_at_epoch=?
-                   WHERE request_id=? AND state='approved'""",
-                (now, request_id),
-            ).rowcount
-            if changed != 1:
-                raise DraftApprovalError("approval_not_available")
+            _consume_in_transaction(db, request_id, candidate, _now())
     except DraftApprovalError:
         raise
     except Exception:
