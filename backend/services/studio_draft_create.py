@@ -89,7 +89,9 @@ def _same_created_file(path: Path, identity: tuple[int, int] | None) -> bool:
     return (stat.st_dev, stat.st_ino) == identity and not path.is_symlink()
 
 
-def _create_exclusively(candidate: DraftCandidate) -> dict:
+def _create_exclusively(
+    candidate: DraftCandidate, *, approved_request_id: str | None = None
+) -> dict:
     """Atomically create the file, then commit one draft lifecycle row.
 
     SQLite and the filesystem cannot share a transaction. Before COMMIT starts,
@@ -97,6 +99,24 @@ def _create_exclusively(candidate: DraftCandidate) -> dict:
     If COMMIT may have occurred, retain the file and require manual
     reconciliation; never blindly retry or remove a potentially saved draft.
     """
+    # Extra approval checks are relevant only to the new offline bound-save
+    # path. The released §32 human-confirmed CLI keeps its existing behavior.
+    # Import here to avoid a module-initialization cycle.
+    approvals = None
+    if approved_request_id is not None:
+        from backend.services import studio_draft_approval as approvals
+
+        # Revalidate exact code and SHA at commit, not merely at preflight.
+        if type(candidate) is not DraftCandidate:
+            raise DraftCreateError("invalid_source")
+        try:
+            source = candidate.canonical_bytes.decode("utf-8")
+        except (AttributeError, UnicodeError):
+            raise DraftCreateError("invalid_source") from None
+        checked = prepare_candidate(candidate.name, source)
+        if checked != candidate:
+            raise DraftCreateError("invalid_source")
+
     directory = STRATEGY_DIR
     if directory.is_symlink() or not directory.is_dir():
         raise DraftCreateError("strategy_directory_unavailable")
@@ -117,6 +137,14 @@ def _create_exclusively(candidate: DraftCandidate) -> dict:
                 ).fetchone()
                 if row is not None:
                     raise DraftCreateError("strategy_lifecycle_already_exists")
+
+                if approvals is not None:
+                    try:
+                        approvals._consume_in_transaction(
+                            db, approved_request_id, candidate, approvals._now()
+                        )
+                    except approvals.DraftApprovalError:
+                        raise DraftCreateError("operator_approval_not_available") from None
 
                 flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
                 try:
@@ -147,6 +175,13 @@ def _create_exclusively(candidate: DraftCandidate) -> dict:
                         now,
                     ),
                 )
+                if approvals is not None:
+                    try:
+                        approvals._verify_consumed_before_commit(
+                            db, approved_request_id, candidate
+                        )
+                    except approvals.DraftApprovalError:
+                        raise DraftCreateError("operator_approval_not_available") from None
                 commit_started = True
                 db.commit()
             except Exception as exc:
@@ -214,3 +249,15 @@ def create_from_interactive_console(candidate: DraftCandidate) -> dict:
     if confirmation != candidate.name + " " + candidate.source_sha256:
         raise DraftCreateError("operator_approval_denied")
     return _create_exclusively(candidate)
+
+
+def create_from_approved_local_request(request_id: str, name: str, source: str) -> dict:
+    """Offline §34 create-only commit after independent §33 human approval.
+
+    The approval's atomic consumed transition, new file, and version-1 draft
+    lifecycle row share one SQLite transaction. No broker/backtest/execution.
+    NOT an authenticated service: only the operator-owned CLI may call this
+    function in this release. Do not expose it directly to MCP/HTTP.
+    """
+    candidate = prepare_candidate(name, source)
+    return _create_exclusively(candidate, approved_request_id=request_id)
