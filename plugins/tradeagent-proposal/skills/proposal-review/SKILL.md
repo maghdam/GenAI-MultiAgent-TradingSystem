@@ -26,6 +26,8 @@ The server normally runs only after manual opt-in at 127.0.0.1:8766/mcp.
 
 ## Non-claims and security
 
+**Hard default: NO SAVE and NO TRADE.** A pending proposal is not execution authority.
+
 - A pending request is **not** approval, a reserved name, a saved draft,
   executable strategy, backtest, broker connection or permission to trade.
 - Never claim or request the independent human terminal's approval response,
